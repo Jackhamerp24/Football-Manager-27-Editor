@@ -1,0 +1,100 @@
+{
+  "build": "27.0.0+2486695",
+  "source": "In-game player profile screenshots. Only exact values; scouted ranges (e.g. 9-12) are left out.",
+  "players": [
+    {
+      "name": "Kobbie Mainoo", "club": "Man Utd", "wage": 135000, "contractExpires": "2031-06-30", "firstName": "Kobbie", "lastName": "Mainoo", "noCommonName": true, "capturedOn": "2026-11-03",
+      "note": "Crossing was 9 in the screenshot and was set to 12 with Fm27Editor.Tools set (confirmed in game).",
+      "height": 184, "dateOfBirth": "2005-04-19",
+      "attributes": {
+        "Crossing": 12, "Dribbling": 14, "Finishing": 13, "FirstTouch": 15, "Heading": 10, "LongShots": 10, "Marking": 9,
+        "Passing": 15, "Tackling": 13, "Technique": 16, "Corners": 8, "FreeKicks": 8, "LongThrows": 4, "PenaltyTaking": 13,
+        "Aggression": 13, "Anticipation": 14, "Bravery": 13, "Composure": 16, "Concentration": 14, "Decisions": 15,
+        "Determination": 13, "Flair": 12, "Leadership": 7, "OffTheBall": 14, "Positioning": 12, "Teamwork": 15, "Vision": 13,
+        "WorkRate": 14, "Acceleration": 12, "Agility": 16, "Balance": 16, "JumpingReach": 12, "NaturalFitness": 15, "Pace": 13,
+        "Stamina": 14, "Strength": 14
+      }
+    },
+    {
+      "name": "Matheus Cunha", "club": "Man Utd", "wage": 200000, "contractExpires": "2030-06-30", "capturedOn": "2026-11-03",
+      "height": 183, "dateOfBirth": "1999-05-27",
+      "attributes": {
+        "Crossing": 13, "Dribbling": 18, "Finishing": 15, "FirstTouch": 12, "Heading": 11, "LongShots": 15, "Marking": 4,
+        "Passing": 14, "Tackling": 6, "Technique": 16, "Corners": 13, "FreeKicks": 13, "LongThrows": 5, "PenaltyTaking": 13,
+        "Aggression": 16, "Anticipation": 12, "Bravery": 15, "Composure": 14, "Concentration": 10, "Decisions": 11,
+        "Determination": 16, "Flair": 17, "Leadership": 10, "OffTheBall": 14, "Positioning": 5, "Teamwork": 11, "Vision": 13,
+        "WorkRate": 15, "Acceleration": 15, "Agility": 16, "Balance": 15, "JumpingReach": 12, "NaturalFitness": 12, "Pace": 15,
+        "Stamina": 14, "Strength": 12
+      }
+    },
+    {
+      "name": "Benjamin Šeško", "club": "Man Utd", "wage": 160000, "contractExpires": "2030-06-30", "firstName": "Benjamin", "lastName": "Šeško", "noCommonName": true, "capturedOn": "2026-11-03",
+      "note": "Screenshot had Crossing 7, Finishing 14, NaturalFitness 16. Editor set Crossing to 15 on 2026-10-31; the user's app test then set Crossing 7, Finishing 16, NaturalFitness 20 (confirmed by the user).",
+      "height": 195, "dateOfBirth": "2003-05-31",
+      "attributes": {
+        "Crossing": 7, "Dribbling": 13, "Finishing": 16, "FirstTouch": 14, "Heading": 14, "LongShots": 12, "Marking": 5,
+        "Passing": 12, "Tackling": 8, "Technique": 14, "Corners": 3, "FreeKicks": 10, "LongThrows": 8, "PenaltyTaking": 17,
+        "Aggression": 13, "Anticipation": 14, "Bravery": 14, "Composure": 13, "Concentration": 12, "Decisions": 13,
+        "Determination": 15, "Flair": 14, "Leadership": 8, "OffTheBall": 15, "Positioning": 5, "Teamwork": 14, "Vision": 11,
+        "WorkRate": 15, "Acceleration": 15, "Agility": 14, "Balance": 14, "JumpingReach": 17, "NaturalFitness": 20, "Pace": 17,
+        "Stamina": 15, "Strength": 15
+      }
+    },
+    {
+      "name": "Senne Lammens", "club": "Man Utd", "wage": 60000, "contractExpires": "2030-06-30", "capturedOn": "2026-11-03",
+      "height": 193, "dateOfBirth": "2002-07-07",
+      "attributes": {
+        "AerialReach": 15, "CommandOfArea": 15, "Communication": 14, "Eccentricity": 4, "FirstTouch": 14, "Handling": 16,
+        "Kicking": 14, "OneOnOnes": 14, "Passing": 13, "TendencyToPunch": 10, "Reflexes": 15, "RushingOut": 10, "Throwing": 12,
+        "Aggression": 8, "Anticipation": 13, "Bravery": 13, "Composure": 15, "Concentration": 15, "Decisions": 14,
+        "Determination": 18, "Flair": 2, "Leadership": 12, "OffTheBall": 12, "Positioning": 14, "Teamwork": 12, "Vision": 11,
+        "WorkRate": 12, "Acceleration": 13, "Agility": 14, "Balance": 10, "JumpingReach": 15, "NaturalFitness": 12, "Pace": 11,
+        "Stamina": 12, "Strength": 13, "FreeKicks": 8, "PenaltyTaking": 3, "Technique": 12
+      }
+    },
+    {
+      "name": "Lamine Yamal", "club": "Futbol Club Barcelona", "contractExpires": "2031-06-30", "commonName": "Lamine Yamal", "capturedOn": "2026-11-04",
+      "height": 178, "dateOfBirth": "2007-07-13",
+      "attributes": {
+        "Crossing": 17, "Dribbling": 19, "Finishing": 14, "FirstTouch": 19, "Heading": 8, "LongShots": 15, "Marking": 5,
+        "Passing": 17, "Tackling": 7, "Technique": 19, "Corners": 15, "FreeKicks": 15, "LongThrows": 7, "PenaltyTaking": 15,
+        "Aggression": 9, "Anticipation": 16, "Bravery": 12, "Composure": 15, "Concentration": 14, "Decisions": 15,
+        "Determination": 18, "Flair": 19, "Leadership": 10, "OffTheBall": 17, "Positioning": 8, "Teamwork": 13, "Vision": 18,
+        "WorkRate": 12, "Acceleration": 16, "Agility": 18, "Balance": 16, "JumpingReach": 9, "NaturalFitness": 14, "Pace": 14,
+        "Stamina": 14, "Strength": 12
+      }
+    },
+    {
+      "name": "Elliot Anderson", "club": "Man City", "contractExpires": "2031-06-30", "capturedOn": "2026-11-04",
+      "height": 179, "dateOfBirth": "2002-11-06",
+      "attributes": {
+        "Finishing": 12, "FirstTouch": 13, "Heading": 9, "LongShots": 12, "Passing": 16, "Tackling": 14, "Technique": 14,
+        "Aggression": 14, "Determination": 19, "Flair": 13, "Leadership": 14, "Teamwork": 15, "Vision": 13, "WorkRate": 17,
+        "Acceleration": 14, "JumpingReach": 10, "NaturalFitness": 13, "Pace": 14, "Stamina": 15, "Strength": 14
+      }
+    },
+    {
+      "name": "Kanta Doi", "club": "FC Tokyo", "contractExpires": "2029-06-30", "capturedOn": "2026-11-04",
+      "height": 186, "dateOfBirth": "2004-11-10",
+      "attributes": {
+        "Dribbling": 11, "FirstTouch": 13, "Heading": 9, "LongShots": 6, "Marking": 15, "Passing": 15, "Tackling": 14,
+        "Technique": 13, "Aggression": 15, "Anticipation": 13, "Bravery": 15, "Composure": 13, "Concentration": 12,
+        "Decisions": 12, "Determination": 15, "Leadership": 10, "Positioning": 14, "Teamwork": 15, "WorkRate": 14,
+        "Acceleration": 9, "Agility": 11, "Balance": 10, "JumpingReach": 12, "NaturalFitness": 11, "Pace": 11, "Stamina": 12,
+        "Strength": 11
+      }
+    },
+    {
+      "name": "Rui Araki", "club": "Gamba Osaka", "contractExpires": "2029-06-30", "capturedOn": "2026-11-04",
+      "height": 194, "dateOfBirth": "2007-10-14",
+      "attributes": {
+        "AerialReach": 14, "CommandOfArea": 12, "Communication": 11, "Eccentricity": 5, "FirstTouch": 10, "Handling": 13,
+        "Kicking": 12, "OneOnOnes": 16, "Passing": 10, "TendencyToPunch": 14, "Reflexes": 16, "RushingOut": 8, "Throwing": 11,
+        "Aggression": 14, "Anticipation": 11, "Bravery": 14, "Composure": 11, "Concentration": 12, "Decisions": 11,
+        "Determination": 16, "Flair": 6, "Leadership": 10, "OffTheBall": 5, "Positioning": 12, "Teamwork": 10, "Vision": 9,
+        "WorkRate": 10, "Acceleration": 6, "Agility": 13, "Balance": 7, "JumpingReach": 14, "NaturalFitness": 9, "Pace": 10,
+        "Stamina": 11, "Strength": 10, "FreeKicks": 5, "PenaltyTaking": 4, "Technique": 11
+      }
+    }
+  ]
+}

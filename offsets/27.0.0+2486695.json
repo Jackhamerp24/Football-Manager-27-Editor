@@ -1,0 +1,66 @@
+{
+  "build": "27.0.0+2486695",
+  "module": "game_plugin.dll",
+  "buildStringRva": "0x4AE1492",
+  "playerList": { "rootRva": "0x57037C0", "beginOffset": "0x10", "endOffset": "0x18" },
+  "playerVtables": ["0x4D27228", "0x4F75A08"],
+  "player": {
+    "objectSize": "0x3C8",
+    "attributeScale": 5,
+    "attributes": {
+      "Crossing": "0x15F", "Dribbling": "0x160", "Finishing": "0x161", "Heading": "0x162",
+      "LongShots": "0x163", "Marking": "0x164", "OffTheBall": "0x165", "Passing": "0x166",
+      "PenaltyTaking": "0x167", "Tackling": "0x168", "Vision": "0x169", "Handling": "0x16A",
+      "AerialReach": "0x16B", "CommandOfArea": "0x16C", "Communication": "0x16D", "Kicking": "0x16E",
+      "Throwing": "0x16F", "Anticipation": "0x170", "Decisions": "0x171", "OneOnOnes": "0x172",
+      "Positioning": "0x173", "Reflexes": "0x174", "FirstTouch": "0x175", "Technique": "0x176",
+      "LeftFoot": "0x177", "RightFoot": "0x178", "Flair": "0x179", "Corners": "0x17A",
+      "Teamwork": "0x17B", "WorkRate": "0x17C", "LongThrows": "0x17D", "Eccentricity": "0x17E",
+      "RushingOut": "0x17F", "TendencyToPunch": "0x180", "Acceleration": "0x181", "FreeKicks": "0x182",
+      "Strength": "0x183", "Stamina": "0x184", "Pace": "0x185", "JumpingReach": "0x186",
+      "Leadership": "0x187", "Dirtiness": "0x188", "Balance": "0x189", "Bravery": "0x18A",
+      "Consistency": "0x18B", "Aggression": "0x18C", "Agility": "0x18D", "ImportantMatches": "0x18E",
+      "InjuryProneness": "0x18F", "Versatility": "0x190", "NaturalFitness": "0x191", "Determination": "0x192",
+      "Composure": "0x193", "Concentration": "0x194"
+    },
+    "positions": {
+      "Goalkeeper": "0x150", "DefenderLeft": "0x152", "DefenderCentral": "0x153", "DefenderRight": "0x154",
+      "DefensiveMidfielder": "0x155", "MidfielderLeft": "0x156", "MidfielderCentral": "0x157", "MidfielderRight": "0x158",
+      "AttackingMidLeft": "0x159", "AttackingMidCentral": "0x15A", "AttackingMidRight": "0x15B", "Striker": "0x15C",
+      "WingBackLeft": "0x15D", "WingBackRight": "0x15E"
+    },
+    "personality": {
+      "Adaptability": "0x2F8", "Ambition": "0x2F9", "Loyalty": "0x2FA", "Pressure": "0x2FB",
+      "Professionalism": "0x2FC", "Sportsmanship": "0x2FD", "Temperament": "0x2FE", "Controversy": "0x2FF"
+    },
+    "currentAbility": "0x264",
+    "potentialAbility": "0x266",
+    "homeReputation": "0x25E",
+    "currentReputation": "0x260",
+    "worldReputation": "0x262",
+    "height": "0x22E",
+    "dateOfBirth": "0x310",
+    "fullName": "0x2C8",
+    "firstName": "0x2D8",
+    "lastName": "0x2E0",
+    "commonName": "0x2E8"
+  },
+  "contract": {
+    "playerContract": "0x330",
+    "vtable": "0x4B00AE8",
+    "team": "0x10",
+    "wage": "0x20",
+    "expiryDate": "0x48",
+    "joinedDate": "0x4C",
+    "teamClub": "0x30"
+  },
+  "club": {
+    "vtable": "0x4CDA1F8",
+    "name": "0xC0",
+    "shortName": "0xC8"
+  },
+  "gameDate": {
+    "primary": { "rootRva": "0x56F1DE0", "pointerOffset": "0x268", "dateOffset": "0x78" },
+    "crossCheck": { "rootRva": "0x57084D0", "pointerOffset": "0x0", "dateOffset": "0xC" }
+  }
+}

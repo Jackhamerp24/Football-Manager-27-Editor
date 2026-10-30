@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Fm27Editor.Core/Fm27Editor.Core.csproj" />
+    <Project Path="src/Fm27Editor.Tools/Fm27Editor.Tools.csproj" />
+    <Project Path="src/Fm27Editor.App/Fm27Editor.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Fm27Editor.Core.Tests/Fm27Editor.Core.Tests.csproj" />
+    <Project Path="tests/Fm27Editor.App.Tests/Fm27Editor.App.Tests.csproj" />
+  </Folder>
+</Solution>

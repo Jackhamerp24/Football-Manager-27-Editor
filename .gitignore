@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+*.user
+publish/
+mutation-copy/
+build-*/
+TestResults/
+
+# FMRTE 26 reverse-engineering material stays local: tools that unpack its protected
+# assemblies, the offset tables extracted from it, and the notes built on them.
+re/FMRTE26-findings.md
+re/fm26-dump/
+re/tools/unpacker/
+re/tools/dumper/
+re/tools/rewrite.py
+re/tools/mapattrs.py
