@@ -29,7 +29,28 @@ The editor reads the value back after writing it. If anything does not match, it
 
 - Windows 10/11 x64
 - Football Manager 27, build `27.0.0+2486695`. Other builds need a new offset profile; see [After a game patch](#after-a-game-patch).
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) to build
+- [.NET 10 SDK](https://dotnet.microsoft.com/download), only if you build it yourself
+
+## Download
+
+Download the zip from [Releases](../../releases) and unzip it anywhere. It contains `Fm27Editor.exe` (the app),
+`Fm27Editor.Tools.exe` (command line) and `offsets/`. Nothing needs installing.
+
+All the source is in this repository, and every release is built from it by the [Build workflow](.github/workflows/build.yml)
+on GitHub's servers. Nothing is built on a personal machine or uploaded by hand. Each release lists the commit it was
+built from, and you can check this two ways:
+
+- `SHA256SUMS.txt` in the release has the hash of each file. Compare with `Get-FileHash Fm27Editor.exe`.
+- Every file has a signed build attestation that links it to the workflow run and the commit. With the
+  [GitHub CLI](https://cli.github.com):
+
+  ```bash
+  gh attestation verify Fm27Editor.exe --repo Jackhamerp24/Football-Manager-27-Editor
+  ```
+
+What the editor does to your system: it opens the `fm.exe` process, reads its memory, and writes the specific values you
+edit. It makes no network connections, writes no files (only `find-offsets` writes the profile to the path you give it),
+and does not ask for administrator rights.
 
 ## Build and run
 

@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write      # create the release
+      id-token: write      # sign the build provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test Fm27Editor.slnx -c Release
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $common = '-c', 'Release', '-r', 'win-x64', '--self-contained', '-p:PublishSingleFile=true', '-p:DebugType=none', '-o', 'out'
+          dotnet publish src/Fm27Editor.App/Fm27Editor.App.csproj @common '-p:IncludeNativeLibrariesForSelfExtract=true'
+          dotnet publish src/Fm27Editor.Tools/Fm27Editor.Tools.csproj @common
+          $name = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA.Substring(0, 7) }
+          Compress-Archive -Path out/* -DestinationPath "Fm27Editor-$name-win-x64.zip"
+          Get-FileHash out/*.exe, *.zip -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Fm27Editor-win-x64
+          path: |
+            *.zip
+            SHA256SUMS.txt
+
+      - name: Attest build provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            out/*.exe
+            *.zip
+
+      - name: Create release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create "${{ github.ref_name }}" (Get-ChildItem *.zip).Name SHA256SUMS.txt --title "${{ github.ref_name }}" --generate-notes

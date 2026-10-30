@@ -18,6 +18,8 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.10" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.10" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- Linux-only dependency of Avalonia; pinned past 0.21.2 for GHSA-xrw6-gwf8-vvr9. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
 
   <ItemGroup>
