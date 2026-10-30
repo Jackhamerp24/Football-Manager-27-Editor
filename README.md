@@ -1,5 +1,7 @@
 # Football Manager 27 Editor
 
+English | [Tiếng Việt](README.vi.md)
+
 An in-game editor for Football Manager 27. It edits players while the game is running by reading
 and writing the memory of `fm.exe` (module `game_plugin.dll`).
 
@@ -33,8 +35,14 @@ The editor reads the value back after writing it. If anything does not match, it
 
 ## Download
 
-Download the zip from [Releases](../../releases) and unzip it anywhere. It contains `Fm27Editor.exe` (the app),
-`Fm27Editor.Tools.exe` (command line) and `offsets/`. Nothing needs installing.
+Download from [Releases](../../releases):
+
+| File | For |
+|---|---|
+| **`Fm27Editor.exe`** | The editor app. Most people only need this one. |
+| `Fm27Editor.Tools.exe` | Command-line tools (see below), including `find-offsets` for a new game build |
+
+Each exe runs on its own from any folder. Nothing needs installing, not even .NET.
 
 All the source is in this repository, and every release is built from it by the [Build workflow](.github/workflows/build.yml)
 on GitHub's servers. Nothing is built on a personal machine or uploaded by hand. Each release lists the commit it was
@@ -105,7 +113,7 @@ fits the player's CA, in both directions. So raising attributes without raising 
 | `src/Fm27Editor.Core` | Process memory, build check, offset profiles, player reading, guarded writes, offset finder |
 | `src/Fm27Editor.App` | Desktop app (Avalonia) |
 | `src/Fm27Editor.Tools` | Command-line tools |
-| `offsets/<build>.json` | Every build-specific address and field offset, one file per game build |
+| `offsets/<build>.json` | Every build-specific address and field offset, one file per game build. Built into the exe |
 | `tests/Fm27Editor.Core.Tests`, `tests/Fm27Editor.App.Tests` | Unit tests against a fake address space |
 | `tests/golden/<build>.players.json` | Player values copied from the game UI: the reference for `verify` and `find-offsets` |
 | `re/tools/memscan` | Read-only memory scanner used to find the FM27 layout |
@@ -121,6 +129,8 @@ To make a profile for a new build:
    - At least one player must have a common name, and at least one must have none.
    - Leave out scouted ranges such as `9-12`.
 2. Run `find-offsets <golden.json> offsets/<build>.json --date <in-game date>`. It takes about 25 seconds.
+   Profiles in an `offsets` folder next to the exe are used in addition to the built-in ones, and replace a
+   built-in profile for the same build.
 3. Run `verify` with the same golden file.
 
 ## Roadmap

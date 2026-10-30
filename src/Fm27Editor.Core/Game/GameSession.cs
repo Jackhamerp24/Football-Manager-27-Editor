@@ -54,8 +54,31 @@ public sealed class GameSession : IDisposable
         return memory.TryRead(address, bytes) ? Encoding.ASCII.GetString(bytes) : null;
     }
 
-    public static IReadOnlyList<OffsetProfile> LoadProfiles(string directory) =>
-        Directory.EnumerateFiles(directory, "*.json").Select(OffsetProfile.LoadFile).ToList();
+    /// <summary>
+    /// Profiles built into Core, plus any *.json in <paramref name="directory"/> when it exists.
+    /// A file there replaces the built-in profile for the same build.
+    /// </summary>
+    public static IReadOnlyList<OffsetProfile> LoadProfiles(string directory)
+    {
+        var byBuild = new Dictionary<string, OffsetProfile>();
+        foreach (var p in BuiltInProfiles()) byBuild[p.Build] = p;
+        if (Directory.Exists(directory))
+            foreach (var p in Directory.EnumerateFiles(directory, "*.json").Select(OffsetProfile.LoadFile)) byBuild[p.Build] = p;
+        return byBuild.Values.ToList();
+    }
+
+    public static IReadOnlyList<OffsetProfile> BuiltInProfiles()
+    {
+        var asm = typeof(GameSession).Assembly;
+        return asm.GetManifestResourceNames()
+            .Where(n => n.StartsWith("offsets/", StringComparison.Ordinal))
+            .Select(n =>
+            {
+                using var reader = new StreamReader(asm.GetManifestResourceStream(n)!);
+                return OffsetProfile.Load(reader.ReadToEnd());
+            })
+            .ToList();
+    }
 
     public void Dispose() => _memory.Dispose();
 }

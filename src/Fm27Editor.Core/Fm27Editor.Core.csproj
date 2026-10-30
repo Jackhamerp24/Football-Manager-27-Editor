@@ -8,4 +8,8 @@
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\offsets\*.json" LogicalName="offsets/%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

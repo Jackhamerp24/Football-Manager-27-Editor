@@ -26,36 +26,37 @@ jobs:
       - name: Test
         run: dotnet test Fm27Editor.slnx -c Release
 
+      # Offset profiles are embedded in the exe, so each file runs on its own.
       - name: Publish
         shell: pwsh
         run: |
-          $common = '-c', 'Release', '-r', 'win-x64', '--self-contained', '-p:PublishSingleFile=true', '-p:DebugType=none', '-o', 'out'
-          dotnet publish src/Fm27Editor.App/Fm27Editor.App.csproj @common '-p:IncludeNativeLibrariesForSelfExtract=true'
-          dotnet publish src/Fm27Editor.Tools/Fm27Editor.Tools.csproj @common
-          $name = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA.Substring(0, 7) }
-          Compress-Archive -Path out/* -DestinationPath "Fm27Editor-$name-win-x64.zip"
-          Get-FileHash out/*.exe, *.zip -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content SHA256SUMS.txt
-          Get-Content SHA256SUMS.txt
+          $common = '-c', 'Release', '-r', 'win-x64', '--self-contained', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=none'
+          dotnet publish src/Fm27Editor.App/Fm27Editor.App.csproj @common -o out/app
+          dotnet publish src/Fm27Editor.Tools/Fm27Editor.Tools.csproj @common -o out/tools
+          New-Item -ItemType Directory release | Out-Null
+          Copy-Item out/app/Fm27Editor.exe, out/tools/Fm27Editor.Tools.exe release/
+          Get-FileHash release/*.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content release/SHA256SUMS.txt
+          Get-Content release/SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: Fm27Editor-win-x64
-          path: |
-            *.zip
-            SHA256SUMS.txt
+          path: release/
 
       - name: Attest build provenance
         if: github.ref_type == 'tag'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: |
-            out/*.exe
-            *.zip
+          subject-path: release/*.exe
 
       - name: Create release
         if: github.ref_type == 'tag'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: gh release create "${{ github.ref_name }}" (Get-ChildItem *.zip).Name SHA256SUMS.txt --title "${{ github.ref_name }}" --generate-notes
+        run: |
+          $notes = (Get-Content .github/release-notes.md -Raw).Replace('{TAG}', $env:GITHUB_REF_NAME).Replace('{SHA}', $env:GITHUB_SHA)
+          Set-Content notes.md $notes
+          gh release create "$env:GITHUB_REF_NAME" release/Fm27Editor.exe release/Fm27Editor.Tools.exe release/SHA256SUMS.txt `
+            --title "Football Manager 27 Editor $env:GITHUB_REF_NAME" --notes-file notes.md
