@@ -6,6 +6,7 @@ public sealed class PlayerRecord
     public required ulong Address { get; init; }
     public required uint VtableRva { get; init; }
 
+    public int? Id { get; init; }
     public string? FirstName { get; init; }
     public string? LastName { get; init; }
     public string? CommonName { get; init; }
@@ -23,6 +24,20 @@ public sealed class PlayerRecord
     /// <summary>Null when the profile has no contract offsets or the player has no contract.</summary>
     public ContractInfo? Contract { get; init; }
     public ClubInfo? Club => Contract?.Club;
+    public NationInfo? Nationality { get; init; }
+    public CompetitionInfo? Division { get; init; }
+    public DateOnly? GameDate { get; set; }
+
+    public int? Age => GameDate is { } d ? AgeOn(d) : null;
+    public string ClubName => Club?.DisplayName ?? "";
+    public string NationalityName => Nationality?.DisplayName ?? "";
+    public string DivisionName => Division?.DisplayName ?? "";
+
+    /// <summary>
+    /// Address of the agreed-but-not-completed contract (player+0x328 on 27.0.0+2486695), or 0.
+    /// The completed contract is a different pointer, so the two are never mixed up.
+    /// </summary>
+    public ulong PendingContractAddress { get; init; }
 
     /// <summary>Raw bytes on the game's 1-100 scale, indexed by <see cref="PlayerAttribute"/>.</summary>
     public required byte[] RawAttributes { get; init; }

@@ -15,3 +15,9 @@ re/tools/unpacker/
 re/tools/dumper/
 re/tools/rewrite.py
 re/tools/mapattrs.py
+
+# Local builds and the RE working notes (RAM addresses, values copied from FMRTE screens, RAM snapshots).
+/*.exe
+re/club/
+re/transfer/
+re/rca-experiments/

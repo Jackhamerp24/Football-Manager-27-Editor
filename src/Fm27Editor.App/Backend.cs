@@ -8,6 +8,7 @@ public sealed record ConnectionState(ConnectionStatus Status, string Message);
 public interface IEditorBackend
 {
     ConnectionState State { get; }
+    DateOnly? GameDate { get; }
     event EventHandler? StateChanged;
     Task ConnectAsync(CancellationToken ct);
     PlayerRepository Players { get; }
@@ -17,7 +18,9 @@ public interface IEditorBackend
 public sealed class EditorBackend : IEditorBackend, IDisposable
 {
     GameSession? session;
+    public GameSession Session => session ?? throw new InvalidOperationException("Not connected");
     public ConnectionState State { get; private set; } = new(ConnectionStatus.Disconnected, "Disconnected");
+    public DateOnly? GameDate => session?.ReadGameDate();
     public event EventHandler? StateChanged;
     public PlayerRepository Players => session?.Players ?? throw new InvalidOperationException("Not connected");
     public IEditService Edits { get; private set; } = null!;
@@ -44,12 +47,14 @@ public interface IEditService
     IReadOnlyList<EditRecord> History { get; }
     PlayerRecord Apply(PlayerRecord player, FieldDescriptor<PlayerRecord> field, int value);
     PlayerRecord Undo(PlayerRecord player, FieldDescriptor<PlayerRecord> field, EditRecord record);
+    void Execute(Action action);
 }
 public sealed class EditService(PlayerWriter writer, PlayerRepository players) : IEditService
 {
     readonly object gate = new();
     readonly List<EditRecord> history = [];
     public IReadOnlyList<EditRecord> History { get { lock (gate) return history.ToArray(); } }
+    public void Execute(Action action) { lock (gate) action(); }
     public PlayerRecord Apply(PlayerRecord player, FieldDescriptor<PlayerRecord> field, int value)
     {
         lock (gate)

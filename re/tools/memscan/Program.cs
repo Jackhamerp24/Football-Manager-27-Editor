@@ -1,4 +1,4 @@
-﻿// Read-only memory scanner for Football Manager (fm.exe). Opens the process with
+// Read-only memory scanner for Football Manager (fm.exe). Opens the process with
 // PROCESS_QUERY_INFORMATION | PROCESS_VM_READ only; never writes.
 //
 //   memscan players [attrStart attrEnd]   find Player-like objects, histogram by vtable
@@ -27,7 +27,10 @@ static class Program
 
     static int Main(string[] args)
     {
-        var proc = Process.GetProcessesByName("fm").FirstOrDefault() ?? throw new Exception("fm.exe not running");
+        // FM_PID picks one fm.exe when several game versions run at once.
+        var proc = (Environment.GetEnvironmentVariable("FM_PID") is { } pidText
+                       ? Process.GetProcessById(int.Parse(pidText))
+                       : Process.GetProcessesByName("fm").FirstOrDefault()) ?? throw new Exception("fm.exe not running");
         H = Native.OpenProcess(Native.QueryInfo | Native.VmRead, false, proc.Id);
         if (H == 0) throw new Exception("OpenProcess failed: " + Marshal.GetLastWin32Error());
         var gp = proc.Modules.Cast<ProcessModule>().First(m => m.ModuleName.Equals("game_plugin.dll", StringComparison.OrdinalIgnoreCase));
@@ -47,7 +50,13 @@ static class Program
             case "datesnap": DateSnap(args[1]); break;
             case "datediff": DateDiff(args[1], int.Parse(args[2])); break;
             case "dateroot": DateRoot(args[1], Convert.ToInt32(args[2], 16)); break;
+            case "chain": Chain(Convert.ToUInt64(args[1], 16), Convert.ToInt32(args[2], 16), Convert.ToInt32(args[3], 16)); break;
+            case "datepath": DatePath(args[1], Convert.ToUInt64(args[2], 16), int.Parse(args[3])); break;
+            case "datenow": DateNow(short.Parse(args[1]), short.Parse(args[2]), Convert.ToInt32(args[3], 16)); break;
             case "findval": FindValue(Convert.ToUInt64(args[1], 16), int.Parse(args[2]), args.Skip(3).ToArray()); break;
+            case "scanval": ScanValues(args.Skip(1).Select(int.Parse).ToArray()); break;
+            case "refs2": Refs2(Convert.ToInt32(args[1], 16), Convert.ToUInt64(args[2], 16), Convert.ToUInt64(args[3], 16)); break;
+            case "refs2v": Refs2Value(Convert.ToInt32(args[1], 16), Convert.ToUInt64(args[2], 16), int.Parse(args[3])); break;
             case "path": PathTo(Convert.ToUInt64(args[1], 16), args[2], int.Parse(args[3])); break;
             case "bytestats": ByteStats(Convert.ToUInt64(args[1], 16), int.Parse(args[2]), int.Parse(args[3])); break;
             case "field": FindField(args.Skip(1).ToArray()); break;
@@ -273,6 +282,64 @@ static class Program
         Console.WriteLine();
     }
 
+    // Finds qwords pointing into object A whose surrounding 0x400 bytes also hold a pointer into
+    // object B: the signature of a record that references both (e.g. a transfer mentioning player+club).
+    static void Refs2(int tol, ulong a, ulong b)
+    {
+        int hits = 0;
+        foreach (var (baseAddr, d) in Regions(true))
+            for (int o = 0; o + 8 <= d.Length; o += 8)
+            {
+                ulong q = BitConverter.ToUInt64(d, o);
+                if (q < a || q > a + (ulong)tol) continue;
+                int start = Math.Max(0, o - 0x400), end = Math.Min(d.Length, o + 0x400);
+                for (int k = start; k + 8 <= end; k += 8)
+                {
+                    ulong r = BitConverter.ToUInt64(d, k);
+                    if (r < b || r > b + (ulong)tol) continue;
+                    Console.WriteLine($"0x{baseAddr + (ulong)o:X} -> A+0x{q - a:X}  window {k - o:+#;-#;0} -> B+0x{r - b:X}");
+                    if (++hits >= 60) return;
+                    break;
+                }
+            }
+        Console.WriteLine($"hits={hits}");
+    }
+
+    // Finds qwords pointing into object A whose surrounding 0x800 bytes also hold the int32 value:
+    // locates records that reference a player and store an amount (fee, wage, budget).
+    static void Refs2Value(int tol, ulong a, int value)
+    {
+        var needle = BitConverter.GetBytes(value);
+        int hits = 0;
+        foreach (var (baseAddr, d) in Regions(true))
+            for (int o = 0; o + 8 <= d.Length; o += 8)
+            {
+                ulong q = BitConverter.ToUInt64(d, o);
+                if (q < a || q > a + (ulong)tol) continue;
+                int start = Math.Max(0, o - 0x800), end = Math.Min(d.Length, o + 0x800);
+                int at = d.AsSpan(start, end - start).IndexOf(needle);
+                if (at < 0) continue;
+                Console.WriteLine($"0x{baseAddr + (ulong)o:X} -> A+0x{q - a:X}  value at {start + at - o:+#;-#;0}  (abs 0x{baseAddr + (ulong)(start + at):X})");
+                if (++hits >= 40) return;
+            }
+        Console.WriteLine($"hits={hits}");
+    }
+
+    // Global int32 value scan over private RW heap regions; prints address and value.
+    static void ScanValues(int[] values)
+    {
+        var set = values.ToHashSet();
+        int hits = 0;
+        foreach (var (baseAddr, d) in Regions())
+            for (int o = 0; o + 4 <= d.Length; o += 4)
+                if (set.Contains(BitConverter.ToInt32(d, o)))
+                {
+                    Console.WriteLine($"0x{baseAddr + (ulong)o:X} i32 {BitConverter.ToInt32(d, o)}");
+                    hits++;
+                }
+        Console.WriteLine($"{hits} hits");
+    }
+
     // Breadth-first over heap pointers (first 0x400 bytes of each node, depth <= maxDepth) and
     // reports where a value appears: "i32:135000", "i16:7382", "date:181/2031" (int16 day, int16 year), "text:Man Utd".
     static void FindValue(ulong start, int maxDepth, string[] wants)
@@ -491,6 +558,103 @@ static class Program
         return b;
     }
 
+    // Pointer paths from [game_plugin+rootRva] (up to maxDepth hops) to any location that advanced by one day since the snapshot.
+    static void DatePath(string file, ulong rootRva, int maxDepth)
+    {
+        var targets = new List<ulong>();
+        using (var r = new BinaryReader(File.OpenRead(file)))
+        {
+            var buf = new byte[4];
+            while (r.BaseStream.Position < r.BaseStream.Length)
+            {
+                ulong a = r.ReadUInt64(); short day = r.ReadInt16(), year = r.ReadInt16();
+                if (!Native.ReadProcessMemory(H, (nint)a, buf, 4, out var read) || read != 4) continue;
+                short d2 = BitConverter.ToInt16(buf, 0), y2 = BitConverter.ToInt16(buf, 2);
+                if (y2 < 2026 || y2 > 2027 || d2 < 1 || d2 > 366) continue;
+                if (new DateOnly(y2, 1, 1).AddDays(d2 - 1).DayNumber - new DateOnly(year, 1, 1).AddDays(day - 1).DayNumber == 1) targets.Add(a);
+            }
+        }
+        var t = targets.OrderBy(x => x).ToArray();
+        Console.WriteLine($"{t.Length} locations advanced one day");
+        ulong start = BitConverter.ToUInt64(Read(ModBase + rootRva, 8));
+        var seen = new HashSet<ulong> { start };
+        var frontier = new List<(ulong node, string path)> { (start, $"[game_plugin+0x{rootRva:X}]") };
+        for (int depth = 1; depth <= maxDepth && frontier.Count > 0; depth++)
+        {
+            var next = new List<(ulong, string)>();
+            foreach (var (node, path) in frontier)
+            {
+                var b = Read(node, 0x400);
+                for (int k = 0; k + 4 <= b.Length; k += 2)
+                {
+                    int i = Array.BinarySearch(t, node + (ulong)k);
+                    if (i >= 0) Console.WriteLine($"{path} +0x{k:X}  (vt {Where(BitConverter.ToUInt64(b, 0))})");
+                }
+                for (int o = 0; o + 8 <= b.Length; o += 8)
+                {
+                    ulong p = BitConverter.ToUInt64(b, o);
+                    if (p < 0x10000000000 || p > 0x7FF000000000 || (p >= ModBase && p < ModEnd)) continue;
+                    if (seen.Add(p)) next.Add((p, $"{path} +0x{o:X} ->"));
+                }
+            }
+            frontier = next.Count > 50000 ? next.Take(50000).ToList() : next;
+        }
+    }
+    // game_plugin+rva -> [+ptrOff] -> +dateOff, printing every step.
+    static void Chain(ulong rva, int ptrOff, int dateOff)
+    {
+        ulong obj = BitConverter.ToUInt64(Read(ModBase + rva, 8));
+        Console.WriteLine($"[game_plugin+0x{rva:X}] = 0x{obj:X}");
+        if (obj == 0) return;
+        Console.WriteLine($"  object vtable {Where(BitConverter.ToUInt64(Read(obj, 8)))}");
+        ulong node = BitConverter.ToUInt64(Read(obj + (ulong)ptrOff, 8));
+        Console.WriteLine($"[+0x{ptrOff:X}] = 0x{node:X}");
+        if (node == 0) return;
+        Console.WriteLine($"  node vtable {Where(BitConverter.ToUInt64(Read(node, 8)))}");
+        var d = Read(node + (ulong)dateOff, 4);
+        Console.WriteLine($"+0x{dateOff:X}: day {BitConverter.ToInt16(d, 0)} year {BitConverter.ToInt16(d, 2)}");
+    }
+    // Like dateroot, but from one snapshot: every location holding exactly (day, year) outside player objects.
+    static void DateNow(short day, short year, int tol)
+    {
+        var players = ObjectsWithVtable(0x4D27228).Concat(ObjectsWithVtable(0x4F75A08)).OrderBy(x => x).ToArray();
+        bool InPlayer(ulong a)
+        {
+            int i = Array.BinarySearch(players, a);
+            if (i < 0) i = ~i - 1;
+            return i >= 0 && a - players[i] < 0x3C8;
+        }
+        var list = new List<ulong>();
+        foreach (var (baseAddr, d) in Regions(true))
+            for (int o = 0; o + 4 <= d.Length; o += 2)
+                if (BitConverter.ToInt16(d, o) == day && BitConverter.ToInt16(d, o + 2) == year && !InPlayer(baseAddr + (ulong)o))
+                    list.Add(baseAddr + (ulong)o);
+        var targets = list.OrderBy(x => x).ToArray();
+        Console.WriteLine($"{targets.Length} locations hold {day}/{year} outside player objects");
+        int? Hit(ulong q)
+        {
+            int i = Array.BinarySearch(targets, q);
+            if (i < 0) i = ~i;
+            return i < targets.Length && targets[i] - q <= (ulong)tol ? (int)(targets[i] - q) : null;
+        }
+        var node = new byte[0x400];
+        foreach (var (baseAddr, d) in Regions(true))
+        {
+            if (baseAddr < ModBase || baseAddr >= ModEnd) continue;
+            for (int o = 0; o + 8 <= d.Length; o += 8)
+            {
+                ulong q = BitConverter.ToUInt64(d, o);
+                if (q < 0x10000000000 || q > 0x7FF000000000 || (q >= ModBase && q < ModEnd)) continue;
+                string root = $"game_plugin+0x{baseAddr + (ulong)o - ModBase:X}";
+                if (Hit(q) is { } h1) Console.WriteLine($"  {root} -> +0x{h1:X}");
+                if (!Native.ReadProcessMemory(H, (nint)q, node, node.Length, out var read) || read != node.Length) continue;
+                string vt = Where(BitConverter.ToUInt64(node, 0));
+                for (int k = 0; k + 8 <= node.Length; k += 8)
+                    if (Hit(BitConverter.ToUInt64(node, k)) is { } h2)
+                        Console.WriteLine($"  {root} (vt {vt}) -> +0x{k:X} -> +0x{h2:X}");
+            }
+        }
+    }
     static void Dump(ulong addr, int len)
     {
         var b = Read(addr, len);

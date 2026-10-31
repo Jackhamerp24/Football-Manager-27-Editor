@@ -55,6 +55,18 @@ public sealed partial class WindowsProcessMemory : IProcessMemory, IDisposable
         }
     }
 
+    /// <summary>
+    /// Fresh zeroed read/write memory inside the game process (VirtualAllocEx). The game's own allocator does
+    /// not know it, so the game may fail when it later frees or regrows a container pointing here.
+    /// </summary>
+    public ulong Allocate(int bytes)
+    {
+        if (!CanWrite) throw new InvalidOperationException("Process was opened read-only");
+        nint p = VirtualAllocEx(_handle, 0, bytes, 0x3000, 0x04);
+        if (p == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "VirtualAllocEx failed");
+        return (ulong)p;
+    }
+
     public void Dispose() => CloseHandle(_handle);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -66,6 +78,9 @@ public sealed partial class WindowsProcessMemory : IProcessMemory, IDisposable
         public nint RegionSize;
         public uint State, Protect, Type;
     }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint VirtualAllocEx(nint process, nint address, nint size, uint type, uint protect);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial nint VirtualQueryEx(nint process, nint address, out MemoryBasicInformation info, nint length);

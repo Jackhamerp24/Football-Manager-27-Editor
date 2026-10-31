@@ -91,9 +91,11 @@ public sealed partial class OffsetFinder(WindowsProcessMemory memory, GameProces
         if (gameDate is { } today)
         {
             dateChains = FindGameDate(heap, today);
+            static string Show(DateChain c) =>
+                $"+0x{c.RootRva:X}" + (c.ObjectVtableRva is { } vt ? $" (vtable +0x{vt:X})" : "") +
+                (c.PointerOffset is { } po ? $" -> +0x{po:X}" : "") + $" -> +0x{c.DateOffset:X}";
             log(dateChains is null ? "game date chain not found"
-                : $"game date via +0x{dateChains.Primary.RootRva:X} -> +0x{dateChains.Primary.PointerOffset:X} -> +0x{dateChains.Primary.DateOffset:X}" +
-                  (dateChains.CrossCheck is { } x ? $", cross-check +0x{x.RootRva:X} -> +0x{x.PointerOffset:X} -> +0x{x.DateOffset:X}" : ""));
+                : $"game date via {Show(dateChains.Primary)}" + (dateChains.CrossCheck is { } x ? $", cross-check {Show(x)}" : ""));
         }
         var (contract, club) = FindContractAndClub(located);
         if (contract is null) log("contract/club not found (golden players need wage, contractExpires and club)");
@@ -134,7 +136,46 @@ public sealed partial class OffsetFinder(WindowsProcessMemory memory, GameProces
     /// a root whose object has a module vtable (then the most roots); the cross-check is the best other
     /// node. Within a node the chain with the smallest pointer offset is used.
     /// </summary>
-    GameDateOffsets? FindGameDate(List<MemoryRegion> regions, DateOnly today)
+    GameDateOffsets? FindGameDate(List<MemoryRegion> regions, DateOnly today) =>
+        FindDirectGameDate(regions, today) ?? FindChainedGameDate(regions, today);
+
+    /// <summary>
+    /// Static qword → object with a module vtable whose bytes at +0..+0x1000 hold today's date. Dates are
+    /// grouped by absolute address and need at least two static roots; the most-referenced address wins,
+    /// reached through its lowest root. The vtable check replaces a cross-check: in FM27 27.0.0 the two-hop
+    /// chains moved after a game restart, this one (+0x56F1A18 → +0x7F4) is a single object.
+    /// </summary>
+    GameDateOffsets? FindDirectGameDate(List<MemoryRegion> regions, DateOnly today)
+    {
+        const int ObjectSize = 0x1000;
+        short day = (short)today.DayOfYear, year = (short)today.Year;
+        var hits = new List<(ulong at, DateChain chain)>();
+        var obj = new byte[ObjectSize];
+        foreach (var r in regions.Where(r => r.IsModuleData))
+        {
+            var d = new byte[r.Size];
+            if (!memory.TryRead(r.Start, d)) continue;
+            for (int o = 0; o + 8 <= d.Length; o += 8)
+            {
+                ulong p = BitConverter.ToUInt64(d, o);
+                if (p < 0x10000000000 || p > 0x7FF000000000 || (p >= game.ModuleBase && p < game.ModuleEnd)) continue;
+                if (!memory.TryRead(p, obj)) continue;
+                ulong vt = BitConverter.ToUInt64(obj);
+                if (vt < game.ModuleBase || vt >= game.ModuleEnd) continue;
+                for (int x = 8; x + 4 <= ObjectSize; x += 2)
+                    if (BitConverter.ToInt16(obj, x) == day && BitConverter.ToInt16(obj, x + 2) == year)
+                        hits.Add((p + (ulong)x, new DateChain((uint)(r.Start + (ulong)o - game.ModuleBase), null, x, (uint)(vt - game.ModuleBase))));
+            }
+        }
+        var best = hits.GroupBy(h => h.at)
+            .Select(g => (roots: g.Select(h => h.chain.RootRva).Distinct().Count(), chain: g.MinBy(h => h.chain.RootRva).chain))
+            .Where(g => g.roots >= 2)
+            .OrderByDescending(g => g.roots).ThenBy(g => g.chain.RootRva)
+            .FirstOrDefault();
+        return best.chain is null ? null : new GameDateOffsets { Primary = best.chain };
+    }
+
+    GameDateOffsets? FindChainedGameDate(List<MemoryRegion> regions, DateOnly today)
     {
         const int ObjectSize = 0x400, DateWindow = 0x100;
         short day = (short)today.DayOfYear, year = (short)today.Year;

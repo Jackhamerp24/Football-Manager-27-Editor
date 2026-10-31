@@ -4,15 +4,15 @@
   "players": [
     {
       "name": "Kobbie Mainoo", "club": "Man Utd", "wage": 135000, "contractExpires": "2031-06-30", "firstName": "Kobbie", "lastName": "Mainoo", "noCommonName": true, "capturedOn": "2026-11-03",
-      "note": "Crossing was 9 in the screenshot and was set to 12 with Fm27Editor.Tools set (confirmed in game).",
+      "note": "Screenshot values, then edited by the user. As of game date 2026-11-07: Crossing 9, Dribbling 15, Heading 11, LongShots 14, Marking 10, Passing 16, Tackling 14, Technique 17, Corners 9, FreeKicks 9, PenaltyTaking 14, Decisions 16, Determination 17, Flair 20, Leadership 8, OffTheBall 15, Vision 14, Acceleration 13, NaturalFitness 20, Stamina 15, Strength 15.",
       "height": 184, "dateOfBirth": "2005-04-19",
       "attributes": {
-        "Crossing": 12, "Dribbling": 14, "Finishing": 13, "FirstTouch": 15, "Heading": 10, "LongShots": 10, "Marking": 9,
-        "Passing": 15, "Tackling": 13, "Technique": 16, "Corners": 8, "FreeKicks": 8, "LongThrows": 4, "PenaltyTaking": 13,
-        "Aggression": 13, "Anticipation": 14, "Bravery": 13, "Composure": 16, "Concentration": 14, "Decisions": 15,
-        "Determination": 13, "Flair": 12, "Leadership": 7, "OffTheBall": 14, "Positioning": 12, "Teamwork": 15, "Vision": 13,
-        "WorkRate": 14, "Acceleration": 12, "Agility": 16, "Balance": 16, "JumpingReach": 12, "NaturalFitness": 15, "Pace": 13,
-        "Stamina": 14, "Strength": 14
+        "Crossing": 9, "Dribbling": 15, "Finishing": 13, "FirstTouch": 15, "Heading": 11, "LongShots": 14, "Marking": 10,
+        "Passing": 16, "Tackling": 14, "Technique": 17, "Corners": 9, "FreeKicks": 9, "LongThrows": 4, "PenaltyTaking": 14,
+        "Aggression": 13, "Anticipation": 14, "Bravery": 13, "Composure": 16, "Concentration": 14, "Decisions": 16,
+        "Determination": 17, "Flair": 20, "Leadership": 8, "OffTheBall": 15, "Positioning": 12, "Teamwork": 15, "Vision": 14,
+        "WorkRate": 14, "Acceleration": 13, "Agility": 16, "Balance": 16, "JumpingReach": 12, "NaturalFitness": 20, "Pace": 13,
+        "Stamina": 15, "Strength": 15
       }
     },
     {
@@ -29,27 +29,28 @@
     },
     {
       "name": "Benjamin Šeško", "club": "Man Utd", "wage": 160000, "contractExpires": "2030-06-30", "firstName": "Benjamin", "lastName": "Šeško", "noCommonName": true, "capturedOn": "2026-11-03",
-      "note": "Screenshot had Crossing 7, Finishing 14, NaturalFitness 16. Editor set Crossing to 15 on 2026-10-31; the user's app test then set Crossing 7, Finishing 16, NaturalFitness 20 (confirmed by the user).",
+      "note": "Screenshot values, then edited by the user. As of game date 2026-11-07: Crossing 12, Finishing 16, FirstTouch 15, Heading 16, LongShots 15, Passing 13, Determination 20, Acceleration 17, JumpingReach 19, NaturalFitness 16.",
       "height": 195, "dateOfBirth": "2003-05-31",
       "attributes": {
-        "Crossing": 7, "Dribbling": 13, "Finishing": 16, "FirstTouch": 14, "Heading": 14, "LongShots": 12, "Marking": 5,
-        "Passing": 12, "Tackling": 8, "Technique": 14, "Corners": 3, "FreeKicks": 10, "LongThrows": 8, "PenaltyTaking": 17,
+        "Crossing": 12, "Dribbling": 13, "Finishing": 16, "FirstTouch": 15, "Heading": 16, "LongShots": 15, "Marking": 5,
+        "Passing": 13, "Tackling": 8, "Technique": 14, "Corners": 3, "FreeKicks": 10, "LongThrows": 8, "PenaltyTaking": 17,
         "Aggression": 13, "Anticipation": 14, "Bravery": 14, "Composure": 13, "Concentration": 12, "Decisions": 13,
-        "Determination": 15, "Flair": 14, "Leadership": 8, "OffTheBall": 15, "Positioning": 5, "Teamwork": 14, "Vision": 11,
-        "WorkRate": 15, "Acceleration": 15, "Agility": 14, "Balance": 14, "JumpingReach": 17, "NaturalFitness": 20, "Pace": 17,
+        "Determination": 20, "Flair": 14, "Leadership": 8, "OffTheBall": 15, "Positioning": 5, "Teamwork": 14, "Vision": 11,
+        "WorkRate": 15, "Acceleration": 17, "Agility": 14, "Balance": 14, "JumpingReach": 19, "NaturalFitness": 16, "Pace": 17,
         "Stamina": 15, "Strength": 15
       }
     },
     {
       "name": "Senne Lammens", "club": "Man Utd", "wage": 60000, "contractExpires": "2030-06-30", "capturedOn": "2026-11-03",
+      "note": "Screenshot values, then edited by the user. As of game date 2026-11-07: AerialReach 17, CommandOfArea 16, Communication 15, Eccentricity 15, OneOnOnes 17, Passing 15, Reflexes 18, RushingOut 15, Throwing 15, Agility 17, Technique 14.",
       "height": 193, "dateOfBirth": "2002-07-07",
       "attributes": {
-        "AerialReach": 15, "CommandOfArea": 15, "Communication": 14, "Eccentricity": 4, "FirstTouch": 14, "Handling": 16,
-        "Kicking": 14, "OneOnOnes": 14, "Passing": 13, "TendencyToPunch": 10, "Reflexes": 15, "RushingOut": 10, "Throwing": 12,
+        "AerialReach": 17, "CommandOfArea": 16, "Communication": 15, "Eccentricity": 15, "FirstTouch": 14, "Handling": 16,
+        "Kicking": 14, "OneOnOnes": 17, "Passing": 15, "TendencyToPunch": 10, "Reflexes": 18, "RushingOut": 15, "Throwing": 15,
         "Aggression": 8, "Anticipation": 13, "Bravery": 13, "Composure": 15, "Concentration": 15, "Decisions": 14,
         "Determination": 18, "Flair": 2, "Leadership": 12, "OffTheBall": 12, "Positioning": 14, "Teamwork": 12, "Vision": 11,
-        "WorkRate": 12, "Acceleration": 13, "Agility": 14, "Balance": 10, "JumpingReach": 15, "NaturalFitness": 12, "Pace": 11,
-        "Stamina": 12, "Strength": 13, "FreeKicks": 8, "PenaltyTaking": 3, "Technique": 12
+        "WorkRate": 12, "Acceleration": 13, "Agility": 17, "Balance": 10, "JumpingReach": 15, "NaturalFitness": 12, "Pace": 11,
+        "Stamina": 12, "Strength": 13, "FreeKicks": 8, "PenaltyTaking": 3, "Technique": 14
       }
     },
     {

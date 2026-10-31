@@ -68,6 +68,30 @@ public sealed class EditorTests
         Assert.Equal(0, draft.Count);
     }
 
+    /// <summary>Mainoo: born 19 April 2005 (day 109), 184 cm, world reputation 6501.</summary>
+    [Fact]
+    public void ReputationHeightAndBirthDateAreEditableThroughTheDraft()
+    {
+        var (world, _, edits, player) = Setup();
+        var born = PlayerFields.All.Single(f => f.Id == "Born");
+        var height = PlayerFields.All.Single(f => f.Id == "Height");
+        var rep = PlayerFields.All.Single(f => f.Id == "WorldReputation");
+        Assert.Equal(20050419, born.Read(player));
+        Assert.True(DateField.TryParse("2004-03-01", out int newBorn));
+        Assert.False(DateField.TryParse("2004-02-30", out _));
+
+        var draft = new PlayerDraft(player);
+        draft.Stage(born, newBorn);
+        draft.Stage(height, 190);
+        draft.Stage(rep, 9600);
+        draft.Save(edits);
+
+        // 1 March 2004 = day 61, 2004 = 0x07D4; 9600 = 0x2580.
+        Assert.Equal(new byte[] { 61, 0, 0xD4, 0x07 }, world.Bytes(TestWorld.Mainoo + 0x310, 4));
+        Assert.Equal(new byte[] { 190, 0 }, world.Bytes(TestWorld.Mainoo + 0x22E, 2));
+        Assert.Equal(new byte[] { 0x80, 0x25 }, world.Bytes(TestWorld.Mainoo + 0x262, 2));
+    }
+
     [Fact]
     public void DraftStopsWhenAnotherPendingFieldChangedInGame()
     {
@@ -131,7 +155,141 @@ public sealed class EditorTests
     [Fact]
     public void RegistryContainsOnlyAvailablePlayersModuleAndNoActions()
     {
-        Assert.Equal("Players", Assert.Single(Modules.Registered).Title);
+        var mod = Assert.Single(Modules.Registered);
+        Assert.Equal("Players", mod.Title);
+        Assert.Equal(new[] { "Name", "Age", "CA", "PA", "Club", "Nationality" }, mod.Columns.Select(c => c.Title));
         Assert.Empty(Modules.Actions);
+    }
+
+    [Fact]
+    public void FilterAndSortSupportsAttributesAgeCaPaClubNationalityAndDivision()
+    {
+        var (_, _, _, basePlayer) = Setup();
+        var gameDate = new DateOnly(2026, 7, 26);
+
+        PlayerRecord Make(ulong addr, string name, DateOnly dob, short ca, short pa, string club, string nation, string league, byte paceRaw, byte finishingRaw, PlayerPosition primaryPos = PlayerPosition.Striker)
+        {
+            var attrs = (byte[])basePlayer.RawAttributes.Clone();
+            attrs[(int)PlayerAttribute.Pace] = paceRaw;
+            attrs[(int)PlayerAttribute.Finishing] = finishingRaw;
+            var positions = new byte[Enum.GetValues<PlayerPosition>().Length];
+            positions[(int)primaryPos] = 20;
+            var contract = new ContractInfo(addr + 0x100, 100000, null, null, new ClubInfo(addr + 0x200, club, club));
+            return new PlayerRecord
+            {
+                Address = addr,
+                VtableRva = basePlayer.VtableRva,
+                CommonName = name,
+                FullName = name,
+                DateOfBirth = dob,
+                GameDate = gameDate,
+                CurrentAbility = ca,
+                PotentialAbility = pa,
+                HomeReputation = 0,
+                CurrentReputation = 0,
+                WorldReputation = 0,
+                Height = 180,
+                Contract = contract,
+                Nationality = new NationInfo(addr + 0x300, nation, nation[..3].ToUpperInvariant()),
+                Division = new CompetitionInfo(addr + 0x400, league, league),
+                RawAttributes = attrs,
+                AttributeScale = 5,
+                Positions = positions,
+                Personality = basePlayer.Personality,
+            };
+        }
+
+        // Mbappé: born 1998-12-20 -> age 27 on 2026-07-26; Pace 20 (100), Finishing 18 (90), ST
+        var mbappe = Make(1, "Kylian Mbappé", new DateOnly(1998, 12, 20), 192, 197, "R. Madrid", "France", "LaLiga", 100, 90, PlayerPosition.Striker);
+        // Haaland: born 2000-07-21 -> age 26 on 2026-07-26; Pace 19 (95), Finishing 20 (100), ST
+        var haaland = Make(2, "Erling Haaland", new DateOnly(2000, 7, 21), 187, 195, "Man City", "Norway", "Premier League", 95, 100, PlayerPosition.Striker);
+        // Yamal: born 2007-07-13 -> age 19 on 2026-07-26; Pace 16 (80), Finishing 14 (70), AMR
+        var yamal = Make(3, "Lamine Yamal", new DateOnly(2007, 7, 13), 180, 195, "Barcelona", "Spain", "LaLiga", 80, 70, PlayerPosition.AttackingMidRight);
+        // Mainoo: born 2005-04-19 -> age 21 on 2026-07-26; Pace 13 (66), Finishing 12 (60), MC
+        var mainoo = Make(4, "Kobbie Mainoo", new DateOnly(2005, 4, 19), 153, 177, "Man Utd", "England", "Premier League", 66, 60, PlayerPosition.MidfielderCentral);
+
+        Assert.Equal((27, 26, 19, 21), (mbappe.Age, haaland.Age, yamal.Age, mainoo.Age));
+
+        var all = new[] { mbappe, haaland, yamal, mainoo };
+        var module = new PlayersModule();
+
+        // 1. Attribute >= filter (Pace >= 16 and Finishing >= 18) sorted by Finishing descending
+        var fastFinishers = module.FilterAndSort(
+            all,
+            new PlayerFilter
+            {
+                AttributeThresholds =
+                [
+                    new(PlayerAttribute.Pace, 16),
+                    new(PlayerAttribute.Finishing, 18),
+                ]
+            },
+            new PlayerSortSpec(PlayerSortKey.Attribute, Descending: true, Attribute: PlayerAttribute.Finishing));
+        Assert.Equal(new[] { "Erling Haaland", "Kylian Mbappé" }, fastFinishers.Select(p => p.DisplayName));
+
+        // 2. Filter by League ("Premier League") and sort by Age ascending
+        var eplByAge = module.FilterAndSort(
+            all,
+            new PlayerFilter { Division = "Premier League" },
+            new PlayerSortSpec(PlayerSortKey.Age, Descending: false));
+        Assert.Equal(new[] { "Kobbie Mainoo", "Erling Haaland" }, eplByAge.Select(p => p.DisplayName));
+
+        // 3. Filter by MaxAge <= 21 and MinPa >= 190
+        var wonderkids = module.FilterAndSort(
+            all,
+            new PlayerFilter { MaxAge = 21, MinPa = 190 },
+            new PlayerSortSpec(PlayerSortKey.PotentialAbility, Descending: true));
+        Assert.Equal(new[] { "Lamine Yamal" }, wonderkids.Select(p => p.DisplayName));
+
+        // 4. Filter by Nationality and Club
+        var french = module.FilterAndSort(
+            all,
+            new PlayerFilter { Nationality = "France", Club = "Madrid" },
+            new PlayerSortSpec(PlayerSortKey.CurrentAbility, Descending: true));
+        Assert.Equal(new[] { "Kylian Mbappé" }, french.Select(p => p.DisplayName));
+
+        // 5. Filter by Position (AMR or MC)
+        var wingersOrMidfielders = module.FilterAndSort(
+            all,
+            new PlayerFilter { Positions = [PlayerPosition.AttackingMidRight, PlayerPosition.MidfielderCentral], PositionMinRating = 15 },
+            new PlayerSortSpec(PlayerSortKey.CurrentAbility, Descending: true));
+        Assert.Equal(new[] { "Lamine Yamal", "Kobbie Mainoo" }, wingersOrMidfielders.Select(p => p.DisplayName));
+    }
+
+    [Fact]
+    public void FilterPresetStoreUpsertsRemovesAndRoundTripsJson()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"fm27-presets-{Guid.NewGuid():N}.json");
+        try
+        {
+            var initial = FilterPresetStore.LoadOrDefaults(tempFile);
+            Assert.Contains(initial, p => p.Name == "Fast Striker");
+
+            var custom = new FilterPreset("Elite Winger", [
+                new(PlayerAttribute.Dribbling, 16),
+                new(PlayerAttribute.Pace, 17),
+            ]);
+            var withCustom = FilterPresetStore.Upsert(initial, custom);
+            Assert.Equal(initial.Count + 1, withCustom.Count);
+
+            var updatedCustom = new FilterPreset("elite winger", [
+                new(PlayerAttribute.Dribbling, 18),
+            ]);
+            var replaced = FilterPresetStore.Upsert(withCustom, updatedCustom);
+            Assert.Equal(withCustom.Count, replaced.Count);
+
+            FilterPresetStore.Save(replaced, tempFile);
+            var reloaded = FilterPresetStore.LoadOrDefaults(tempFile);
+            var winger = Assert.Single(reloaded, p => string.Equals(p.Name, "elite winger", StringComparison.OrdinalIgnoreCase));
+            var threshold = Assert.Single(winger.AttributeThresholds);
+            Assert.Equal((PlayerAttribute.Dribbling, 18), (threshold.Attribute, threshold.MinValue));
+
+            var afterRemove = FilterPresetStore.Remove(reloaded, "ELITE WINGER");
+            Assert.DoesNotContain(afterRemove, p => string.Equals(p.Name, "elite winger", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
     }
 }

@@ -7,8 +7,8 @@ namespace Fm27Editor.Core.Game;
 public static class GameClock
 {
     /// <summary>
-    /// Null when the profile has no date chain, a pointer is missing (no save loaded), the value is
-    /// not a date, or the cross-check chain disagrees.
+    /// Null when the profile has no date chain, a pointer is missing (no save loaded), the object has
+    /// the wrong vtable, the value is not a date, or the cross-check chain disagrees.
     /// </summary>
     public static DateOnly? Read(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
     {
@@ -23,8 +23,14 @@ public static class GameClock
         Span<byte> q = stackalloc byte[8];
         if (!memory.TryRead(moduleBase + c.RootRva, q)) return null;
         ulong obj = BitConverter.ToUInt64(q);
-        if (obj == 0 || !memory.TryRead(obj + (ulong)c.PointerOffset, q)) return null;
-        ulong node = BitConverter.ToUInt64(q);
+        if (obj == 0) return null;
+        if (c.ObjectVtableRva is { } vt && (!memory.TryRead(obj, q) || BitConverter.ToUInt64(q) != moduleBase + vt)) return null;
+        ulong node = obj;
+        if (c.PointerOffset is { } po)
+        {
+            if (!memory.TryRead(obj + (ulong)po, q)) return null;
+            node = BitConverter.ToUInt64(q);
+        }
         Span<byte> d = stackalloc byte[4];
         if (node == 0 || !memory.TryRead(node + (ulong)c.DateOffset, d)) return null;
         short day = BitConverter.ToInt16(d), year = BitConverter.ToInt16(d[2..]);

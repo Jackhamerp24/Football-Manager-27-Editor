@@ -1,0 +1,65 @@
+using Fm27Editor.App;
+using Fm27Editor.Core.Clubs;
+using Fm27Editor.Core.Players;
+
+namespace Fm27Editor.App.Tests;
+
+/// <summary>Names as FMRTE 26's contract screen showed them for Shea Lacey and Acerbi's offer screen in FM27.</summary>
+public class ContractLabelTests
+{
+    [Theory]
+    [InlineData(32, "Appearance Fee")]
+    [InlineData(39, "Assist Bonus")]
+    [InlineData(38, "Unused Substitute Fee")]
+    [InlineData(13, "Wage After Reaching Club League Games")]
+    [InlineData(22, "Optional Contract Extension By Club")]
+    [InlineData(11, "One-Year Extension After League Games (Final Season)")]
+    [InlineData(34, "Clean Sheet Bonus")]
+    [InlineData(99, "Clause 99")]
+    public void Term_names(short type, string expected) => Assert.Equal(expected, ContractLabels.Term(type));
+
+    [Fact]
+    public void Parameters_are_games_or_years_and_option_clauses_have_no_value()
+    {
+        Assert.Equal("Games", ContractLabels.TermParameter(13));
+        Assert.Equal("Years", ContractLabels.TermParameter(22));
+        Assert.Null(ContractLabels.TermParameter(32));
+        Assert.False(ContractLabels.TermHasValue(22));
+        Assert.True(ContractLabels.TermHasValue(13));
+    }
+
+    [Fact]
+    public void Playing_time_and_type_read_like_the_game()
+    {
+        Assert.Equal("Breakthrough Prospect", ContractLabels.Of(PlayingTime.BreakthroughProspect));
+        Assert.Equal("Impact Sub", ContractLabels.Of(PlayingTime.ImpactSub));
+        Assert.Equal("Any", ContractLabels.Of(PlayingTime.Unset));
+        Assert.Equal("Full Time Contract", ContractLabels.Of(ContractType.FullTime));
+        Assert.Equal("Youth Contract", ContractLabels.Of(ContractType.Youth));
+    }
+
+    /// <summary>
+    /// As FMRTE 27 lists them: Arribas 50% (Almería), Uche 15% signed for £429,515 (Getafe), Marcos Luna 42,951 after 5,
+    /// Horta until 30/6/2029, Cooper's Sky Bet Championship bonus (Sheffield United, competition index 8).
+    /// </summary>
+    [Fact]
+    public void Transfer_clauses_show_percentage_or_amount_and_progress()
+    {
+        var sellOn = new TransferClause(1, TransferClauseKind.SellOn, 67277465, null, null, 50, null, null, null, null, null, null);
+        var uche = sellOn with { Percentage = 15, SignedFor = 429515 };
+        var apps = new TransferClause(2, TransferClauseKind.AppearanceFee, 2000111004, null, 42951, null, null, 5, 0, null, null, null);
+        var bonus = new TransferClause(3, TransferClauseKind.CompetitionBonus, 55082342, null, 429515, null, null, null, null, 52, null, new DateOnly(2029, 6, 30));
+        var cooper = bonus with { CompetitionIndex = 8, Competition = new(0, "Sky Bet Championship", null), Ends = null };
+
+        Assert.Equal("Sell-On", ContractLabels.Of(sellOn.Kind));
+        Assert.Equal("Appearance Fee", ContractLabels.Of(apps.Kind));
+        Assert.Equal("Competition Bonus", ContractLabels.Of(bonus.Kind));
+        Assert.Equal("50%", ContractLabels.Amount(sellOn));
+        Assert.Equal("42,951", ContractLabels.Amount(apps));
+        Assert.Equal("0 / 5 apps", ContractLabels.Detail(apps));
+        Assert.Equal("Competition 52  until 2029-06-30", ContractLabels.Detail(bonus));
+        Assert.Equal("Sky Bet Championship", ContractLabels.Detail(cooper));
+        Assert.Equal("", ContractLabels.Detail(sellOn));
+        Assert.Equal("signed for 429,515", ContractLabels.Detail(uche));
+    }
+}

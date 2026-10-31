@@ -93,7 +93,39 @@ public class ContractReadingTests
         var copy = OffsetProfile.Load(_w.Profile.ToJson());
         Assert.Equivalent(_w.Profile.Contract, copy.Contract);
         Assert.Equivalent(_w.Profile.Club, copy.Club);
+        Assert.Equivalent(_w.Profile.Nation, copy.Nation);
+        Assert.Equivalent(_w.Profile.Competition, copy.Competition);
         Assert.Equal(0x330, copy.Contract!.PlayerContract);
+    }
+
+    [Fact]
+    public void Reads_primary_nation_and_team_competition_when_vtables_match()
+    {
+        const ulong NationAddr = 0x4000_4000, PlayingTeam = 0x4000_5000, CompAddr = 0x4000_6000;
+        const uint NationVtable = 0x4CDF658, CompVtable = 0x4CDFAD8;
+
+        var n = _w.Memory.Map(NationAddr, 0x38);
+        TestWorld.Set64(n, 0x00, TestWorld.ModuleBase + NationVtable);
+        TestWorld.Set64(n, 0x18, 0x4000_4100); _w.Memory.MapString(0x4000_4100, "England");
+        TestWorld.Set64(n, 0x28, 0x4000_4200); _w.Memory.MapString(0x4000_4200, "ENG");
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x2F0, BitConverter.GetBytes(NationAddr)));
+
+        var pt = _w.Memory.Map(PlayingTeam, 0x58);
+        TestWorld.Set64(pt, 0x50, CompAddr);
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x130, BitConverter.GetBytes(PlayingTeam)));
+
+        var comp = _w.Memory.Map(CompAddr, 0x50);
+        TestWorld.Set64(comp, 0x00, TestWorld.ModuleBase + CompVtable);
+        TestWorld.Set64(comp, 0x40, 0x4000_6100); _w.Memory.MapString(0x4000_6100, "English Premier Division");
+        TestWorld.Set64(comp, 0x48, 0x4000_6200); _w.Memory.MapString(0x4000_6200, "Premier League");
+
+        var p = Mainoo();
+        Assert.Equal("England", p.Nationality!.Name);
+        Assert.Equal("ENG", p.Nationality.ShortName);
+        Assert.Equal("England", p.NationalityName);
+        Assert.Equal("English Premier Division", p.Division!.Name);
+        Assert.Equal("Premier League", p.Division.ShortName);
+        Assert.Equal("Premier League", p.DivisionName);
     }
 
     [Fact]

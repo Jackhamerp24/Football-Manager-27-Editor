@@ -11,8 +11,13 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
     const int ContractReadSize = 0x60;
     const int TeamReadSize = 0x40;
     const int ClubReadSize = 0xD0;
+    const int NationReadSize = 0x38;
+    const int CompetitionReadSize = 0x50;
     readonly Dictionary<ulong, string?> _strings = new();
     readonly Dictionary<ulong, ClubInfo?> _clubsByTeam = new();
+    readonly Dictionary<ulong, NationInfo?> _nations = new();
+    readonly Dictionary<ulong, CompetitionInfo?> _divisionsByTeam = new();
+    readonly Dictionary<ulong, CompetitionInfo?> _competitions = new();
 
     public PlayerRecord Decode(ulong address, ReadOnlySpan<byte> obj, uint vtableRva)
     {
@@ -24,10 +29,18 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
         var personality = new byte[Enum.GetValues<PersonalityAttribute>().Length];
         foreach (var (p, off) in profile.Personality) personality[(int)p] = obj[off];
 
+        ulong contractTeam = 0;
+        var contract = profile.Contract is { } c ? ReadContract(U64(obj, c.PlayerContract), c, out contractTeam) : null;
+        ulong playingTeam = profile.Team is { } tm ? U64(obj, tm.PlayerTeam) : 0;
+        CompetitionInfo? division = null;
+        if (profile.Competition is { } comp)
+            division = DivisionOfTeam(playingTeam, comp) ?? DivisionOfTeam(contractTeam, comp);
+
         return new PlayerRecord
         {
             Address = address,
             VtableRva = vtableRva,
+            Id = f.Id is { } id ? BitConverter.ToInt32(obj[id..]) : null,
             FullName = StringAt(U64(obj, f.FullName)),
             FirstName = EntryString(U64(obj, f.FirstName)),
             LastName = EntryString(U64(obj, f.LastName)),
@@ -39,7 +52,10 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
             WorldReputation = I16(obj, f.WorldReputation),
             Height = I16(obj, f.Height),
             DateOfBirth = Date(I16(obj, f.DateOfBirth), I16(obj, f.DateOfBirth + 2)),
-            Contract = profile.Contract is { } c ? ReadContract(U64(obj, c.PlayerContract), c) : null,
+            Contract = contract,
+            Nationality = profile.Nation is { } nat ? ReadNation(U64(obj, nat.PlayerNation), nat) : null,
+            Division = division,
+            PendingContractAddress = profile.PendingContract is { } pc ? U64(obj, pc.PlayerPointer) : 0,
             RawAttributes = attrs,
             AttributeScale = profile.AttributeScale,
             Positions = positions,
@@ -60,17 +76,61 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
     /// <summary>Module base, needed to check contract and club vtables. Set by the repository.</summary>
     public ulong ModuleBase { get; init; }
 
-    ContractInfo? ReadContract(ulong address, ContractOffsets c)
+    ContractInfo? ReadContract(ulong address, ContractOffsets c, out ulong teamAddress)
     {
+        teamAddress = 0;
         if (address == 0) return null;
         var b = new byte[ContractReadSize];
         if (!memory.TryRead(address, b) || BitConverter.ToUInt64(b) != ModuleBase + c.ContractVtableRva) return null;
+        teamAddress = BitConverter.ToUInt64(b, c.Team);
         return new ContractInfo(
             address,
             BitConverter.ToInt32(b, c.Wage),
-            Date(I16(b, c.ExpiryDate), I16(b, c.ExpiryDate + 2)),
-            Date(I16(b, c.JoinedDate), I16(b, c.JoinedDate + 2)),
-            ClubOfTeam(BitConverter.ToUInt64(b, c.Team), c));
+            // Contract dates keep flags above the 9-bit day of year.
+            Date((short)(I16(b, c.ExpiryDate) & 0x1FF), I16(b, c.ExpiryDate + 2)),
+            Date((short)(I16(b, c.JoinedDate) & 0x1FF), I16(b, c.JoinedDate + 2)),
+            ClubOfTeam(teamAddress, c));
+    }
+
+    NationInfo? ReadNation(ulong address, NationOffsets nat)
+    {
+        if (address == 0) return null;
+        if (_nations.TryGetValue(address, out var cached)) return cached;
+        NationInfo? nation = null;
+        int size = Math.Max(NationReadSize, Math.Max(nat.Name, nat.ShortName) + 8);
+        var b = new byte[size];
+        if (memory.TryRead(address, b) && BitConverter.ToUInt64(b) == ModuleBase + nat.VtableRva)
+            nation = new NationInfo(address, StringAt(BitConverter.ToUInt64(b, nat.Name)), StringAt(BitConverter.ToUInt64(b, nat.ShortName)));
+        _nations[address] = nation;
+        return nation;
+    }
+
+    CompetitionInfo? DivisionOfTeam(ulong team, CompetitionOffsets comp)
+    {
+        if (team == 0) return null;
+        if (_divisionsByTeam.TryGetValue(team, out var cached)) return cached;
+        CompetitionInfo? division = null;
+        Span<byte> ptrBuf = stackalloc byte[8];
+        if (memory.TryRead(team + (ulong)comp.TeamCompetition, ptrBuf))
+        {
+            ulong compAddr = BitConverter.ToUInt64(ptrBuf);
+            division = ReadCompetition(compAddr, comp);
+        }
+        _divisionsByTeam[team] = division;
+        return division;
+    }
+
+    CompetitionInfo? ReadCompetition(ulong address, CompetitionOffsets comp)
+    {
+        if (address == 0) return null;
+        if (_competitions.TryGetValue(address, out var cached)) return cached;
+        CompetitionInfo? competition = null;
+        int size = Math.Max(CompetitionReadSize, Math.Max(comp.Name, comp.ShortName) + 8);
+        var b = new byte[size];
+        if (memory.TryRead(address, b) && BitConverter.ToUInt64(b) == ModuleBase + comp.VtableRva)
+            competition = new CompetitionInfo(address, StringAt(BitConverter.ToUInt64(b, comp.Name)), StringAt(BitConverter.ToUInt64(b, comp.ShortName)));
+        _competitions[address] = competition;
+        return competition;
     }
 
     ClubInfo? ClubOfTeam(ulong team, ContractOffsets c)

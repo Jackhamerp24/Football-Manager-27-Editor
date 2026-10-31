@@ -41,6 +41,37 @@ public sealed class PlayerWriter(IProcessMemory memory, OffsetProfile profile, u
         WriteGuarded(player, profile.Fields.PotentialAbility, Int16(player.PotentialAbility), Int16((short)value));
     }
 
+    /// <summary>Home, current or world reputation, int16, 0-10000 as FMRTE edits it.</summary>
+    public void SetReputation(PlayerRecord player, Reputation kind, int value)
+    {
+        RequireRange(value, 0, 10000, $"{kind} reputation");
+        var (offset, current) = kind switch
+        {
+            Reputation.Home => (profile.Fields.HomeReputation, player.HomeReputation),
+            Reputation.Current => (profile.Fields.CurrentReputation, player.CurrentReputation),
+            _ => (profile.Fields.WorldReputation, player.WorldReputation),
+        };
+        WriteGuarded(player, offset, Int16(current), Int16((short)value));
+    }
+
+    /// <summary>Height in centimetres, int16.</summary>
+    public void SetHeight(PlayerRecord player, int centimetres)
+    {
+        RequireRange(centimetres, 100, 250, "Height");
+        WriteGuarded(player, profile.Fields.Height, Int16(player.Height), Int16((short)centimetres));
+    }
+
+    /// <summary>Stored as int16 day of year (1-based) + int16 year.</summary>
+    public void SetDateOfBirth(PlayerRecord player, DateOnly date)
+    {
+        RequireRange(date.Year, 1900, 2100, "Birth year");
+        if (player.DateOfBirth is not { } current)
+            throw new StaleObjectException($"0x{player.Address:X} has no readable birth date to compare against");
+        WriteGuarded(player, profile.Fields.DateOfBirth, Date(current), Date(date));
+    }
+
+    static byte[] Date(DateOnly d) => [.. Int16((short)d.DayOfYear), .. Int16((short)d.Year)];
+
     static byte[] Int16(short v) => BitConverter.GetBytes(v);
 
     static void RequireRange(int value, int min, int max, string field)
@@ -63,5 +94,7 @@ public sealed class PlayerWriter(IProcessMemory memory, OffsetProfile profile, u
             throw new MemoryAccessException($"Write at 0x{address:X} did not stick");
     }
 }
+
+public enum Reputation { Home, Current, World }
 
 public sealed class StaleObjectException(string message) : Exception(message);
