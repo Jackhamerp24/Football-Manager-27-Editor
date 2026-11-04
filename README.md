@@ -156,7 +156,12 @@ Editing the game's memory can corrupt a save, so keep backups. Use at your own r
 
 ## Support
 
-If the editor helps you, you can support development on [Ko-fi](https://ko-fi.com/quyduongvu).
+If the editor helps you, you can support development:
+
+- [Ko-fi](https://ko-fi.com/quyduongvu) (card or PayPal)
+- Vietnamese bank transfer (VietQR, Vietcombank): scan with any Vietnamese banking or e-wallet app
+
+<img src="docs/images/donate-vietqr.png" alt="VietQR, Vietcombank" width="220">
 
 ## License
 

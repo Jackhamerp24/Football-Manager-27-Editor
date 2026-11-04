@@ -156,9 +156,9 @@ Sửa bộ nhớ game có thể làm hỏng save, hãy giữ bản sao lưu. B�
 
 ## Ủng hộ
 
-Nếu editor có ích, bạn có thể ủng hộ qua [Ko-fi](https://ko-fi.com/quyduongvu) hoặc quét mã VietQR (mọi ngân hàng và ví điện tử):
+Nếu editor có ích, bạn có thể ủng hộ qua [Ko-fi](https://ko-fi.com/quyduongvu) hoặc chuyển khoản ngân hàng Việt Nam (VietQR, Vietcombank), quét được bằng mọi app ngân hàng và ví điện tử:
 
-<img src="docs/images/donate-vietqr.png" alt="VietQR Vietcombank" width="240">
+<img src="docs/images/donate-vietqr.png" alt="VietQR, Vietcombank" width="220">
 
 ## Giấy phép
 
