@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (5/11/2026)
 
 ### Game versions
 - FM27 `27.0.0+2493426` on **Steam** (the November update).
