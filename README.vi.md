@@ -2,22 +2,24 @@
 
 [English](README.md) | Tiếng Việt
 
-Editor dùng khi đang chơi Football Manager 27. App sửa cầu thủ ngay lúc game đang chạy, bằng cách đọc và ghi
-bộ nhớ của `fm.exe` (module `game_plugin.dll`).
+Editor dùng khi đang chơi Football Manager 27. App sửa cầu thủ, nhân sự, CLB, quốc gia và nhiều thứ khác ngay lúc game
+đang chạy, bằng cách đọc và ghi bộ nhớ của `fm.exe` (module `game_plugin.dll`). Chạy được với cả bản Steam và Xbox / Game
+Pass.
 
 Chỉ dùng cho save chơi một mình, offline. Không dùng khi chơi online hay với save chung.
 
 ## App làm được gì
 
-| Mục | Đọc | Ghi |
-|---|---|---|
-| Chỉ số cầu thủ (kỹ thuật, tinh thần, thể chất, thủ môn) | ✓ | ✓ |
-| Vị trí (1–20) | ✓ | ✓ |
-| Tính cách: thích nghi, tham vọng, trung thành, chịu áp lực, chuyên nghiệp, tinh thần thể thao, tính khí, gây tranh cãi | ✓ | ✓ |
-| CA / PA | ✓ | ✓ |
-| Tên, chiều cao, ngày sinh, tuổi theo ngày trong game | ✓ | |
-| Danh tiếng (trong nước, hiện tại, thế giới) | ✓ | |
-| CLB, lương tuần, ngày bắt đầu và hết hạn hợp đồng | ✓ | |
+| Mục | Sửa được |
+|---|---|
+| Cầu thủ | Chỉ số, vị trí, tính cách, CA/PA, danh tiếng, chiều cao, ngày sinh, quốc tịch và thông tin khác, hợp đồng và hợp đồng tương lai, thưởng và điều khoản chuyển nhượng, kế hoạch sự nghiệp, quan hệ, ngôn ngữ, động tác ưa thích, chấn thương, án treo giò, bất mãn, triệu tập đội tuyển |
+| Thao tác cầu thủ | Chuyển CLB (có phí và % bán lại), giải phóng hợp đồng, đội trưởng / đội phó, chép chỉ số sang cầu thủ khác, so sánh |
+| Nhân sự | Chỉ số, CA/PA, tính cách, hợp đồng, kế hoạch sự nghiệp, quan hệ, ngôn ngữ, hiểu biết, sơ đồ, xu hướng, chuyển sang CLB khác |
+| CLB | Thông tin, tài chính, nợ, CLB liên kết, tầm nhìn CLB, quan hệ, nhân sự, đội hình, trung tâm chuyển nhượng |
+| Quốc gia, sân, thành phố, giải đấu, giải thưởng | Thông tin, danh tiếng và thiết lập, mỗi loại một màn riêng |
+| Công cụ | Sửa hàng loạt có xem trước và Undo, preset cả đội (hồi phục, thể lực, tinh thần, xoá án treo giò, xoá bất mãn, chỉ số tối đa, chặn giải nghệ), khoá giá trị, xuất CSV / JSON, bộ lọc |
+
+Mọi thay đổi được ghi vào lịch sử, có Undo. Xem [CHANGELOG.md](CHANGELOG.md) để biết bản mới có gì.
 
 Đọc toàn bộ cầu thủ trong dữ liệu game (khoảng 50.000 người) mất chưa tới 1 giây.
 
@@ -30,7 +32,8 @@ Sau khi ghi, app đọc lại để xác nhận. Nếu có gì không khớp th�
 ## Yêu cầu
 
 - Windows 10/11 x64
-- Football Manager 27, build `27.0.0+2486695`. Bản game khác cần profile offset mới, xem [Khi game có patch](#khi-game-có-patch).
+- Football Manager 27 `27.0.0+2493426` trên Steam hoặc Xbox / Game Pass (bản Steam `27.0.0+2486695` cũng chạy). Bản game
+  khác cần profile offset mới, xem [Khi game có patch](#khi-game-có-patch).
 - [.NET 10 SDK](https://dotnet.microsoft.com/download), chỉ khi bạn tự build
 
 ## Tải về
@@ -57,8 +60,8 @@ dùng để build. Bạn có hai cách để tự kiểm:
   ```
 
 App làm gì với máy của bạn: mở process `fm.exe`, đọc bộ nhớ của nó, và chỉ ghi đúng những giá trị bạn sửa. App không
-kết nối mạng, không ghi file nào (chỉ lệnh `find-offsets` ghi profile ra đường dẫn bạn chỉ định), và không đòi quyền
-administrator.
+kết nối mạng và không đòi quyền administrator. App chỉ ghi file thiết lập của chính nó trong `%LOCALAPPDATA%m27editor`
+(giá trị đang khoá, bộ lọc đã lưu) và file xuất khi bạn yêu cầu.
 
 ## Build và chạy
 
@@ -100,6 +103,8 @@ src/Fm27Editor.Tools/bin/Release/net10.0/Fm27Editor.Tools.exe verify tests/golde
 | `set <tên> <field> <giá trị>` | Ghi một giá trị. Field là chỉ số (`Pace`), vị trí (`Striker`), tính cách (`Ambition`), `CA` hoặc `PA` |
 | `verify <golden.json>` | So bộ nhớ game với các giá trị chép từ giao diện game |
 | `find-offsets <golden.json> <out.json> [--date yyyy-MM-dd]` | Dựng lại profile offset cho bản game mới |
+nCòn nhiều lệnh khác (nhân sự, CLB, quốc gia, sửa hàng loạt, preset, giải phóng, đội trưởng, chuyển nhân sự), liệt kê ở đầu
+`src/Fm27Editor.Tools/Program.cs`.
 
 ## Cơ chế CA trong FM
 
@@ -133,12 +138,15 @@ App sẽ không gắn vào bản game chưa có profile. Như vậy app không b
    sẽ thay cho profile nhúng sẵn.
 3. Chạy `verify` với cùng file golden.
 
+Với bản Xbox / Game Pass, `re/tools/gamepass-rva-map.ps1` dựng profile từ profile Steam bằng cách khớp tên lớp (RTTI),
+mất vài giây.
+
 ## Lộ trình
 
-- **Thêm dữ liệu:** ghi lương và hợp đồng, cho mượn, điều khoản, tài chính và danh tiếng CLB, nhân sự, quốc gia, chấn thương.
-- **Tính năng editor:** tìm kiếm và lọc nâng cao, sửa hàng loạt, khoá giá trị, preset (hồi phục, xoá án treo giò…),
-  so sánh cầu thủ, xuất dữ liệu.
-- **Phát hành:** bản self-contained, kiểm kích thước và tốc độ khởi động.
+- Chuyển cầu thủ theo ngày và cho mượn, có thêm dòng lịch sử sự nghiệp, giống FMRTE.
+- Áo đấu và chiến thuật CLB, luật và tiền thưởng giải đấu, thoả thuận giữa các quốc gia.
+- Danh sách theo dõi, yêu thích, theo dõi tiến bộ cầu thủ.
+- Exe nhẹ hơn, mở nhanh hơn.
 
 ## Miễn trừ trách nhiệm
 

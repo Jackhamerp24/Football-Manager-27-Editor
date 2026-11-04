@@ -2,22 +2,24 @@
 
 English | [Tiếng Việt](README.vi.md)
 
-An in-game editor for Football Manager 27. It edits players while the game is running by reading
-and writing the memory of `fm.exe` (module `game_plugin.dll`).
+An in-game editor for Football Manager 27. It edits players, staff, clubs, nations and more while the game is running,
+by reading and writing the memory of `fm.exe` (module `game_plugin.dll`). Works with the Steam and the Xbox / Game Pass
+versions.
 
 For single-player, offline saves only. Do not use it online or in shared saves.
 
 ## What it does
 
-| Area | Read | Write |
-|---|---|---|
-| Player attributes (technical, mental, physical, goalkeeping) | ✓ | ✓ |
-| Positions (1–20) | ✓ | ✓ |
-| Personality: adaptability, ambition, loyalty, pressure, professionalism, sportsmanship, temperament, controversy | ✓ | ✓ |
-| Current / Potential Ability | ✓ | ✓ |
-| Names, height, date of birth, age on the in-game date | ✓ | |
-| Reputation (home, current, world) | ✓ | |
-| Club, weekly wage, contract start and expiry | ✓ | |
+| Area | What you can edit |
+|---|---|
+| Players | Attributes, positions, personality, CA/PA, reputation, height, date of birth, nationality and other details, contract and future contract, bonuses and transfer clauses, career plans, relationships, languages, preferred moves, injuries, bans, unhappiness, national call-ups |
+| Player actions | Move to club (with fee and sell-on), release, captain / vice captain, clone attributes to other players, comparison |
+| Staff | Attributes, CA/PA, personality, contract, career plans, relationships, languages, knowledge, formations, tendencies, move to another club |
+| Clubs | Information, finances, debt, affiliations, club vision, relationships, staff, squads, transfer center |
+| Nations, stadiums, cities, competitions, awards | Details, reputation and settings shown in their own screens |
+| Tools | Mass edit with preview and Undo, team presets (heal, fitness, morale, lift bans, remove unhappiness, max attributes, prevent retirement), freezer, export to CSV / JSON, filters |
+
+Every change goes into a history with Undo. See [CHANGELOG.md](CHANGELOG.md) for what is new.
 
 Loading every player in the database (about 50,000) takes under a second.
 
@@ -30,7 +32,8 @@ The editor reads the value back after writing it. If anything does not match, it
 ## Requirements
 
 - Windows 10/11 x64
-- Football Manager 27, build `27.0.0+2486695`. Other builds need a new offset profile; see [After a game patch](#after-a-game-patch).
+- Football Manager 27 `27.0.0+2493426` on Steam or Xbox / Game Pass (`27.0.0+2486695` on Steam also works). Other builds
+  need a new offset profile; see [After a game patch](#after-a-game-patch).
 - [.NET 10 SDK](https://dotnet.microsoft.com/download), only if you build it yourself
 
 ## Download
@@ -57,8 +60,8 @@ built from, and you can check this two ways:
   ```
 
 What the editor does to your system: it opens the `fm.exe` process, reads its memory, and writes the specific values you
-edit. It makes no network connections, writes no files (only `find-offsets` writes the profile to the path you give it),
-and does not ask for administrator rights.
+edit. It makes no network connections and does not ask for administrator rights. The only files it writes are its own
+settings in `%LOCALAPPDATA%m27editor` (frozen values, saved filters) and the exports you ask for.
 
 ## Build and run
 
@@ -101,6 +104,9 @@ src/Fm27Editor.Tools/bin/Release/net10.0/Fm27Editor.Tools.exe verify tests/golde
 | `verify <golden.json>` | Compares live memory with values copied from the game UI |
 | `find-offsets <golden.json> <out.json> [--date yyyy-MM-dd]` | Rebuilds the offset profile for a new game build |
 
+Many more commands (staff, clubs, nations, mass edit, presets, release, captain, staff move) are listed at the top of
+`src/Fm27Editor.Tools/Program.cs`.
+
 ## How FM ability works
 
 CA is the value the game treats as the source of truth. Over a few in-game days, attributes drift toward a level that
@@ -133,12 +139,15 @@ To make a profile for a new build:
    built-in profile for the same build.
 3. Run `verify` with the same golden file.
 
+For Xbox / Game Pass, `re/tools/gamepass-rva-map.ps1` builds the profile from the Steam one by matching class names
+(RTTI), in a few seconds.
+
 ## Roadmap
 
-- **More data:** writing wage and contract, loans, clauses, club finances and reputation, staff, nations, injuries.
-- **Editor features:** advanced search and filters, mass edit, freezing values, presets (heal, remove bans…),
-  player comparison, export.
-- **Release:** self-contained build, checked for size and startup time.
+- Move a player on a set date and on loan, with a new career history row, as FMRTE does.
+- Club kits and tactics, competition rules and prize money, nation agreements.
+- Shortlists, favourites, player progress.
+- A smaller, faster-starting exe.
 
 ## Disclaimer
 
