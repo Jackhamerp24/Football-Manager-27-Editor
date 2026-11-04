@@ -29,7 +29,7 @@ public static class Modules
     public static IReadOnlyList<IEditorModule> Registered { get; } = [new PlayersModule()];
     public static IReadOnlyList<IEntityAction> Actions { get; } = [];
 }
-public sealed record AttributeThreshold(PlayerAttribute Attribute, int MinValue);
+public sealed record AttributeThreshold(PlayerAttribute Attribute, int MinValue, int? MaxValue = null);
 
 public sealed record PlayerFilter
 {
@@ -264,7 +264,8 @@ public sealed class PlayersModule : IEditorModule
         for (int i = 0; i < filter.AttributeThresholds.Count; i++)
         {
             var t = filter.AttributeThresholds[i];
-            if (p.Attribute(t.Attribute) < t.MinValue)
+            int rating = p.Attribute(t.Attribute);
+            if (rating < t.MinValue || (t.MaxValue is { } maximum && rating > maximum))
                 return false;
         }
         return true;
@@ -308,6 +309,67 @@ public sealed class PlayersModule : IEditorModule
 
     static bool ContainsText(string haystack, string needle) =>
         !string.IsNullOrEmpty(haystack) && Compare.IndexOf(haystack, needle, IgnoreCaseAndAccents) >= 0;
+}
+
+/// <summary>Keeps the sort order while filters change; replacing the source or sort invalidates it.</summary>
+public sealed class PlayerSearchIndex
+{
+    readonly object gate = new();
+    IReadOnlyList<object>? source;
+    PlayerSortSpec? sort;
+    IReadOnlyList<PlayerRecord> ordered = [];
+
+    public IReadOnlyList<PlayerRecord> Filter(IReadOnlyList<object> rows, PlayersModule module, PlayerFilter filter, PlayerSortSpec order, CancellationToken cancellationToken = default)
+    {
+        lock (gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(source, rows) || sort != order)
+            {
+                var sorted = module.FilterAndSort(rows.OfType<PlayerRecord>(), new PlayerFilter(), order);
+                cancellationToken.ThrowIfCancellationRequested();
+                ordered = sorted;
+                source = rows;
+                sort = order;
+            }
+            var result = new List<PlayerRecord>();
+            foreach (var player in ordered)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (module.MatchesFilter(player, filter)) result.Add(player);
+            }
+            return result;
+        }
+    }
+}
+
+/// <summary>Runs only the newest pending search and never returns an obsolete result.</summary>
+public sealed class LatestSearch
+{
+    readonly object gate = new();
+    CancellationTokenSource? current;
+
+    public async Task<T?> RunAsync<T>(Func<CancellationToken, T> search, TimeSpan delay) where T : class
+    {
+        CancellationTokenSource request;
+        lock (gate)
+        {
+            current?.Cancel();
+            current = request = new CancellationTokenSource();
+        }
+        try
+        {
+            await Task.Delay(delay, request.Token).ConfigureAwait(false);
+            var result = await Task.Run(() => search(request.Token), request.Token).ConfigureAwait(false);
+            lock (gate) return ReferenceEquals(current, request) && !request.IsCancellationRequested ? result : null;
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { return null; }
+        finally
+        {
+            lock (gate) { if (ReferenceEquals(current, request)) current = null; }
+            request.Dispose();
+        }
+    }
 }
 public static class PlayerFields
 {

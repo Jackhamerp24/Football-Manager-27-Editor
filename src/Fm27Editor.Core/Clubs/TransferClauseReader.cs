@@ -7,6 +7,9 @@ namespace Fm27Editor.Core.Clubs;
 
 public enum TransferClauseKind { SellOn, AppearanceFee, CompetitionBonus }
 
+/// <summary>Owner and vector position captured alongside a clause.</summary>
+public sealed record TransferClauseOrigin(ulong Club, ulong Holder, ulong Begin, ulong End, ulong Capacity, ulong Slot);
+
 /// <summary>
 /// A clause agreed in an earlier transfer of one of the club's players, owed to <see cref="Beneficiary"/>.
 /// Fields that a kind does not have stay null. <see cref="SignedFor"/> is the fee the player was signed for, as
@@ -24,7 +27,9 @@ public sealed record TransferClause(
     int? AppearancesSoFar,
     int? CompetitionIndex,
     CompetitionInfo? Competition,
-    DateOnly? Ends);
+    DateOnly? Ends,
+    TransferClauseOrigin? Origin = null,
+    string? Snapshot = null);
 
 /// <summary>
 /// Record layouts on 27.0.0+2486695, checked against FMRTE 27's clause screens (Almería, Getafe, Sheffield United):
@@ -45,7 +50,9 @@ public sealed class TransferClauseReader(IProcessMemory memory, OffsetProfile pr
         if (clubAddress == 0 || profile.Club is not { TransferClauses: { } t } k) return [];
         if (!Q(clubAddress, out ulong vt) || vt != moduleBase + k.ClubVtableRva) return [];
         if (!Q(clubAddress + (ulong)t.Pointer, out ulong holder) || holder == 0) return [];
-        if (!Q(holder, out ulong begin) || !Q(holder + 8, out ulong end) || end < begin || (end - begin) / 8 > MaxClauses) return [];
+        if (!Q(holder, out ulong begin) || !Q(holder + 8, out ulong end) || !Q(holder + 16, out ulong capacity)
+            || end < begin || capacity < end || (end - begin) % 8 != 0 || (capacity - begin) % 8 != 0
+            || (end - begin) / 8 > MaxClauses) return [];
 
         var clauses = new List<TransferClause>();
         var b = new byte[RecordSize];
@@ -57,21 +64,24 @@ public sealed class TransferClauseReader(IProcessMemory memory, OffsetProfile pr
             if (!full && !memory.TryRead(c, b.AsSpan(0, 0x28))) continue;
             ulong v = BitConverter.ToUInt64(b) - moduleBase;
             int player = BitConverter.ToInt32(b, 8);
+            var origin = new TransferClauseOrigin(clubAddress, holder, begin, end, capacity, p);
             if (v == t.SellOnVtableRva)
             {
                 int signedFor = BitConverter.ToInt32(b, 0x18);
                 clauses.Add(new(c, TransferClauseKind.SellOn, player, Club(BitConverter.ToUInt64(b, 0x10)),
-                    null, BitConverter.ToInt16(b, 0x22), signedFor < 0 ? null : signedFor, null, null, null, null, null));
+                    null, BitConverter.ToInt16(b, 0x22), signedFor < 0 ? null : signedFor, null, null, null, null, null, origin,
+                    Convert.ToHexString(b.AsSpan(0, 0x28))));
             }
             else if (v == t.AppearanceFeeVtableRva)
                 clauses.Add(new(c, TransferClauseKind.AppearanceFee, player, Club(BitConverter.ToUInt64(b, 0x10)),
-                    BitConverter.ToInt32(b, 0x18), null, null, BitConverter.ToInt16(b, 0x1C), BitConverter.ToInt16(b, 0x1E), null, null, null));
+                    BitConverter.ToInt32(b, 0x18), null, null, BitConverter.ToInt16(b, 0x1C), BitConverter.ToInt16(b, 0x1E), null, null, null, origin,
+                    Convert.ToHexString(b.AsSpan(0, 0x28))));
             else if (v == t.CompetitionBonusVtableRva && full)
             {
                 int index = BitConverter.ToInt32(b, 0x24);
                 clauses.Add(new(c, TransferClauseKind.CompetitionBonus, player, Club(BitConverter.ToUInt64(b, 0x30)),
                     BitConverter.ToInt32(b, 0x28), null, null, null, null, index, competitions?.GetValueOrDefault(index),
-                    Date(BitConverter.ToInt16(b, 0x10), BitConverter.ToInt16(b, 0x12))));
+                    Date(BitConverter.ToInt16(b, 0x10), BitConverter.ToInt16(b, 0x12)), origin, Convert.ToHexString(b)));
             }
         }
         return clauses;

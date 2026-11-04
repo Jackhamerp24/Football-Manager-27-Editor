@@ -1,7 +1,8 @@
 # AGENTS.md — Football Manager 27 Editor
 
+Agent mới nhận việc: đọc [docs/HANDOVER.md](docs/HANDOVER.md) trước (trạng thái, cách chạy, việc còn lại, quy tắc người dùng đã chốt).
 Đọc hết file này trước khi sửa code. Nó mô tả app làm gì, chạy thế nào, thiết kế ra sao, cái gì đã kiểm chứng, và quy tắc làm việc.
-Chi tiết RE thô (offset, ảnh chụp bộ nhớ, giả thuyết) nằm ở `re/FMRTE26-findings.md` (chỉ có trên máy, không lên git).
+Chi tiết RE thô (offset, ảnh chụp bộ nhớ, giả thuyết) nằm ở `re/FM27-findings.md` (chỉ có trên máy, không lên git).
 Nghiên cứu RCA có quy tắc riêng: [docs/rca-research-rules.md](docs/rca-research-rules.md).
 
 ## 1. App là gì
@@ -10,7 +11,6 @@ Editor dùng **trong lúc đang chơi Football Manager 27**, chỉ cho save offl
 mở process `fm.exe`, đọc và ghi bộ nhớ của module `game_plugin.dll` (engine C++ của SI, không phải IL2CPP).
 Không hook, không inject code, không sửa file game. Tên app: **Football Manager 27 Editor**.
 
-- FMRTE 26 đã được RE **chỉ để hiểu cơ chế**. Không copy code, asset hay chuỗi của FMRTE. Mọi offset FM27 tự đo trên game thật.
 - IGE (In-Game Editor chính thức của SI, chạy trên FM26) được dùng làm "đáp án": chụp RAM trước/sau một thao tác IGE
   để biết thao tác hợp lệ phải đổi những gì.
 - Ưu tiên của người dùng: **mọi thao tác nhanh nhất có thể**. App không được phình tới vài trăm MB.
@@ -23,7 +23,7 @@ Không hook, không inject code, không sửa file game. Tên app: **Football Ma
 | | |
 |---|---|
 | Dự án | `C:\Users\Duong\Desktop\FMRTE clone 27` (git, nhánh `main`) |
-| FM27 | `C:\Program Files (x86)\Steam\steamapps\common\Football Manager 27`, build **`27.0.0+2486695`** |
+| FM27 | `C:\Program Files (x86)\Steam\steamapps\common\Football Manager 27`, build đã đo **`27.0.0+2486695`**; game đã cập nhật lên `27.0.0+2493426` (3/11/2026), profile mới chưa có: xem `docs/HANDOVER.md` §0 |
 | FM26 | `F:\SteamLibrary\steamapps\common\Football Manager 26`, build `26.3.2+2329565`, có IGE |
 | FMRTE 26 | `C:\BraCa Soft\FMRTE 26` (dùng làm đáp án trên FM26) |
 | Stack | C# / .NET 10, Avalonia 11.3 |
@@ -45,7 +45,7 @@ Copy thư mục `bin/Release/net10.0` ra `%TEMP%` rồi chạy (`dotnet vstest <
 | `tests/Fm27Editor.App.Tests` | Test view model / nhãn |
 | `tests/golden/<build>.players.json` | Giá trị chép từ UI game, đáp án cho `verify` và `find-offsets` |
 | `re/tools/memscan` | Công cụ dò bộ nhớ (chỉ đọc, trừ lệnh `write`) |
-| `docs/club-plan.md` | Kế hoạch mục Club: số liệu FMRTE, công cụ `club`/`probe`, chia lane cho 5 agent |
+| `docs/club-plan.md` | Số liệu FMRTE cũ của Sheffield United mà test trích dẫn |
 
 ## 4. Core hoạt động thế nào
 
@@ -127,7 +127,11 @@ Sai ở bước nào thì ném `StaleObjectException` / `MemoryAccessException`,
 
 ## 7. Đã kiểm chứng trên game thật
 
+- Nation Gain Nationality Type: `nation+0x1EB`, 1 Continuous và 2 Accumulative. Trên England (765) và Vietnam (145), đã ghi thử 1 → 2 qua writer có guard, đọc lại nhãn trong FMRTE 27 rồi khôi phục 1.
+
 - **FM27 `27.0.0+2486695`:**
+  - Nation, đội nam: Allow Multiple Assistant Managers ở `[nation+0x108]+0x87E`. Spain 0 và France 1 đã đổi, đối chiếu FMRTE, rồi hoàn nguyên; UI editor đã thử Save và hoàn nguyên Spain. Đội nữ chưa kiểm chứng.
+  - Nation Relationships: vector inline 16 byte ở `[nation+0x108]+0x48`, Rival Nation mã `0x0602` tại +0xA, con trỏ đội đối thủ +0, Value +0xC. Spain–Italy và France–Germany đã đổi, đối chiếu FMRTE, hoàn nguyên; editor đọc và sửa Value, đã thử UI. Thêm/xoá, Reason và loại khác chưa có.
   - Player: vtable `+0x4D27228`/`+0x4F75A08`, object `0x3C8`; chỉ số = `object + 0xB8 + offset FM26`; ID ở `+0x294`.
   - Hợp đồng `+0x330`, team thi đấu `+0x130`, CLB cũ `+0x390`, phí lần chuyển gần nhất `+0x244`.
   - Team: vtable `+0x4CE1108`, club `+0x30`, squad vector `+0x38/+0x40/+0x48`.
@@ -146,20 +150,13 @@ Sai ở bước nào thì ném `StaleObjectException` / `MemoryAccessException`,
   - tự ghi chuyển JJ Gabriel sang Real Madrid, game nhận và chơi qua một trận không crash;
   - bản ghi **sell-on** (0x28 byte: player ID, CLB hưởng, giá lúc ký, %);
   - bản ghi **phí có điều kiện** (0x38 byte, vtable `+0x459AF48`);
-  - chi tiết ở `re/FMRTE26-findings.md`.
+  - chi tiết ở `re/FM27-findings.md`.
 - **Cơ chế FM** (người dùng cung cấp): CA là gốc, chỉ số dần bị kéo về mức hợp với CA. RCA không lưu trong RAM.
 - Phí đoàn kết: CLB đào tạo cầu thủ (tuổi 12–23) nhận % phí. Đây là lý do số dư CLB bán hụt so với phí.
 
-## 8. Còn mở (theo thứ tự đề xuất)
+## 8. Còn mở
 
-1. **Điều khoản chuyển nhượng** (đọc đã xong cho 3 loại):
-   - map mã điều kiện competition bonus ↔ tên (52 cho Horta/Bonini, 51 cho Morcillo; cần ảnh FMRTE/IGE);
-   - các loại còn lại: sell-on lợi nhuận, mua lại, trả góp (tìm vtable trong cùng vector);
-   - đã có: sửa giá trị cả 3 loại, thêm/xoá sell-on (`TransferClauseWriter`). Thêm/xoá appearance fee / competition bonus cần giải mã danh sách toàn game thứ hai (bản ghi appearance được trỏ từ một buffer ở `0x1AD72B24BA0` của save này, không phải std::vector);
-   - chưa thử trong game: sell-on cấp bằng VirtualAllocEx khi game trả tiền và giải phóng bản ghi (bán cầu thủ lần sau).
-2. Tạo hợp đồng mới khi chuyển (IGE làm vậy), cho mượn, lịch sử chuyển nhượng, phí đoàn kết.
-3. Quốc tịch (object Nation), Staff, chấn thương, án treo giò, preset (Heal, Remove bans...), freezer, mass edit, so sánh, xuất dữ liệu.
-4. Chưa thử trên game: ghi chiều cao/ngày sinh, Add/Remove điều khoản từ UI.
+Danh sách việc còn lại nằm ở `docs/HANDOVER.md` §5.
 
 ## 9. Quy tắc bắt buộc
 
@@ -172,7 +169,7 @@ Sai ở bước nào thì ném `StaleObjectException` / `MemoryAccessException`,
 - **Golden:** chỉ giá trị đã thấy trong game, bỏ khoảng do scout. Nếu `verify` lệch thì coi là người dùng đã sửa: cập nhật kèm `note`.
   Chỉ báo người dùng khi lệch kiểu offset sai (nhiều cầu thủ cùng lệch đều).
 - **RE:** không tự đoán FM có những gì; hỏi người dùng hoặc tìm trên mạng. Tìm cầu thủ theo **ID** (có trùng tên).
-  Ghi kết quả vào `re/FMRTE26-findings.md`, tách Quan sát / Suy luận / Chưa biết.
+  Ghi kết quả vào `re/FM27-findings.md`, tách Quan sát / Suy luận / Chưa biết.
 - Báo cáo phân biệt kết quả đã chạy với dự đoán.
 - Không nhắc tới usage hay trạng thái commit trừ khi người dùng hỏi. Không chạy Jev router.
 

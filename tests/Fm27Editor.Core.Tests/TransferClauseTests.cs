@@ -1,4 +1,5 @@
 using Fm27Editor.Core.Clubs;
+using Fm27Editor.Core.Memory;
 
 namespace Fm27Editor.Core.Tests;
 
@@ -91,6 +92,23 @@ public class TransferClauseTests
         Assert.Null(c[2].Competition);
     }
 
+    [Fact]
+    public void Reader_rejects_a_vector_ending_inside_a_pointer()
+    {
+        // Almería has four pointer slots; the last byte of the fourth lies outside this corrupt vector.
+        Assert.True(_w.Memory.TryWrite(Holder + 8, BitConverter.GetBytes(List + 31)));
+        Assert.Empty(Read(Almeria));
+    }
+
+    [Theory]
+    [InlineData(24)]
+    [InlineData(33)]
+    public void Reader_rejects_a_capacity_before_end_or_inside_a_pointer(int capacityOffset)
+    {
+        Assert.True(_w.Memory.TryWrite(Holder + 16, BitConverter.GetBytes(List + (ulong)capacityOffset)));
+        Assert.Empty(Read(Almeria));
+    }
+
     /// <summary>
     /// Getafe: Uche's sell-on to Ceuta, FMRTE shows 15% and "Signed For £429,515" (+0x18 = CB 8D 06 00).
     /// Sheffield United: Tanganga's appearance fee to Millwall, +0x18 = 40 42 0F 00 32 00 28 00 (1,000,000, 50, 40 so far).
@@ -161,9 +179,9 @@ public class TransferClauseTests
         var horta = _w.Bytes(Horta, 0x38);
         Writer().SetPercentage(c[0], 40);
         Writer().SetAmount(c[1], 50000);
-        Writer().SetAppearances(c[1], 10);
+        Writer().SetAppearances(Read(Almeria)[1], 10);
         Writer().SetAmount(c[2], 1_000_000);
-        Writer().SetEnds(c[2], new DateOnly(2030, 6, 30));
+        Writer().SetEnds(Read(Almeria)[2], new DateOnly(2030, 6, 30));
 
         // 40 = 0x28 at +0x22; 50000 = 0xC350 at +0x18, 10 at +0x1C; 1,000,000 = 0x0F4240 at +0x28;
         // 30/6/2030 is day 181 (non-leap), 2030 = 0x07EE.
@@ -176,6 +194,121 @@ public class TransferClauseTests
 
         Writer().SetEnds(Read(Almeria)[2], null);
         Assert.Equal(new byte[] { 0x01, 0x00, 0x6C, 0x07 }, _w.Bytes(Horta + 0x10, 4));
+    }
+
+    [Fact]
+    public void Grouped_save_updates_both_fields_for_each_clause_kind()
+    {
+        var c = Read(Almeria);
+        var sellOn = _w.Bytes(Arribas, 0x28);
+        var appearance = _w.Bytes(Luna, 0x28);
+        var bonus = _w.Bytes(Horta, 0x38);
+        Writer().SetValues(c[0], 40, true, 2_500_000, null);
+        Writer().SetValues(c[1], 50_000, true, 10, null);
+        Writer().SetValues(c[2], 1_000_000, true, null, new DateOnly(2030, 6, 30));
+
+        Convert.FromHexString("A0252600").CopyTo(sellOn, 0x18);
+        Convert.FromHexString("2800").CopyTo(sellOn, 0x22);
+        Convert.FromHexString("50C300000A00").CopyTo(appearance, 0x18);
+        Convert.FromHexString("B500EE07").CopyTo(bonus, 0x10);
+        Convert.FromHexString("40420F00").CopyTo(bonus, 0x28);
+        Assert.Equal(sellOn, _w.Bytes(Arribas, 0x28));
+        Assert.Equal(appearance, _w.Bytes(Luna, 0x28));
+        Assert.Equal(bonus, _w.Bytes(Horta, 0x38));
+    }
+
+    [Fact]
+    public void Grouped_save_can_clear_optional_fields_and_update_only_the_main_field()
+    {
+        // FMRTE: a sell-on with a known signed-for amount; -1 denotes no amount, and 1/1/1900 denotes no end date.
+        Assert.True(_w.Memory.TryWrite(Arribas + 0x18, Convert.FromHexString("A0252600")));
+        var c = Read(Almeria);
+        Writer().SetValues(c[0], null, true, null, null);
+        Writer().SetValues(c[1], 50_000, false, null, null);
+        Writer().SetValues(c[2], null, true, null, null);
+
+        Assert.Equal(Convert.FromHexString("FFFFFFFF00000000FF003200"), _w.Bytes(Arribas + 0x18, 12));
+        Assert.Equal(Convert.FromHexString("50C3000005000000"), _w.Bytes(Luna + 0x18, 8));
+        Assert.Equal(Convert.FromHexString("01006C07"), _w.Bytes(Horta + 0x10, 4));
+        Assert.Equal(429515, BitConverter.ToInt32(_w.Bytes(Horta + 0x28, 4)));
+    }
+
+    [Fact]
+    public void Grouped_save_rejects_invalid_extra_before_writing_main()
+    {
+        var c = Read(Almeria);
+        var sellOn = _w.Bytes(Arribas, 0x28);
+        var appearance = _w.Bytes(Luna, 0x28);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Writer().SetValues(c[0], 40, true, -2, null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Writer().SetValues(c[1], 50_000, true, 0, null));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(sellOn, _w.Bytes(Arribas, 0x28));
+        Assert.Equal(appearance, _w.Bytes(Luna, 0x28));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Grouped_save_rechecks_record_and_vector_before_the_second_write(bool changeVector)
+    {
+        var snapshot = Read(Almeria)[1];
+        var intercepted = new AfterFirstWriteMemory(_w.Memory, () =>
+        {
+            if (changeVector) Assert.True(_w.Memory.TryWrite(Holder + 16, BitConverter.GetBytes(List + 40)));
+            else Assert.True(_w.Memory.TryWrite(Luna + 0x1E, BitConverter.GetBytes((short)1)));
+        });
+        var writer = new TransferClauseWriter(intercepted, _w.Profile, TestWorld.ModuleBase);
+
+        var failure = Assert.Throws<PartialClauseWriteException>(() => writer.SetValues(snapshot, 50_000, true, 10, null));
+        Assert.IsType<Players.StaleObjectException>(failure.InnerException);
+        Assert.Equal(50_000, BitConverter.ToInt32(_w.Bytes(Luna + 0x18, 4)));
+        Assert.Equal(5, BitConverter.ToInt16(_w.Bytes(Luna + 0x1C, 2)));
+        Assert.Equal(changeVector ? 0 : 1, BitConverter.ToInt16(_w.Bytes(Luna + 0x1E, 2)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Grouped_save_reports_uncertain_first_write_when_write_or_readback_fails(bool failReadback)
+    {
+        var snapshot = Read(Almeria)[1];
+        var intercepted = new FailFirstWriteMemory(_w.Memory, failReadback);
+        var writer = new TransferClauseWriter(intercepted, _w.Profile, TestWorld.ModuleBase);
+
+        var failure = Assert.Throws<PartialClauseWriteException>(() => writer.SetValues(snapshot, 50_000, true, 10, null));
+        Assert.IsType<MemoryAccessException>(failure.InnerException);
+        Assert.Equal(50_000, BitConverter.ToInt32(_w.Bytes(Luna + 0x18, 4)));
+        Assert.Equal(5, BitConverter.ToInt16(_w.Bytes(Luna + 0x1C, 2)));
+    }
+
+    sealed class FailFirstWriteMemory(FakeMemory inner, bool failReadback) : IProcessMemory
+    {
+        bool wrote;
+        public bool TryRead(ulong address, Span<byte> buffer)
+        {
+            if (wrote && failReadback && address == Luna + 0x18 && buffer.Length == 4) return false;
+            return inner.TryRead(address, buffer);
+        }
+        public bool TryWrite(ulong address, ReadOnlySpan<byte> value)
+        {
+            bool written = inner.TryWrite(address, value);
+            wrote = written;
+            return written && failReadback;
+        }
+    }
+
+    sealed class AfterFirstWriteMemory(FakeMemory inner, Action afterWrite) : IProcessMemory
+    {
+        bool fired;
+        public bool TryRead(ulong address, Span<byte> buffer) => inner.TryRead(address, buffer);
+        public bool TryWrite(ulong address, ReadOnlySpan<byte> value)
+        {
+            bool written = inner.TryWrite(address, value);
+            if (written && !fired) { fired = true; afterWrite(); }
+            return written;
+        }
     }
 
     [Fact]
@@ -209,6 +342,90 @@ public class TransferClauseTests
         Assert.Throws<ArgumentOutOfRangeException>(() => Writer().SetPercentage(Read(Almeria)[0], 101));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Edit_and_remove_refuse_a_reused_clause_address_with_a_different_player(bool remove)
+    {
+        var snapshot = Read(Almeria)[0];
+        // Keep the sell-on vtable, list membership and 50% intact while the player ID changes.
+        Assert.True(_w.Memory.TryWrite(Arribas + 8, BitConverter.GetBytes(2000111004)));
+        var record = _w.Bytes(Arribas, 0x28);
+        var header = _w.Bytes(Holder, 24);
+        var pointers = _w.Bytes(List, 32);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<Players.StaleObjectException>(() =>
+        {
+            if (remove) Writer().RemoveSellOn(Almeria, snapshot);
+            else Writer().SetPercentage(snapshot, 40);
+        });
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(record, _w.Bytes(Arribas, 0x28));
+        Assert.Equal(header, _w.Bytes(Holder, 24));
+        Assert.Equal(pointers, _w.Bytes(List, 32));
+    }
+
+    [Fact]
+    public void Edit_refuses_a_clause_removed_from_its_original_slot()
+    {
+        var snapshot = Read(Almeria)[0];
+        Assert.True(_w.Memory.TryWrite(List, BitConverter.GetBytes(Link)));
+        var record = _w.Bytes(Arribas, 0x28);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<Players.StaleObjectException>(() => Writer().SetPercentage(snapshot, 40));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(record, _w.Bytes(Arribas, 0x28));
+    }
+
+    [Fact]
+    public void Edit_refuses_another_field_changed_since_record_snapshot()
+    {
+        var snapshot = Read(Almeria)[0];
+        Assert.True(_w.Memory.TryWrite(Arribas + 0x10, BitConverter.GetBytes(Braga)));
+        var record = _w.Bytes(Arribas, 0x28);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<Players.StaleObjectException>(() => Writer().SetPercentage(snapshot, 40));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(record, _w.Bytes(Arribas, 0x28));
+    }
+
+    [Fact]
+    public void Remove_refuses_a_replaced_holder_even_if_vector_contents_are_unchanged()
+    {
+        var snapshot = Read(Almeria)[0];
+        const ulong replacement = 0x5001_1000;
+        _w.Bytes(Holder, 24).CopyTo(_w.Memory.Map(replacement, 24), 0);
+        Assert.True(_w.Memory.TryWrite(Almeria + 0xB0, BitConverter.GetBytes(replacement)));
+        var header = _w.Bytes(replacement, 24);
+        var pointers = _w.Bytes(List, 32);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<Players.StaleObjectException>(() => Writer().RemoveSellOn(Almeria, snapshot));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(header, _w.Bytes(replacement, 24));
+        Assert.Equal(pointers, _w.Bytes(List, 32));
+    }
+
+    [Fact]
+    public void Remove_refuses_a_changed_clause_record_even_when_identity_and_slot_match()
+    {
+        var snapshot = Read(Almeria)[0];
+        Assert.True(_w.Memory.TryWrite(Arribas + 0x10, BitConverter.GetBytes(Braga)));
+        var record = _w.Bytes(Arribas, 0x28);
+        var header = _w.Bytes(Holder, 24);
+        var pointers = _w.Bytes(List, 32);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<Players.StaleObjectException>(() => Writer().RemoveSellOn(Almeria, snapshot));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(record, _w.Bytes(Arribas, 0x28));
+        Assert.Equal(header, _w.Bytes(Holder, 24));
+        Assert.Equal(pointers, _w.Bytes(List, 32));
+    }
+
     [Fact]
     public void Remove_shifts_the_vector_and_leaves_the_others()
     {
@@ -217,6 +434,24 @@ public class TransferClauseTests
         Assert.Equal(List + 3 * 8, BitConverter.ToUInt64(_w.Bytes(Holder + 8, 8)));
         Assert.Equal([Link, Luna, Horta], Enumerable.Range(0, 3).Select(i => BitConverter.ToUInt64(_w.Bytes(List + (ulong)i * 8, 8))));
         Assert.Equal([TransferClauseKind.AppearanceFee, TransferClauseKind.CompetitionBonus], Read(Almeria).Select(c => c.Kind));
+    }
+
+    [Theory]
+    [InlineData(31, 32)]
+    [InlineData(32, 33)]
+    public void Remove_refuses_unaligned_vector_header_without_writing(int endOffset, int capacityOffset)
+    {
+        var clause = Read(Almeria)[0];
+        Assert.True(_w.Memory.TryWrite(Holder + 8, BitConverter.GetBytes(List + (ulong)endOffset)));
+        Assert.True(_w.Memory.TryWrite(Holder + 16, BitConverter.GetBytes(List + (ulong)capacityOffset)));
+        var header = _w.Bytes(Holder, 24);
+        var pointers = _w.Bytes(List, 32);
+        int writes = _w.Memory.Writes;
+
+        Assert.Throws<Players.StaleObjectException>(() => Writer().RemoveSellOn(Almeria, clause));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(header, _w.Bytes(Holder, 24));
+        Assert.Equal(pointers, _w.Bytes(List, 32));
     }
 
     [Fact]

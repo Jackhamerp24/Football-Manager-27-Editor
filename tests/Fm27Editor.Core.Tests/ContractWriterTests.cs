@@ -14,7 +14,7 @@ public class ContractWriterTests
 
     public ContractWriterTests()
     {
-        var c = _w.Memory.Map(Contract, 0xC0);
+        var c = _w.Memory.Map(Contract, 0xC8);
         TestWorld.Set64(c, 0x00, TestWorld.ModuleBase + ContractVtable);
         BitConverter.GetBytes(40130).CopyTo(c, 0x20);
         TestWorld.Set16(c, 0x48, 182); TestWorld.Set16(c, 0x4A, 2028); // 30 June 2028, leap year: day 182
@@ -39,6 +39,89 @@ public class ContractWriterTests
         Assert.Equal(new byte[] { 181, 0, 0xEE, 0x07 }, after[0x48..0x4C]); // 30 June 2030 = day 181, 2030 = 0x7EE
         after[0x20..0x24].CopyTo(before, 0x20); before[0x54] = after[0x54]; after[0x48..0x4C].CopyTo(before, 0x48);
         Assert.Equal(before, after);
+    }
+
+    // Contract type is the byte at +0xC3 (FM26's ContractType offset): over 43,000 contracts on 15/8/2026 +0x26 was almost always 1
+    // while +0xC3 varied, and FMRTE 27 showed Roderick Briffa (0) Part Time, Ibrahim Dosso (3) Youth, Omar Marmoush's offered
+    // contract (1) Full Time and David Silva (4) blank. FMRTE writing Part Time on Marmoush's offered contract left +0xC3 = 0.
+    [Fact]
+    public void Type_is_the_byte_at_0xC3()
+    {
+        Assert.True(_w.Memory.TryWrite(Contract + 0x24, [0x0B, 0x00, 0x01, 0x00]));
+        Assert.True(_w.Memory.TryWrite(Contract + 0xC3, [0]));
+        var s = Writer().Read(Player())!;
+        Assert.Equal(ContractType.PartTime, s.Type);
+        var before = _w.Bytes(Contract, 0xC8);
+        Writer().SetType(Player(), s, ContractType.Youth);
+        before[0xC3] = 3;
+        Assert.Equal(before, _w.Bytes(Contract, 0xC8));
+        Assert.Equal(ContractType.Youth, Writer().Read(Player())!.Type);
+    }
+
+    [Fact]
+    public void Shift_expiry_moves_by_whole_years_and_keeps_the_day()
+    {
+        Writer().ShiftExpiry(Player(), 1);
+        // 30 June 2029 (non-leap) = day 181, 2029 = 0x07ED.
+        Assert.Equal(new byte[] { 181, 0, 0xED, 0x07 }, _w.Bytes(Contract + 0x48, 4));
+        Writer().ShiftExpiry(Player(), -2);
+        // 30 June 2027 = day 181, 2027 = 0x07EB.
+        Assert.Equal(new byte[] { 181, 0, 0xEB, 0x07 }, _w.Bytes(Contract + 0x48, 4));
+        Assert.Equal(new DateOnly(2027, 6, 30), Player().Contract!.Expires);
+    }
+
+    /// <summary>User's rule: Renew for 4 Years counts from the game date (22/7/2026 in the test save), not from the expiry.</summary>
+    [Fact]
+    public void Renew_counts_from_the_game_date()
+    {
+        Writer().RenewForYears(Player(), 4, new DateOnly(2026, 7, 22));
+        // 22 July 2030 = day 203 (non-leap: 181 + 22), 2030 = 0x07EE.
+        Assert.Equal(new byte[] { 203, 0, 0xEE, 0x07 }, _w.Bytes(Contract + 0x48, 4));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Writer().RenewForYears(Player(), 0, new DateOnly(2026, 7, 22)));
+    }
+
+    /// <summary>User's rule: Make it Expire sets the expiry to the game date.</summary>
+    [Fact]
+    public void Make_expire_sets_the_game_date()
+    {
+        Writer().MakeExpire(Player(), new DateOnly(2026, 7, 22));
+        // 22 July 2026 = day 203, 2026 = 0x07EA.
+        Assert.Equal(new byte[] { 203, 0, 0xEA, 0x07 }, _w.Bytes(Contract + 0x48, 4));
+    }
+
+    /// <summary>"Apply to all" shifts whatever the game holds now, not an old snapshot: re-read, then a guarded write.</summary>
+    [Fact]
+    public void Shift_expiry_uses_the_current_date_when_the_game_changed_it()
+    {
+        var snapshot = Player();
+        // The game moved the expiry to day 100 of 2028 (9 April, leap year) after the snapshot was taken.
+        Assert.True(_w.Memory.TryWrite(Contract + 0x48, BitConverter.GetBytes((short)100)));
+        Writer().ShiftExpiry(snapshot, 1);
+        // 9 April 2029 = day 99 (non-leap), 2029 = 0x07ED.
+        Assert.Equal(new byte[] { 99, 0, 0xED, 0x07 }, _w.Bytes(Contract + 0x48, 4));
+    }
+
+    /// <summary>
+    /// FMRTE 27, Man Utd: Tielemans Number 18, Joined Club 13/7/2026 (player + 0x3A4 raw C200EA07). Writing 20/7/2026 to
+    /// player + 0x3A4 changed FMRTE's Joined Club only; the number is one signed byte at contract + 0x5D (-1 = none).
+    /// </summary>
+    [Fact]
+    public void Squad_number_is_a_byte_and_joined_club_lives_in_the_player()
+    {
+        Assert.True(_w.Memory.TryWrite(Contract + 0x5C, [10, 18, 0]));
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x3A4, Convert.FromHexString("C200EA07")));
+        var d = Writer().Read(Player())!;
+        Assert.Equal(18, d.SquadNumber);
+        Assert.Equal(new DateOnly(2026, 7, 13), d.JoinedClub);
+
+        var contractBefore = _w.Bytes(Contract, 0xC0);
+        Writer().SetJoinedClub(Player(), d, new DateOnly(2026, 7, 20));
+        Assert.Equal(Convert.FromHexString("C900EA07"), _w.Bytes(TestWorld.Mainoo + 0x3A4, 4));
+        Assert.Equal(contractBefore, _w.Bytes(Contract, 0xC0));
+
+        Writer().SetSquadNumber(Player(), Writer().Read(Player())!, -1);
+        Assert.Equal(new byte[] { 10, 0xFF, 0 }, _w.Bytes(Contract + 0x5C, 3));
+        Assert.Equal(-1, Writer().Read(Player())!.SquadNumber);
     }
 
     [Fact]

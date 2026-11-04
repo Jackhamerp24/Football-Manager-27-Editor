@@ -17,6 +17,13 @@ public sealed class PlayerWriter(IProcessMemory memory, OffsetProfile profile, u
             [AttributeScaling.ToRaw(display, profile.AttributeScale)]);
     }
 
+    /// <summary>Copies a stored 1–100 value as is (cloning keeps values the 1–20 scale would round).</summary>
+    public void SetAttributeRaw(PlayerRecord player, PlayerAttribute attribute, byte raw)
+    {
+        RequireRange(raw, 1, 100, attribute.ToString());
+        WriteGuarded(player, profile.Attributes[attribute], [player.Raw(attribute)], [raw]);
+    }
+
     public void SetPosition(PlayerRecord player, PlayerPosition position, int value)
     {
         RequireRange(value, 1, 20, position.ToString());
@@ -82,8 +89,11 @@ public sealed class PlayerWriter(IProcessMemory memory, OffsetProfile profile, u
     void WriteGuarded(PlayerRecord player, int offset, byte[] expected, byte[] value)
     {
         ulong vt = memory.ReadUInt64(player.Address);
-        if (!profile.PlayerVtableRvas.Any(v => moduleBase + v == vt))
+        if (!profile.PlayerVtableRvas.Any(v => moduleBase + v == vt) || vt != moduleBase + player.VtableRva)
             throw new StaleObjectException($"0x{player.Address:X} is no longer a player object");
+        if (profile.Fields.Id is { } idOffset && player.Id is > 0 &&
+            BitConverter.ToInt32(memory.Read(player.Address + (ulong)idOffset, 4)) != player.Id)
+            throw new StaleObjectException($"Player identity at 0x{player.Address:X} changed");
         ulong address = player.Address + (ulong)offset;
         var current = memory.Read(address, expected.Length);
         if (!current.AsSpan().SequenceEqual(expected))

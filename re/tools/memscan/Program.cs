@@ -20,7 +20,7 @@ static class Native
     public struct MBI { public nint BaseAddress, AllocationBase; public uint AllocationProtect; public ushort PartitionId; public nint RegionSize; public uint State, Protect, Type; }
 }
 
-static class Program
+static partial class Program
 {
     static nint H;
     static ulong ModBase, ModEnd;
@@ -60,6 +60,8 @@ static class Program
             case "path": PathTo(Convert.ToUInt64(args[1], 16), args[2], int.Parse(args[3])); break;
             case "bytestats": ByteStats(Convert.ToUInt64(args[1], 16), int.Parse(args[2]), int.Parse(args[3])); break;
             case "field": FindField(args.Skip(1).ToArray()); break;
+            case "pagesnap": PageSnap(args[1]); break;
+            case "pagediff": PageDiff(args[1], args.Length > 2 ? int.Parse(args[2]) : 40); break;
             case "dump": Dump(Convert.ToUInt64(args[1], 16), Convert.ToInt32(args[2])); break;
             case "name": FindText(string.Join(" ", args.Skip(1))); break;
         }
@@ -675,3 +677,4 @@ static class Program
                 }
     }
 }
+

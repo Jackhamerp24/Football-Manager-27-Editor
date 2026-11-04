@@ -12,6 +12,15 @@ public static class GameClock
     /// </summary>
     public static DateOnly? Read(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
     {
+        if (profile.DirectGameDateRva is { } rva)
+        {
+            Span<byte> raw = stackalloc byte[4];
+            if (!memory.TryRead(moduleBase + rva, raw)) return null;
+            int day = BitConverter.ToUInt16(raw) & 0x1FF;
+            int year = BitConverter.ToUInt16(raw[2..]);
+            if (year is < 1901 or > 2300 || day < 1 || day > (DateTime.IsLeapYear(year) ? 366 : 365)) return null;
+            return new DateOnly(year, 1, 1).AddDays(day - 1);
+        }
         if (profile.GameDate is not { } g) return null;
         var primary = Follow(memory, moduleBase, g.Primary);
         if (primary is null || g.CrossCheck is null) return primary;

@@ -40,6 +40,13 @@ public sealed class EditorTests
         var error = new MemoryAccessException("Read failed at 0x12345678");
         Assert.Equal("Couldn't access game data. Check that a save is loaded and retry.", UserMessage.For(error));
     }
+
+    [Fact]
+    public void PartialClauseSaveMessageDoesNotClaimEverythingWasReloaded()
+    {
+        var error = new Fm27Editor.Core.Clubs.PartialClauseWriteException(new StaleObjectException("changed"));
+        Assert.Equal("Some clause fields may have been saved. Reload before retrying.", UserMessage.For(error));
+    }
     static (TestWorld world, PlayerRepository repo, EditService edits, PlayerRecord player) Setup()
     {
         var world = new TestWorld();
@@ -121,6 +128,44 @@ public sealed class EditorTests
         Assert.True(module.Matches(player, "STRIKER"));
         Assert.False(module.Matches(player, "Yamal"));
     }
+    [Fact]
+    public void SearchIndexUpdatesResultsWhenQuerySortOrSourceChanges()
+    {
+        var (_, _, _, original) = Setup();
+        PlayerRecord Make(ulong address, string name, short ability) => new()
+        {
+            Address = address, VtableRva = original.VtableRva, CommonName = name,
+            CurrentAbility = ability, PotentialAbility = ability, HomeReputation = 0, CurrentReputation = 0,
+            WorldReputation = 0, Height = 180, RawAttributes = original.RawAttributes,
+            AttributeScale = 5, Positions = original.Positions, Personality = original.Personality,
+        };
+        var a = Make(1, "Álvaro", 180);
+        var b = Make(2, "Alana", 160);
+        IReadOnlyList<object> source = new object[] { a, b };
+        var index = new PlayerSearchIndex();
+        var module = new PlayersModule();
+        var byAbility = new PlayerSortSpec();
+        Assert.Equal(new[] { "Álvaro", "Alana" }, index.Filter(source, module, new PlayerFilter { NameQuery = "al" }, byAbility).Select(p => p.DisplayName));
+        Assert.Equal(new[] { "Álvaro" }, index.Filter(source, module, new PlayerFilter { NameQuery = "alv" }, byAbility).Select(p => p.DisplayName));
+        Assert.Equal(new[] { "Alana", "Álvaro" }, index.Filter(source, module, new PlayerFilter { NameQuery = "al" }, new PlayerSortSpec(PlayerSortKey.Name, false)).Select(p => p.DisplayName));
+        IReadOnlyList<object> replacement = new object[] { Make(3, "Alberto", 190) };
+        Assert.Equal(new[] { "Alberto" }, index.Filter(replacement, module, new PlayerFilter { NameQuery = "al" }, byAbility).Select(p => p.DisplayName));
+    }
+
+    [Fact]
+    public async Task LatestSearchDiscardsAnOlderResultThatFinishesAfterTheNewQuery()
+    {
+        var latest = new LatestSearch();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var old = latest.RunAsync(_ => { started.SetResult(); release.Wait(); return "old"; }, TimeSpan.Zero);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var newer = await latest.RunAsync(_ => "new", TimeSpan.Zero);
+        release.Set();
+        Assert.Equal("new", newer);
+        Assert.Null(await old);
+    }
+
     [Fact]
     public void EditWritesOnlyCrossingAndUndoRestoresIt()
     {

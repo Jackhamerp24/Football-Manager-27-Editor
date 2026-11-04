@@ -1,0 +1,1193 @@
+﻿{
+  "build": "27.0.0+2493426 Game Pass",
+  "module": "game_plugin.dll",
+  "buildStringRva": "0x4AA1513",
+  "playerList": {
+    "rootRva": "0x5683DC0",
+    "beginOffset": "0x0",
+    "endOffset": "0x8"
+  },
+  "playerVtables": [
+    "0x4CD6318",
+    "0x4F20D28"
+  ],
+  "player": {
+    "objectSize": "0x3C8",
+    "attributeScale": 5,
+    "attributes": {
+      "Crossing": "0x15F",
+      "Dribbling": "0x160",
+      "Finishing": "0x161",
+      "Heading": "0x162",
+      "LongShots": "0x163",
+      "Marking": "0x164",
+      "OffTheBall": "0x165",
+      "Passing": "0x166",
+      "PenaltyTaking": "0x167",
+      "Tackling": "0x168",
+      "Vision": "0x169",
+      "Handling": "0x16A",
+      "AerialReach": "0x16B",
+      "CommandOfArea": "0x16C",
+      "Communication": "0x16D",
+      "Kicking": "0x16E",
+      "Throwing": "0x16F",
+      "Anticipation": "0x170",
+      "Decisions": "0x171",
+      "OneOnOnes": "0x172",
+      "Positioning": "0x173",
+      "Reflexes": "0x174",
+      "FirstTouch": "0x175",
+      "Technique": "0x176",
+      "LeftFoot": "0x177",
+      "RightFoot": "0x178",
+      "Flair": "0x179",
+      "Corners": "0x17A",
+      "Teamwork": "0x17B",
+      "WorkRate": "0x17C",
+      "LongThrows": "0x17D",
+      "Eccentricity": "0x17E",
+      "RushingOut": "0x17F",
+      "TendencyToPunch": "0x180",
+      "Acceleration": "0x181",
+      "FreeKicks": "0x182",
+      "Strength": "0x183",
+      "Stamina": "0x184",
+      "Pace": "0x185",
+      "JumpingReach": "0x186",
+      "Leadership": "0x187",
+      "Dirtiness": "0x188",
+      "Balance": "0x189",
+      "Bravery": "0x18A",
+      "Consistency": "0x18B",
+      "Aggression": "0x18C",
+      "Agility": "0x18D",
+      "ImportantMatches": "0x18E",
+      "InjuryProneness": "0x18F",
+      "Versatility": "0x190",
+      "NaturalFitness": "0x191",
+      "Determination": "0x192",
+      "Composure": "0x193",
+      "Concentration": "0x194"
+    },
+    "positions": {
+      "Goalkeeper": "0x150",
+      "DefenderLeft": "0x152",
+      "DefenderCentral": "0x153",
+      "DefenderRight": "0x154",
+      "DefensiveMidfielder": "0x155",
+      "MidfielderLeft": "0x156",
+      "MidfielderCentral": "0x157",
+      "MidfielderRight": "0x158",
+      "AttackingMidLeft": "0x159",
+      "AttackingMidCentral": "0x15A",
+      "AttackingMidRight": "0x15B",
+      "Striker": "0x15C",
+      "WingBackLeft": "0x15D",
+      "WingBackRight": "0x15E"
+    },
+    "personality": {
+      "Adaptability": "0x2F8",
+      "Ambition": "0x2F9",
+      "Loyalty": "0x2FA",
+      "Pressure": "0x2FB",
+      "Professionalism": "0x2FC",
+      "Sportsmanship": "0x2FD",
+      "Temperament": "0x2FE",
+      "Controversy": "0x2FF"
+    },
+    "currentAbility": "0x264",
+    "potentialAbility": "0x266",
+    "homeReputation": "0x25E",
+    "currentReputation": "0x260",
+    "worldReputation": "0x262",
+    "height": "0x22E",
+    "dateOfBirth": "0x310",
+    "fullName": "0x2C8",
+    "firstName": "0x2D8",
+    "lastName": "0x2E0",
+    "commonName": "0x2E8",
+    "id": "0x294",
+    "fields": {
+      "Condition": {
+        "path": "0x25C",
+        "type": "int16"
+      },
+      "MatchSharpness": {
+        "path": "0x258",
+        "type": "int16"
+      },
+      "Jadedness": {
+        "path": "0x25A",
+        "type": "int16"
+      },
+      "Morale": {
+        "path": "0x26C",
+        "type": "byte"
+      },
+      "AskingPrice": {
+        "path": "0x234",
+        "type": "int32"
+      },
+      "Caps": {
+        "path": "0x3BC",
+        "type": "int16"
+      },
+      "InternationalGoals": {
+        "path": "0x3BE",
+        "type": "int16"
+      },
+      "SubCaps": {
+        "path": "0x3C0",
+        "type": "byte"
+      },
+      "SubGoals": {
+        "path": "0x3C1",
+        "type": "byte"
+      },
+      "ArrivedInCountry": {
+        "path": "0x3A8",
+        "type": "date"
+      },
+      "BodyType": {
+        "path": "0x230",
+        "type": "byte"
+      },
+      "NationalityInfo": {
+        "path": "0x26E",
+        "type": "byte"
+      },
+      "TreatedAsNonEuInItaly": {
+        "path": "0x278",
+        "type": "byte",
+        "mask": "0x8"
+      },
+      "RetiringAfterSpellAtCurrentClub": {
+        "path": "0x2A1",
+        "type": "byte",
+        "mask": "0x80"
+      },
+      "Ethnicity": {
+        "path": "0x315",
+        "type": "byte"
+      },
+      "HairColour": {
+        "path": "0x316",
+        "type": "byte"
+      },
+      "HairLength": {
+        "path": "0x317",
+        "type": "byte"
+      },
+      "SkinColour": {
+        "path": "0x318",
+        "type": "byte"
+      }
+    },
+    "injuries": {
+      "pointer": "0xF8",
+      "recordSize": "0x38",
+      "type": "0x8",
+      "start": "0x20",
+      "minimumDays": "0x28",
+      "extraDays": "0x2A",
+      "typeVtable": "0x4C60608",
+      "typeId": "0x8",
+      "typeName": "0x18",
+      "treatment": "0x30"
+    },
+    "relations": {
+      "pointer": "0x300",
+      "recordSize": "0x10",
+      "target": "0x0",
+      "type": "0xB",
+      "code": "0xC",
+      "registrationType": "0x19",
+      "trainedAtClubType": "0x48",
+      "trainedAtNationType": "0x46",
+      "reason": "0x8",
+      "flags": "0xD",
+      "likesPersonType": "0x1",
+      "dislikesPersonType": "0x2",
+      "likesTeamType": "0x3",
+      "personVtable": "0x4CD6848",
+      "staffPersonVtable": "0x4D3B3C8",
+      "personName": "0x40",
+      "personFirstName": "0x50",
+      "personLastName": "0x58",
+      "personCommonName": "0x60",
+      "targetKind": "0xA",
+      "playerPerson": "0x288",
+      "retiredInternationalType": "0xA",
+      "otherNationalityType": "0x9"
+    },
+    "bans": {
+      "vector": "0x18",
+      "recordSize": "0x20",
+      "item": "0x0",
+      "scope": "0x5",
+      "start": "0x10",
+      "days": "0x16",
+      "points": "0x18",
+      "reason": "0x1A",
+      "matches": "0x1C",
+      "fulfilled": "0x1D"
+    },
+    "preferredMoves": "0x348",
+    "languages": {
+      "vector": "0x378",
+      "recordSize": "0x10",
+      "language": "0x0",
+      "value": "0x8",
+      "languageVtable": "0x4F0F7F8",
+      "languageId": "0x8",
+      "languageName": "0x18"
+    },
+    "cities": {
+      "pointer": "0x308",
+      "listRootRva": "0x5683EF8",
+      "vtable": "0x4D8F1E8",
+      "id": "0xC",
+      "name": "0x18",
+      "nation": "0x20",
+      "latitude": "0x48",
+      "longitude": "0x4C",
+      "altitude": "0x50",
+      "inhabitants": "0x52",
+      "attraction": "0x54"
+    },
+    "cohesion": {
+      "vector": "0x18",
+      "entrySize": "0x8",
+      "kind": "0x4",
+      "value": "0x5",
+      "clubKind": "0x1",
+      "clubIndex": "0x8"
+    },
+    "careerPlans": {
+      "container": "0x350",
+      "recordSize": "0x10",
+      "item": "0x0",
+      "condition": "0x8",
+      "scope": "0x9",
+      "job": "0xA",
+      "itemType": "0xB",
+      "source": "0xC",
+      "continentVtable": "0x4D834E8",
+      "continentName": "0x18",
+      "nationContinent": "0xF0"
+    },
+    "proposals": {
+      "listRootRva": "0x5672240",
+      "listOffset": "0x8",
+      "person": "0x38",
+      "buyer": "0x40",
+      "seller": "0x50",
+      "value": "0x58",
+      "id": "0x5C",
+      "status": "0x8D",
+      "playerIds": "0x320",
+      "transferVtable": "0x4EE4098",
+      "loanVtable": "0x4DC39C8",
+      "trialVtable": "0x4C45478",
+      "bClubMoveVtable": "0x4C3D918"
+    },
+    "futureTransfers": {
+      "playerOffers": "0x328",
+      "recordContract": "0x10",
+      "recordOfferId": "0x28",
+      "dateVector": "0x38",
+      "datePerson": "0x0",
+      "date": "0x8",
+      "dateOfferId": "0xC",
+      "wage": "0x20",
+      "type": "0xC3",
+      "rolling": "0x2B",
+      "rollingMask": "0x8",
+      "started": "0x44",
+      "expires": "0x48",
+      "fullContractVtable": "0x4AC05F8",
+      "loanContractVtable": "0x4D78AF8"
+    },
+    "callUps": {
+      "listRva": "0x5684050",
+      "vtable": "0x4D71998",
+      "nation": "0x30",
+      "squad": "0x38"
+    }
+  },
+  "contract": {
+    "playerContract": "0x330",
+    "vtable": "0x4AC05F8",
+    "team": "0x10",
+    "seniorTeam": "0x18",
+    "owner": "0x8",
+    "job": "0x26",
+    "wage": "0x20",
+    "expiryDate": "0x48",
+    "joinedDate": "0x4C",
+    "teamClub": "0x30",
+    "playingTime": "0x54",
+    "type": "0xC3",
+    "started": "0x44",
+    "loyaltyBonus": "0x38",
+    "squadNumber": "0x5D",
+    "happiness": "0x5A",
+    "playingTimeHappiness": "0x5C",
+    "futurePlayingTime": "0xB8",
+    "futurePlayingTimeYear": "0xBC",
+    "playerJoinedClub": "0x3A4",
+    "clauses": "0x68",
+    "unhappiness": {
+      "pointer": "0x30",
+      "recordSize": "0x1C",
+      "start": "0x0",
+      "end": "0x4",
+      "item1": "0x8",
+      "item2": "0xC",
+      "motive": "0x16",
+      "type": "0x18"
+    }
+  },
+  "team": {
+    "captain": "0x88",
+    "viceCaptain": "0x90",
+    "vtable": "0x4C90A78",
+    "playerTeam": "0x130",
+    "squad": "0x38",
+    "classification": "0x28",
+    "ageLimit": "0x2C"
+  },
+  "pendingContract": {
+    "playerPointer": "0x328",
+    "clauses": "0x60"
+  },
+  "club": {
+    "medicalStaff": "0x60",
+    "coachingStaff": "0x78",
+    "scoutingStaff": "0x90",
+    "gender": "0xB9",
+    "staffAllocationClasses": [144, 160, 192, 224, 256, 288, 320, 384, 448, 512],
+    "lists": {
+      "teams": "0x18",
+      "teamDetails": "0xA0",
+      "vision": "0xC8",
+      "visionVector": "0x78", "visionImportanceEditable": true,
+      "visionHolderVtable": "0x4D6AEE8",
+      "cultureVtable": "0x4ACE098",
+      "cultureSize": "0x50",
+      "visionType": "0x2C",
+      "importance": "0x2D",
+      "visionStart": "0x20",
+      "visionEnd": "0x24",
+      "itemIndex": "0x8",
+      "itemMarker": "0xA",
+      "affiliations": "0x118",
+      "affiliationSize": "0x38",
+      "parent": "0x0",
+      "feeder": "0x8",
+      "affiliationStart": "0x20",
+      "affiliationStartEditable": true,
+      "affiliationType": "0x30",
+      "affiliationAnnualFee": "0x10",
+      "affiliationEnd": "0x24",
+      "affiliationFriendlyChance": "0x33",
+      "affiliationParentWagePercent": "0x36",
+      "affiliationPlayFriendlies": "0x1C",
+      "affiliationFirstOption": "0x1C",
+      "affiliationPlayersOnLoan": "0x1C",
+      "affiliationScoutingShared": "0x1D",
+      "regionalPointer": "0x138",
+      "regionalSize": "0xC",
+      "level": "0xA"
+    },
+    "relationships": {
+      "vector": "0x48",
+      "recordSize": "0x10",
+      "target": "0x0",
+      "reason": "0x8",
+      "kind": "0xA",
+      "type": "0xB",
+      "value": "0xC",
+      "flags": "0xD",
+      "rivalType": "0x5",
+      "likesPersonType": "0x1",
+      "dislikesPersonType": "0x2",
+      "clubKind": "0x1",
+      "personKind": "0x3",
+      "teamKind": "0x4"
+    },
+    "financeLists": {
+      "sponsorsPointer": "0x130",
+      "sponsorSize": "0x18",
+      "sponsorStart": "0x0",
+      "sponsorEnd": "0x4",
+      "sponsorTotal": "0x8",
+      "sponsorType": "0x14",
+      "debtsPointer": "0x100",
+      "debtsVector": "0x50",
+      "debtSize": "0x1C",
+      "debtOriginal": "0x0",
+      "debtEnd": "0x10",
+      "debtStart": "0x14",
+      "debtSource": "0x18",
+      "monthlyRepayment": "0x4",
+      "monthlyInterestRepayment": "0x8",
+      "debtInterestOnly": "0x1A",
+      "debtSourceEditable": true,
+      "debtOriginalEditable": true,
+      "debtDatesEditable": true
+    },
+    "vtable": "0x4C89B68",
+    "name": "0xC0",
+    "shortName": "0xC8",
+    "id": "0xC",
+    "nation": "0xD8",
+    "finance": {
+      "pointer": "0x150",
+      "vtable": "0x4C9FD78",
+      "compactVtable": "0x4C9F8A8",
+      "compactSize": "0x38",
+      "balance": "0xC",
+      "transferBudget": "0x7C4",
+      "spentThisSeason": "0x4CC",
+      "wageSpend": "0x814",
+      "wageBill": "0x810",
+      "transferSpendMonth": "0x29C",
+      "playersSold": "0x32C"
+    },
+    "fields": {
+      "EmbargoStart": {
+        "root": "club",
+        "path": "0x150->0x24",
+        "type": "date",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "OwnershipType": {
+        "root": "club",
+        "path": "0x100->0x129",
+        "type": "byte"
+      },
+      "ChairpersonTitle": {
+        "root": "club",
+        "path": "0x100->0x12A",
+        "type": "byte"
+      },
+      "TransferRevenuePercent": {
+        "root": "club",
+        "path": "0x150->0x7D0",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "RichBenefactor": {
+        "root": "club",
+        "path": "0x150->0x34",
+        "type": "byte",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "StadiumRentalPerYear": {
+        "root": "club",
+        "path": "0x150->0x7F8",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "YearFounded": {
+        "root": "club",
+        "path": "0x100->0xD8",
+        "type": "int16"
+      },
+      "Balance": {
+        "root": "club",
+        "path": "0x150->0xC",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "EmbargoEnd": {
+        "root": "club",
+        "path": "0x150->0x28",
+        "type": "date",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "EmbargoAppealDate": {
+        "root": "club",
+        "path": "0x150->0x2C",
+        "type": "date",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "EmbargoReason": {
+        "root": "club",
+        "path": "0x150->0x33",
+        "type": "byte",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "EmbargoAgeRestriction": {
+        "root": "club",
+        "path": "0x150->0x30",
+        "type": "byte",
+        "objectVtables": [
+          "0x4C9FD78",
+          "0x4C9F8A8"
+        ]
+      },
+      "TransferBudgetSeason": {
+        "root": "club",
+        "path": "0x150->0x7C8",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "TransferBudgetRemaining": {
+        "root": "club",
+        "path": "0x150->0x7C4",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "WageBudget": {
+        "root": "club",
+        "path": "0x150->0x808",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "WageUsed": {
+        "root": "club",
+        "path": "0x150->0x814",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "MaxWage": {
+        "root": "club",
+        "path": "0x150->0x80C",
+        "type": "int32",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "AverageTicketPrice": {
+        "root": "club",
+        "path": "0x150->0x10",
+        "type": "float",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "TeamReputation": {
+        "root": "team",
+        "path": "0xA8",
+        "type": "int16"
+      },
+      "ChairmanStatus": {
+        "root": "club",
+        "path": "0x100->0xDE",
+        "type": "int16"
+      },
+      "SeasonTicketHolders": {
+        "root": "club",
+        "path": "0x100->0xC0",
+        "type": "int32"
+      },
+      "SocialMediaFollowers": {
+        "root": "club",
+        "path": "0x100->0xF8",
+        "type": "int32"
+      },
+      "AverageAttendance": {
+        "root": "club",
+        "path": "0xB0->0x68",
+        "type": "int32"
+      },
+      "MinimumAttendance": {
+        "root": "club",
+        "path": "0xB0->0x6C",
+        "type": "int32"
+      },
+      "MaximumAttendance": {
+        "root": "club",
+        "path": "0xB0->0x70",
+        "type": "int32"
+      },
+      "Training": {
+        "root": "club",
+        "path": "0x100->0x120",
+        "type": "byte"
+      },
+      "YouthImportance": {
+        "root": "club",
+        "path": "0x100->0x126",
+        "type": "byte"
+      },
+      "YouthFacilities": {
+        "root": "club",
+        "path": "0x100->0x12B",
+        "type": "byte"
+      },
+      "YouthCoaching": {
+        "root": "club",
+        "path": "0x100->0x12C",
+        "type": "byte"
+      },
+      "YouthRecruitment": {
+        "root": "club",
+        "path": "0x100->0x12D",
+        "type": "byte"
+      },
+      "SupportersHardcore": {
+        "root": "club",
+        "path": "0x100->0x106",
+        "type": "byte"
+      },
+      "SupportersCore": {
+        "root": "club",
+        "path": "0x100->0x107",
+        "type": "byte"
+      },
+      "SupportersFamily": {
+        "root": "club",
+        "path": "0x100->0x108",
+        "type": "byte"
+      },
+      "SupportersFairWeather": {
+        "root": "club",
+        "path": "0x100->0x109",
+        "type": "byte"
+      },
+      "SupportersCorporate": {
+        "root": "club",
+        "path": "0x100->0x10A",
+        "type": "byte"
+      },
+      "SupportersCasual": {
+        "root": "club",
+        "path": "0x100->0x10B",
+        "type": "byte"
+      },
+      "SupporterLoyalty": {
+        "root": "club",
+        "path": "0x100->0x114",
+        "type": "byte"
+      },
+      "SupporterPassion": {
+        "root": "club",
+        "path": "0x100->0x115",
+        "type": "byte"
+      },
+      "Morale": {
+        "root": "club",
+        "path": "0x100->0x121",
+        "type": "byte"
+      },
+      "CorporateFacilities": {
+        "root": "club",
+        "path": "0x150->0x8A9",
+        "type": "byte",
+        "objectVtables": [
+          "0x4C9FD78"
+        ]
+      },
+      "SupporterPatience": {
+        "root": "club",
+        "path": "0x100->0x116",
+        "type": "byte"
+      },
+      "SupporterAffluence": {
+        "root": "club",
+        "path": "0x100->0x117",
+        "type": "byte"
+      },
+      "SupporterTemperament": {
+        "root": "club",
+        "path": "0x100->0x118",
+        "type": "byte"
+      },
+      "SupporterExpectations": {
+        "root": "club",
+        "path": "0x100->0x119",
+        "type": "byte"
+      }
+    },
+    "transferClauses": {
+      "pointer": "0xB0",
+      "sellOnVtable": "0x4C3F458",
+      "appearanceFeeVtable": "0x4D734A8",
+      "competitionBonusVtable": "0x4D73348"
+    }
+  },
+  "nation": {
+    "playerNation": "0x2F0",
+    "vtable": "0x4C8EFA8",
+    "name": "0x18",
+    "shortName": "0x28",
+    "listRootRva": "0x56743C8",
+    "listOffset": "0x240",
+    "id": "0xC",
+    "capital": "0xE8",
+    "continent": "0xF0",
+    "stadium": "0x118",
+    "teams": {
+      "pointer": "0x108",
+      "list": "0x18",
+      "teamVtable": "0x4D71998",
+      "reputation": "0xA8"
+    },
+    "rivalries": {
+      "team": "0x108",
+      "teamVtable": "0x4C9B0E8",
+      "vector": "0x48",
+      "entrySize": "0x10",
+      "type": "0xA",
+      "rivalType": "0x602",
+      "value": "0xC"
+    },
+    "preferences": {
+      "team": "0x108",
+      "teamVtable": "0x4C9B0E8",
+      "vector": "0xF0",
+      "entrySize": "0x10"
+    },
+    "fields": {
+      "EconomicFactor": {
+        "path": "0x1F0",
+        "type": "byte"
+      },
+      "YearsToGainNationality": {
+        "path": "0x1ED",
+        "type": "byte"
+      },
+      "Development": {
+        "path": "0x1EC",
+        "type": "byte"
+      },
+      "GainNationalityType": {
+        "path": "0x1EB",
+        "type": "byte"
+      },
+      "DoesNotAllowDualNationality": {
+        "path": "0x1E9",
+        "type": "byte"
+      },
+      "AllowMultipleAssistantManagers": {
+        "path": "0x108->0x87E",
+        "type": "byte"
+      },
+      "Importance": {
+        "path": "0x108->0x87C",
+        "type": "byte"
+      },
+      "FifaRankingPoints": {
+        "path": "0x108->0x274",
+        "type": "float"
+      },
+      "FifaPosition": {
+        "path": "0x108->0x27A",
+        "type": "byte"
+      },
+      "YearAffiliatedToFifa": {
+        "path": "0x108->0x864",
+        "type": "int16"
+      },
+      "YearAffiliatedToFederation": {
+        "path": "0x108->0x866",
+        "type": "int16"
+      },
+      "YearAssociationFormed": {
+        "path": "0x108->0x868",
+        "type": "int16"
+      },
+      "YouthRating": {
+        "path": "0x108->0x86C",
+        "type": "int16"
+      },
+      "FaFinancialPower": {
+        "path": "0x108->0x883",
+        "type": "byte"
+      },
+      "MaxYouthAge": {
+        "path": "0x108->0x884",
+        "type": "byte"
+      },
+      "FaPatience": {
+        "path": "0x108->0x885",
+        "type": "byte"
+      },
+      "ForeignManagerLikelihood": {
+        "path": "0x108->0x886",
+        "type": "byte"
+      },
+      "AverageAttendance": {
+        "path": "0x108->0xB0->0x68",
+        "type": "int32"
+      },
+      "MinimumAttendance": {
+        "path": "0x108->0xB0->0x6C",
+        "type": "int32"
+      },
+      "MaximumAttendance": {
+        "path": "0x108->0xB0->0x70",
+        "type": "int32"
+      },
+      "WomenFifaRankingPoints": {
+        "path": "0x110->0x274",
+        "type": "float"
+      },
+      "WomenFifaPosition": {
+        "path": "0x110->0x27A",
+        "type": "byte"
+      },
+      "WomenYearAffiliatedToFifa": {
+        "path": "0x110->0x864",
+        "type": "int16"
+      },
+      "WomenYearAffiliatedToFederation": {
+        "path": "0x110->0x866",
+        "type": "int16"
+      },
+      "WomenYearAssociationFormed": {
+        "path": "0x110->0x868",
+        "type": "int16"
+      },
+      "WomenYouthRating": {
+        "path": "0x110->0x86C",
+        "type": "int16"
+      },
+      "WomenFaFinancialPower": {
+        "path": "0x110->0x883",
+        "type": "byte"
+      },
+      "WomenMaxYouthAge": {
+        "path": "0x110->0x884",
+        "type": "byte"
+      },
+      "WomenFaPatience": {
+        "path": "0x110->0x885",
+        "type": "byte"
+      },
+      "WomenForeignManagerLikelihood": {
+        "path": "0x110->0x886",
+        "type": "byte"
+      },
+      "WomenAverageAttendance": {
+        "path": "0x110->0xB0->0x68",
+        "type": "int32"
+      },
+      "WomenMinimumAttendance": {
+        "path": "0x110->0xB0->0x6C",
+        "type": "int32"
+      },
+      "WomenMaximumAttendance": {
+        "path": "0x110->0xB0->0x70",
+        "type": "int32"
+      }
+    }
+  },
+  "competition": {
+    "teamCompetition": "0x50",
+    "vtable": "0x4C8F438",
+    "name": "0x40",
+    "shortName": "0x48",
+    "index": "0x8",
+    "id": "0xC",
+    "listRootRva": "0x56743C8",
+    "listOffset": "0x40",
+    "reputation": "0x188",
+    "reputationMirror": "0x18A",
+    "foreground": "0x130",
+    "background": "0x134",
+    "trim": "0x138",
+    "winterBallColour": "0x15C",
+    "winterBallStart": "0x150",
+    "winterBallEnd": "0x154"
+  },
+  "award": {
+    "vtable": "0x4CA5198",
+    "listRootRva": "0x5671DE8",
+    "listOffset": "0x30",
+    "index": "0x8",
+    "id": "0xC",
+    "name": "0x30",
+    "shortName": "0x38",
+    "reputation": "0x80",
+    "winnerHomeReputation": "0x95",
+    "winnerWorldReputation": "0x96"
+  },
+  "staff": {
+    "knowledgeHolder": "0xB0",
+    "knowledgeValue": "0x24",
+    "tendenciesHolder": "0xA8",
+    "formations": "0xDF",
+    "personListRootRva": "0x5683E08",
+    "personListOffset": "0x0",
+    "kinds": [
+      {
+        "personVtable": "0x4D3B3C8",
+        "staffVtable": "0x4D3B358",
+        "staffPart": "0x100"
+      },
+      {
+        "personVtable": "0x4C70268",
+        "staffVtable": "0x4C701FC",
+        "staffPart": "0x440",
+        "manager": true
+      },
+      {
+        "staffVtable": "0x4F20D0C",
+        "personVtable": "0x4F21258",
+        "staffPart": "0x100"
+      }
+    ],
+    "managerAttributes": {
+      "HandsOnApproach": "0x432",
+      "DomesticPlayerBias": "0x431",
+      "TacticalConsistency": "0x430",
+      "ClubPlayerLoyalty": "0x42F",
+      "SquadDiscipline": "0x42E",
+      "FinancialControl": "0x42D",
+      "MediaHandling": "0x433"
+    },
+    "id": "0xC",
+    "fullName": "0x40",
+    "firstName": "0x50",
+    "lastName": "0x58",
+    "commonName": "0x60",
+    "nation": "0x68",
+    "personality": "0x70",
+    "dateOfBirth": "0x88",
+    "job": "0xA8",
+    "jobPerson": "0x8",
+    "jobTeam": "0x10",
+    "jobCode": "0x26",
+    "homeReputation": "0xD4",
+    "currentReputation": "0xD6",
+    "worldReputation": "0xD8",
+    "currentAbility": "0xDA",
+    "potentialAbility": "0xDC",
+    "attributes": {
+      "CoachingAttacking": "0x32",
+      "CoachingDefending": "0x33",
+      "CoachingFitness": "0x34",
+      "CoachingGoalkeeping": "0x2B",
+      "CoachingPossession": "0x35",
+      "CoachingPlayer": "0x2A",
+      "CoachingTactical": "0x37",
+      "CoachingTechnical": "0x36",
+      "PeopleManagement": "0x2E",
+      "DirtinessAllowance": "0x38",
+      "Versatility": "0x3B",
+      "SetPieces": "0x43",
+      "Determination": "0x1D",
+      "JudgingPlayerAbility": "0x2C",
+      "JudgingPlayerPotential": "0x2D",
+      "JudgingStaffAbility": "0x42",
+      "Negotiating": "0x41",
+      "Motivating": "0x2F",
+      "TacticalKnowledge": "0x31",
+      "Physiotherapy": "0x30",
+      "SportsScience": "0x3F",
+      "JudgingPlayerData": "0x3C",
+      "JudgingTeamData": "0x3D",
+      "PresentingData": "0x3E"
+    },
+    "rawAttributes": {
+      "WorkingWithYoungsters": "0x1C",
+      "TacticalAttacking": "0x10",
+      "Depth": "0x23",
+      "Directness": "0x13",
+      "Flamboyancy": "0x24",
+      "Flexibility": "0x25",
+      "FreeRoles": "0x15",
+      "Marking": "0x17",
+      "Offside": "0x18",
+      "Pressing": "0x1A",
+      "SittingBack": "0x20",
+      "Tempo": "0x28",
+      "UseOfPlaymaker": "0x21",
+      "UseOfSubstitutions": "0x22",
+      "Width": "0x29",
+      "BuyingPlayers": "0x1E",
+      "HardnessOfTraining": "0x26",
+      "MindGames": "0x1F",
+      "SquadRotation": "0x27",
+      "Authority": "0x14",
+      "Business": "0x11",
+      "Interference": "0x16",
+      "Patience": "0x19",
+      "Resources": "0x1B"
+    },
+    "directStaffVector": true
+  },
+  "stadium": {
+    "listRootRva": "0x56743C8",
+    "listOffset": "0x780",
+    "vtable": "0x4D970D8",
+    "id": "0xC",
+    "name": "0x40",
+    "owner": "0x90",
+    "nearby": "0x68",
+    "latitude": "0x70",
+    "longitude": "0x74",
+    "stands": "0x20",
+    "standCount": "0x8",
+    "standSize": "0x8",
+    "standFlags": "0x7",
+    "standBits": {
+      "roof": "0x10",
+      "seats": "0x2",
+      "tunnel": "0x8"
+    },
+    "flags": "0xB6",
+    "flagBits": {
+      "IsCovered": "0x1",
+      "HasUndersoilHeating": "0x2",
+      "Extinct": "0x4",
+      "NotUsedInContinentalFinal": "0x80",
+      "RetractableRoof": "0x40"
+    },
+    "altFlags": "0xAB",
+    "intLength": "0x9C",
+    "intWidth": "0x9E",
+    "seatColour": "0x78",
+    "altFlagBits": {
+      "IsTrainingGround": "0x4",
+      "DigitalBoards": "0x40"
+    },
+    "fields": {
+      "Capacity": {
+        "path": "0x7C",
+        "type": "int32"
+      },
+      "SeatingCapacity": {
+        "path": "0x80",
+        "type": "int32"
+      },
+      "UsedCapacity": {
+        "path": "0x84",
+        "type": "int32"
+      },
+      "AllSeaterCapacity": {
+        "path": "0x88",
+        "type": "int32"
+      },
+      "ExpansionCapacity": {
+        "path": "0x8C",
+        "type": "int32"
+      },
+      "PitchLastRelaid": {
+        "path": "0x28",
+        "type": "date"
+      },
+      "PitchRelayRequired": {
+        "path": "0x2C",
+        "type": "date"
+      },
+      "BuildDate": {
+        "path": "0x30",
+        "type": "date"
+      },
+      "RebuildDate": {
+        "path": "0x34",
+        "type": "date"
+      },
+      "PitchLength": {
+        "path": "0x98",
+        "type": "int16",
+        "scale": 10
+      },
+      "PitchWidth": {
+        "path": "0x9A",
+        "type": "int16",
+        "scale": 10
+      },
+      "MinPitchLength": {
+        "path": "0xA0",
+        "type": "int16",
+        "scale": 10
+      },
+      "MinPitchWidth": {
+        "path": "0xA2",
+        "type": "int16",
+        "scale": 10
+      },
+      "MaxPitchLength": {
+        "path": "0xA4",
+        "type": "int16",
+        "scale": 10
+      },
+      "MaxPitchWidth": {
+        "path": "0xA6",
+        "type": "int16",
+        "scale": 10
+      },
+      "PitchCondition": {
+        "path": "0xA8",
+        "type": "int16"
+      },
+      "Decay": {
+        "path": "0xAA",
+        "type": "byte"
+      },
+      "PitchRecoveryRate": {
+        "path": "0xAE",
+        "type": "byte"
+      },
+      "PitchDeteriorationRate": {
+        "path": "0xAC",
+        "type": "byte"
+      },
+      "Environment": {
+        "path": "0xB0",
+        "type": "byte"
+      },
+      "OwnerType": {
+        "path": "0xB4",
+        "type": "byte"
+      },
+      "PitchType": {
+        "path": "0xAD",
+        "type": "byte"
+      },
+      "UsedByNationalTeam": {
+        "path": "0xB1",
+        "type": "byte"
+      },
+      "UsedByNationalU21Team": {
+        "path": "0xB2",
+        "type": "byte"
+      },
+      "UsedByNationalU19Team": {
+        "path": "0xB3",
+        "type": "byte"
+      }
+    }
+  },
+  "matchBuild": "27.0.0+2493426",
+  "imageSize": "0x175DA000",
+  "peTimestamp": "0x6AE563A1",
+  "directGameDateRva": "0x56257C8"
+}

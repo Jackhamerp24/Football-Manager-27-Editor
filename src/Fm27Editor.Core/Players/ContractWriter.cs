@@ -29,31 +29,37 @@ public sealed record ContractDetails(
 /// Reads and writes the player's current contract. Same guards as <see cref="PlayerWriter"/>: the contract
 /// object must still be the player's and carry the contract vtable, the field must still hold the snapshot
 /// value, and the write is read back.
+/// With <paramref name="futureContract"/> it works on that contract instead: the contract of a future transfer (FMRTE's
+/// Future Contract tab), which has the same layout; it must still be one the player is offered.
 /// </summary>
-public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
+public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile, ulong moduleBase, ulong futureContract = 0)
 {
     const int DayMask = 0x1FF, MaxClauses = 64;
     ContractOffsets C => profile.Contract ?? throw new InvalidOperationException("Profile has no contract offsets");
 
     public ContractDetails? Read(PlayerRecord player)
     {
-        if (player.Contract is not { } info) return null;
-        ulong a = Require(player).Address;
+        if (futureContract == 0 && player.Contract is null) return null;
+        var info = Require(player);
+        ulong a = info.Address;
         var c = C;
         short I16(int o) => BitConverter.ToInt16(memory.Read(a + (ulong)o, 2));
         int I32(int o) => BitConverter.ToInt32(memory.Read(a + (ulong)o, 4));
         byte U8(int o) => memory.Read(a + (ulong)o, 1)[0];
         DateOnly? Date(int? o) => o is { } x ? ToDate(I16(x) & DayMask, I16(x + 2)) : null;
+        DateOnly? PlayerDate(int? o) => o is { } x && memory.Read(player.Address + (ulong)x, 4) is var r
+            ? ToDate(BitConverter.ToInt16(r) & DayMask, BitConverter.ToInt16(r, 2)) : null;
         return new ContractDetails(
-            a, info.Wage, Date(c.ExpiryDate), Date(c.JoinedDate), Date(c.Started), Date(c.JoinedClub),
-            c.Type is { } t ? (ContractType)I16(t) : null,
+            a, info.Wage, Date(c.ExpiryDate), Date(c.JoinedDate), Date(c.Started), PlayerDate(c.PlayerJoinedClub),
+            c.Type is { } t ? (ContractType)U8(t) : null,
             c.LoyaltyBonus is { } l ? I32(l) : null,
-            c.SquadNumber is { } n ? I32(n) : null,
+            c.SquadNumber is { } n ? (sbyte)U8(n) : null,
             c.PlayingTime is { } p ? (PlayingTime)U8(p) : null,
             c.FuturePlayingTime is { } fp ? (PlayingTime)U8(fp) : null,
             c.FuturePlayingTimeYear is { } fy ? I16(fy) : null,
-            c.Happiness is { } h ? U8(h) : null,
-            c.PlayingTimeHappiness is { } ph ? U8(ph) : null,
+            // Signed bytes: FMRTE shows Bruno Fernandes -20 / 33 (raw 0xEC / 0x21), Mauro Icardi playing time -35.
+            c.Happiness is { } h ? (sbyte)U8(h) : null,
+            c.PlayingTimeHappiness is { } ph ? (sbyte)U8(ph) : null,
             ReadTerms(a));
     }
 
@@ -94,9 +100,46 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
     // Setters against a ContractDetails snapshot.
     // Contract dates: int16 day of year in the low 9 bits (the bits above are flags, kept as they are) + int16 year.
     public void SetExpiry(PlayerRecord player, ContractDetails s, DateOnly date) => WriteDate(At(player, s, C.ExpiryDate), s.Expires, date);
+
+    /// <summary>
+    /// Moves the expiry date by whole years (−1 / +1 Year). Re-reads the contract, so it is safe to call per player for
+    /// "Apply to all". 29 February moves to 28 February in a non-leap year.
+    /// </summary>
+    /// <summary>
+    /// Renew for N years: the expiry becomes <paramref name="gameDate"/> + N years (the user's rule: count from the game
+    /// date, not from the current expiry). Re-reads the contract like <see cref="ShiftExpiry"/>.
+    /// </summary>
+    public void RenewForYears(PlayerRecord player, int years, DateOnly gameDate)
+    {
+        RequireRange(years, 1, 20, "Years");
+        var details = Read(player) ?? throw new StaleObjectException($"0x{player.Address:X} has no contract");
+        SetExpiry(player, details, gameDate.AddYears(years));
+    }
+
+    /// <summary>Make it Expire: the expiry becomes <paramref name="gameDate"/> (the user's rule: on the game date).</summary>
+    public void MakeExpire(PlayerRecord player, DateOnly gameDate)
+    {
+        var details = Read(player) ?? throw new StaleObjectException($"0x{player.Address:X} has no contract");
+        SetExpiry(player, details, gameDate);
+    }
+
+    public void ShiftExpiry(PlayerRecord player, int years)
+    {
+        if (years == 0) return;
+        var details = Read(player) ?? throw new StaleObjectException($"0x{player.Address:X} has no contract");
+        var current = details.Expires ?? throw new InvalidOperationException("The contract has no expiry date to move");
+        SetExpiry(player, details, current.AddYears(years));
+    }
     public void SetSigned(PlayerRecord player, ContractDetails s, DateOnly date) => WriteDate(At(player, s, C.JoinedDate), s.Signed, date);
     public void SetStarted(PlayerRecord player, ContractDetails s, DateOnly date) => WriteDate(At(player, s, C.Started), s.Started, date);
-    public void SetJoinedClub(PlayerRecord player, ContractDetails s, DateOnly date) => WriteDate(At(player, s, C.JoinedClub), s.JoinedClub, date);
+    /// <summary>Joined Club lives in the player object, not the contract; the player vtable is checked first.</summary>
+    public void SetJoinedClub(PlayerRecord player, ContractDetails s, DateOnly date)
+    {
+        Require(player, s);
+        if (!profile.PlayerVtableRvas.Any(r => memory.ReadUInt64(player.Address) == moduleBase + r))
+            throw new StaleObjectException($"0x{player.Address:X} is no longer a player object");
+        WriteDate(player.Address + (ulong)(C.PlayerJoinedClub ?? throw new InvalidOperationException("Profile has no joined club offset")), s.JoinedClub, date);
+    }
 
     /// <summary><paramref name="expected"/> null means the field held "no date" when it was read.</summary>
     void WriteDate(ulong address, DateOnly? expected, DateOnly date)
@@ -111,7 +154,7 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
     }
 
     public void SetType(PlayerRecord player, ContractDetails s, ContractType type) =>
-        Write(At(player, s, C.Type), BitConverter.GetBytes((short)Need(s.Type, "type")), BitConverter.GetBytes((short)type));
+        Write(At(player, s, C.Type), [(byte)Need(s.Type, "type")], [(byte)type]);
 
     public void SetLoyaltyBonus(PlayerRecord player, ContractDetails s, int weekly)
     {
@@ -123,7 +166,7 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
     public void SetSquadNumber(PlayerRecord player, ContractDetails s, int number)
     {
         RequireRange(number, -1, 99, "Squad number");
-        Write(At(player, s, C.SquadNumber), BitConverter.GetBytes(Need(s.SquadNumber, "squad number")), BitConverter.GetBytes(number));
+        Write(At(player, s, C.SquadNumber), [(byte)(sbyte)Need(s.SquadNumber, "squad number")], [(byte)(sbyte)number]);
     }
 
     public void SetPlayingTime(PlayerRecord player, ContractDetails s, PlayingTime value) =>
@@ -138,14 +181,14 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
 
     public void SetHappiness(PlayerRecord player, ContractDetails s, int value)
     {
-        RequireRange(value, 0, 100, "Happiness");
-        Write(At(player, s, C.Happiness), [(byte)Need(s.Happiness, "happiness")], [(byte)value]);
+        RequireRange(value, -100, 100, "Happiness");
+        Write(At(player, s, C.Happiness), [(byte)(sbyte)Need(s.Happiness, "happiness")], [(byte)(sbyte)value]);
     }
 
     public void SetPlayingTimeHappiness(PlayerRecord player, ContractDetails s, int value)
     {
-        RequireRange(value, 0, 100, "Playing time happiness");
-        Write(At(player, s, C.PlayingTimeHappiness), [(byte)Need(s.PlayingTimeHappiness, "playing time happiness")], [(byte)value]);
+        RequireRange(value, -100, 100, "Playing time happiness");
+        Write(At(player, s, C.PlayingTimeHappiness), [(byte)(sbyte)Need(s.PlayingTimeHappiness, "playing time happiness")], [(byte)(sbyte)value]);
     }
 
     /// <summary>Changes value and parameter of an existing clause; the type stays.</summary>
@@ -227,6 +270,19 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
 
     ContractInfo Require(PlayerRecord player)
     {
+        if (profile.Fields.Id is { } idOffset && player.Id is > 0 &&
+            (memory.ReadUInt64(player.Address) != moduleBase + player.VtableRva ||
+             !profile.PlayerVtableRvas.Contains(player.VtableRva) ||
+             BitConverter.ToInt32(memory.Read(player.Address + (ulong)idOffset, 4)) != player.Id))
+            throw new StaleObjectException("Player identity changed since it was read");
+        if (futureContract != 0)
+        {
+            if (memory.ReadUInt64(futureContract) != moduleBase + C.ContractVtableRva)
+                throw new StaleObjectException($"0x{futureContract:X} is no longer a contract object");
+            if (!new FutureTransferReader(memory, profile, moduleBase).OfferContracts(player).Values.Any(c => c.Address == futureContract))
+                throw new StaleObjectException("The future contract is no longer offered to the player");
+            return new ContractInfo(futureContract, BitConverter.ToInt32(memory.Read(futureContract + (ulong)C.Wage, 4)), null, null, player.Club);
+        }
         var contract = player.Contract ?? throw new StaleObjectException($"0x{player.Address:X} has no contract");
         if (memory.ReadUInt64(player.Address + (ulong)C.PlayerContract) != contract.Address)
             throw new StaleObjectException("The player's contract changed since it was read");

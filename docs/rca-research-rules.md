@@ -109,11 +109,11 @@ evidence_reference, status, notes
 
 - Giá trị chưa biết là null/unknown, không điền đoán. `status` phân biệt observed, user_reported, invalid, pending, boundary.
 - Không lưu địa chỉ object làm danh tính bền vững qua phiên. Không sửa golden FM27 để phản ánh phép thử FM26.
-- Phân rõ **Quan sát / Người dùng báo cáo / Suy luận / Chưa biết** khi cập nhật `re/FMRTE26-findings.md`.
+- Phân rõ **Quan sát / Người dùng báo cáo / Suy luận / Chưa biết** khi cập nhật `re/FM27-findings.md`.
 - Nếu sửa phần mềm/test để hỗ trợ nghiên cứu: đọc skill test-discipline và áp dụng AGENTS.md; oracle phải từ IGE độc lập, không từ công thức đang test.
 
 ## Checkpoint bàn giao bắt buộc
 
 Ghi: đã đo những baseline/field nào; đang mở cầu thủ/tab nào; giá trị nào chưa khôi phục; game có Continue chưa; file dữ liệu; lỗi/nhiễu; phép đo tiếp theo. Khi tiếp tục phải xác nhận UI hiện tại trước thao tác.
 
-Tham khảo lịch sử: [FMRTE26 findings, mục 8](../re/FMRTE26-findings.md). Các nguồn FM Scout được ghi ở đó chỉ là giả thuyết tham khảo, không thay số đo IGE.
+Tham khảo lịch sử: [FMRTE26 findings, mục 8](../re/FM27-findings.md). Các nguồn FM Scout được ghi ở đó chỉ là giả thuyết tham khảo, không thay số đo IGE.

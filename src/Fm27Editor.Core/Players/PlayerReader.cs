@@ -92,7 +92,7 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
             ClubOfTeam(teamAddress, c));
     }
 
-    NationInfo? ReadNation(ulong address, NationOffsets nat)
+    internal NationInfo? ReadNation(ulong address, NationOffsets nat)
     {
         if (address == 0) return null;
         if (_nations.TryGetValue(address, out var cached)) return cached;
@@ -133,7 +133,7 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
         return competition;
     }
 
-    ClubInfo? ClubOfTeam(ulong team, ContractOffsets c)
+    internal ClubInfo? ClubOfTeam(ulong team, ContractOffsets c)
     {
         if (team == 0 || profile.Club is not { } k) return null;
         if (_clubsByTeam.TryGetValue(team, out var cached)) return cached;
@@ -151,7 +151,7 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
     }
 
     /// <summary>Name entry: its first qword points at the string.</summary>
-    string? EntryString(ulong entry)
+    internal string? EntryString(ulong entry)
     {
         if (entry == 0) return null;
         Span<byte> b = stackalloc byte[8];
@@ -159,7 +159,7 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
     }
 
     /// <summary>Length-prefixed UTF-8: int32 byte count followed by the bytes.</summary>
-    string? StringAt(ulong p)
+    internal string? StringAt(ulong p)
     {
         if (p == 0) return null;
         if (_strings.TryGetValue(p, out var cached)) return cached;

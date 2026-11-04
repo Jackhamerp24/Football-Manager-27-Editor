@@ -62,4 +62,21 @@ public class ContractLabelTests
         Assert.Equal("", ContractLabels.Detail(sellOn));
         Assert.Equal("signed for 429,515", ContractLabels.Detail(uche));
     }
+
+    [Fact]
+    public void Clause_save_input_distinguishes_unchanged_cleared_and_populated_fields()
+    {
+        Assert.Equal(new ClauseSaveValues(40, false, null, null),
+            ClauseSaveInput.Parse(TransferClauseKind.SellOn, true, "40", false, null));
+        Assert.Equal(new ClauseSaveValues(null, true, null, null),
+            ClauseSaveInput.Parse(TransferClauseKind.SellOn, false, null, true, " "));
+        Assert.Equal(new ClauseSaveValues(50_000, true, 10, null),
+            ClauseSaveInput.Parse(TransferClauseKind.AppearanceFee, true, "50000", true, "10"));
+        Assert.Equal(new ClauseSaveValues(1_000_000, true, null, new DateOnly(2030, 6, 30)),
+            ClauseSaveInput.Parse(TransferClauseKind.CompetitionBonus, true, "1000000", true, "2030-06-30"));
+        Assert.Equal(new ClauseSaveValues(null, true, null, null),
+            ClauseSaveInput.Parse(TransferClauseKind.CompetitionBonus, false, null, true, ""));
+        Assert.Throws<FormatException>(() => ClauseSaveInput.Parse(TransferClauseKind.AppearanceFee, true, "50000", true, ""));
+        Assert.Throws<FormatException>(() => ClauseSaveInput.Parse(TransferClauseKind.CompetitionBonus, false, null, true, "30/06/2030"));
+    }
 }

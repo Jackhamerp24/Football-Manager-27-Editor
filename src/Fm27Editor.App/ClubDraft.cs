@@ -210,7 +210,7 @@ public sealed class ClubDraft(ulong clubAddress)
         else invalidInputs.Remove(target);
     }
 
-    public int Save(IEditService edits, ClubFieldAccess access)
+    public int Save(IEditService edits, ClubFieldAccess access, Action<ClubFieldTarget>? onApplied = null)
     {
         ArgumentNullException.ThrowIfNull(edits);
         ArgumentNullException.ThrowIfNull(access);
@@ -221,7 +221,7 @@ public sealed class ClubDraft(ulong clubAddress)
         foreach (var (target, newValue) in changes.ToArray())
         {
             long expected = snapshots[target];
-            edits.Execute(() => access.Set(target.Root, target.Field, expected, newValue));
+            edits.Execute(() => { access.Set(target.Root, target.Field, expected, newValue); onApplied?.Invoke(target); });
             snapshots[target] = newValue;
             changes.Remove(target);
             saved++;

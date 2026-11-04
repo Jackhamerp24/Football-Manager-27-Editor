@@ -34,8 +34,8 @@ public sealed class GameSession : IDisposable
         Clubs.ClubDirectory.Load(_memory, _memory.EnumerateWritableRegions(Game.ModuleBase, Game.ModuleEnd), Profile, Game.ModuleBase);
 
     /// <summary>Adds a bonus/clause to the contract, growing its list in the game process when it is full.</summary>
-    public void AddContractTerm(PlayerRecord player, ContractDetails snapshot, short type, int value, short parameter) =>
-        Contracts.AddTerm(player, snapshot, type, value, parameter, _memory.Allocate);
+    public void AddContractTerm(PlayerRecord player, ContractDetails snapshot, short type, int value, short parameter, ulong futureContract = 0) =>
+        (futureContract == 0 ? Contracts : FutureContract(futureContract)).AddTerm(player, snapshot, type, value, parameter, _memory.Allocate);
 
     /// <summary>Applies a transfer, allocating a new squad buffer in the game process when the destination squad is full.</summary>
     public void ApplyTransfer(Transfer.TransferPlan plan) => Transfers.Apply(plan, _memory.Allocate);
@@ -53,20 +53,253 @@ public sealed class GameSession : IDisposable
 
     public Clubs.TransferClauseWriter TransferClauses => new(_memory, Profile, Game.ModuleBase);
 
+    /// <summary>Player values beyond attributes (condition, sharpness, morale, asking price, caps...), profile player.fields.</summary>
+    public PlayerFieldAccess PlayerFields => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Renew for N years from the current in-game date (Renew for 4 Years = 4).</summary>
+    public void RenewContract(PlayerRecord player, int years) =>
+        Contracts.RenewForYears(player, years, ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"));
+
+    /// <summary>Competition registrations, formed-at-club and formed-at-country relations, read only.</summary>
+    public PlayerStatuses ReadStatuses(PlayerRecord player) => new PlayerStatusReader(_memory, Profile, Game.ModuleBase).Read(player);
+
+    /// <summary>Adds a relationship row, growing the vector in the game process when it is full.</summary>
+    public void AddRelationship(PlayerRecord player, PlayerStatuses current, RelationshipKind kind, ulong target, int value, int reason, bool permanent) =>
+        new RelationshipWriter(_memory, Profile, Game.ModuleBase).Add(player, current, kind, target, value, reason, permanent, _memory.Allocate);
+
+    /// <summary>Ticks "Retired From Int. Foot.", growing the relations vector in the game process when it is full.</summary>
+    public void AddInternationalRetirement(PlayerRecord player, PlayerStatuses current) =>
+        new RelationshipWriter(_memory, Profile, Game.ModuleBase).AddInternationalRetirement(player, current, _memory.Allocate);
+
+    // FMRTE's Information-page presets. Each reads the player's relations fresh and returns false when there is nothing to do.
+    public bool TrainedAtCurrentClub(PlayerRecord player) =>
+        new RelationshipWriter(_memory, Profile, Game.ModuleBase).AddTrainedAtClub(player, ReadStatuses(player), CurrentClub(player), _memory.Allocate);
+
+    public bool TrainedInCurrentNation(PlayerRecord player)
+    {
+        int offset = Profile.Club?.Nation ?? throw new InvalidOperationException("Profile has no club nation offset");
+        ulong nation = _memory.ReadUInt64(CurrentClub(player) + (ulong)offset);
+        return new RelationshipWriter(_memory, Profile, Game.ModuleBase).AddTrainedAtNation(player, ReadStatuses(player), nation, _memory.Allocate);
+    }
+
+    public bool RegisterForUefa(PlayerRecord player)
+    {
+        int offset = Profile.Team?.PlayerTeam ?? throw new InvalidOperationException("Profile has no player team offset");
+        ulong team = _memory.ReadUInt64(player.Address + (ulong)offset);
+        if (team == 0) throw new InvalidOperationException($"{player.DisplayName} has no team");
+        return new RelationshipWriter(_memory, Profile, Game.ModuleBase).AddUefaRegistration(player, ReadStatuses(player), team, _memory.Allocate);
+    }
+
+    public bool SetTeamCohesion(PlayerRecord player, sbyte value) =>
+        new TeamCohesionWriter(_memory, Profile, Game.ModuleBase).Set(player, CurrentClub(player), value);
+
+    /// <summary>
+    /// FMRTE 27's All-in-one, as diffed on Kobbie Mainoo (2/11/2026): Heal, Morale 20, contract happiness and playing-time
+    /// happiness 100, team cohesion 100. Steps already at their value are not written.
+    /// </summary>
+    public void AllInOne(PlayerRecord player)
+    {
+        Heal(player);
+        Inspire(player);
+        if (Contracts.Read(player) is { } c)
+        {
+            if (c.Happiness is { } h && h != 100) Contracts.SetHappiness(player, c, 100);
+            if (Contracts.Read(player) is { PlayingTimeHappiness: { } ph } c2 && ph != 100) Contracts.SetPlayingTimeHappiness(player, c2, 100);
+        }
+        if (player.Club is not null) SetTeamCohesion(player, TeamCohesionWriter.Improve);
+    }
+
+    static ulong CurrentClub(PlayerRecord player) =>
+        player.Club?.Address is { } club and not 0 ? club : throw new InvalidOperationException($"{player.DisplayName} has no club");
+
+    /// <summary>Career Plans: reader (plans, item names, picker catalogue) and guarded writer.</summary>
+    public CareerPlanReader CareerPlans => new(_memory, Profile, Game.ModuleBase);
+    public CareerPlanWriter CareerPlanWriter => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Transfer Proposals: the offers a player's id list names, and the guarded fee writer.</summary>
+    public TransferProposalReader Proposals => new(_memory, Profile, Game.ModuleBase);
+    public TransferProposalWriter ProposalWriter => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Contracts offered with transfer proposals, and future transfers (Confirmed offers with an agreed date).</summary>
+    public FutureTransferReader FutureTransfers => new(_memory, Profile, Game.ModuleBase);
+    public FutureTransferWriter FutureTransferWriter => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Clone Center: copies the chosen groups from one player onto another; returns the number of fields written.</summary>
+    public int ClonePlayer(PlayerRecord source, PlayerRecord target, CloneParts parts) =>
+        new PlayerCloner(_memory, Profile, Game.ModuleBase).Clone(source, target, parts);
+
+    /// <summary>National squads (Swap National Call Up).</summary>
+    public NationalCallUpReader CallUps => new(_memory, Profile, Game.ModuleBase);
+    public NationalCallUpWriter CallUpWriter => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>The full contract editor on a future transfer's contract (FMRTE's Future Contract tab).</summary>
+    public ContractWriter FutureContract(ulong contract) => new(_memory, Profile, Game.ModuleBase, contract);
+
+    public void AddCareerPlan(PlayerRecord player, IReadOnlyList<CareerPlan> current, CareerPlanFields fields) => AddCareerPlan(Owner(player), current, fields);
+
+    public void AddCareerPlan(PersonOwner player, IReadOnlyList<CareerPlan> current, CareerPlanFields fields) =>
+        CareerPlanWriter.Add(player, current, fields, _memory.Allocate);
+
+    /// <summary>Every city (City Of Birth choices) and the player's own; guarded City Of Birth / Nationality swaps.</summary>
+    public CityRepository Cities => new(_memory, Profile, Game.ModuleBase);
+    public CityWriter CityWriter => new(_memory, Profile, Game.ModuleBase);
+    public PlayerOriginWriter Origin => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>The person object a relationship to <paramref name="player"/> points at.</summary>
+    public ulong PersonOf(PlayerRecord player) =>
+        player.Address + (ulong)(Profile.Relations?.PlayerPerson ?? throw new InvalidOperationException("Profile has no relation offsets"));
+
+    /// <summary>The player's bans / unavailability records, read only.</summary>
+    public IReadOnlyList<PlayerBan> ReadBans(PlayerRecord player) => new BanReader(_memory, Profile, Game.ModuleBase).Read(player);
+
+    /// <summary>The player's languages, as FMRTE's Languages tab shows them.</summary>
+    public IReadOnlyList<PlayerLanguage> ReadLanguages(PlayerRecord player) => new LanguageReader(_memory, Profile, Game.ModuleBase).Read(player);
+
+    /// <summary>The owner of person-level lists (languages, relations) for a player or a staff member.</summary>
+    public PersonOwner Owner(PlayerRecord player) => PersonOwner.Of(player, Profile);
+    public PlayerStatuses ReadStatuses(PersonOwner owner) => new PlayerStatusReader(_memory, Profile, Game.ModuleBase).Read(owner);
+    public void AddRelationship(PersonOwner owner, PlayerStatuses current, RelationshipKind kind, ulong target, int value, int reason, bool permanent) =>
+        new RelationshipWriter(_memory, Profile, Game.ModuleBase).Add(owner, current, kind, target, value, reason, permanent, _memory.Allocate);
+    public void AddOtherNationality(PersonOwner owner, PlayerStatuses current, ulong nation, int info) =>
+        new RelationshipWriter(_memory, Profile, Game.ModuleBase).AddOtherNationality(owner, current, nation, info, _memory.Allocate);
+    public PersonOwner Owner(Staff.StaffRecord staff) => PersonOwner.Of(staff, Profile);
+    public IReadOnlyList<PlayerLanguage> ReadLanguages(PersonOwner owner) => new LanguageReader(_memory, Profile, Game.ModuleBase).Read(owner);
+    public void AddLanguage(PersonOwner owner, IReadOnlyList<PlayerLanguage> current, LanguageEntry language, int value) =>
+        new LanguageWriter(_memory, Profile, Game.ModuleBase).Add(owner, current, language, value, _memory.Allocate);
+    public void RemoveLanguage(PersonOwner owner, IReadOnlyList<PlayerLanguage> current, PlayerLanguage language) =>
+        new LanguageWriter(_memory, Profile, Game.ModuleBase).Remove(owner, current, language);
+
+    public IReadOnlyList<LanguageEntry> LanguageCatalogue(IEnumerable<PlayerRecord> players) => new LanguageReader(_memory, Profile, Game.ModuleBase).Catalogue(players);
+
+    /// <summary>Adds a language, allocating its record (and a bigger vector when full) in the game process.</summary>
+    public void AddLanguage(PlayerRecord player, IReadOnlyList<PlayerLanguage> current, LanguageEntry language, int value) =>
+        new LanguageWriter(_memory, Profile, Game.ModuleBase).Add(player, current, language, value, _memory.Allocate);
+
+    public void RemoveLanguage(PlayerRecord player, IReadOnlyList<PlayerLanguage> current, PlayerLanguage language) =>
+        new LanguageWriter(_memory, Profile, Game.ModuleBase).Remove(player, current, language);
+
+    /// <summary>Remove bans (user's rule: match bans only; day and global bans stay). Returns how many were removed.</summary>
+    public int RemoveMatchBans(PlayerRecord player) => new BanWriter(_memory, Profile, Game.ModuleBase).RemoveMatchBans(player);
+
+    /// <summary>Adds a ban, allocating its record (and a bigger vector when full) in the game process.</summary>
+    public void AddBan(PlayerRecord player, IReadOnlyList<PlayerBan> current, BanWriter.BanFields fields) =>
+        new BanWriter(_memory, Profile, Game.ModuleBase).Add(player, current, fields, _memory.Allocate);
+
+    /// <summary>Every stadium (29 thousand on the test save) and guarded stadium writes.</summary>
+    public Stadiums.StadiumRepository Stadiums => new(_memory, Profile, Game.ModuleBase);
+    public Competitions.CompetitionRepository Competitions => new(_memory, Profile, Game.ModuleBase);
+    public Awards.AwardRepository Awards => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationLinks NationLinks => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationTeamReader NationTeams => new(_memory, Profile, Game.ModuleBase);
+    public Awards.AwardWriter AwardWriter => new(_memory, Profile, Game.ModuleBase);
+    public Competitions.CompetitionWriter CompetitionWriter => new(_memory, Profile, Game.ModuleBase);
+    public Stadiums.StadiumWriter StadiumWriter => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Every nation, and its mapped nation / national-team fields.</summary>
+    public Nations.NationRepository Nations => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationFieldAccess NationFields => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationRivalries NationRivalries => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationPreferences NationPreferences => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Non-player staff, from the game's person vector (~23 thousand on the test save).</summary>
+    public Staff.StaffRepository Staff => new(_memory, Profile, Game.ModuleBase);
+    public Staff.StaffWriter StaffWriter => new(_memory, Profile, Game.ModuleBase);
+    public Staff.StaffKnowledge StaffKnowledge => new(_memory, Profile, Game.ModuleBase);
+
+    public void AddStaffKnowledge(Staff.StaffRecord staff, IReadOnlyList<Staff.StaffKnowledgeRow> current, ulong team, int value) =>
+        StaffKnowledge.Add(staff, current, team, value, _memory.Allocate);
+    public Staff.StaffTendencies StaffTendencies => new(_memory, Profile, Game.ModuleBase);
+    public Staff.StaffFormations StaffFormations => new(_memory, Profile, Game.ModuleBase);
+    public Staff.StaffContractAccess StaffContracts => new(_memory, Profile, Game.ModuleBase);
+
+    /// <summary>Every unhappiness motive in the player's contract (ended ones too), read only.</summary>
+    public IReadOnlyList<PlayerUnhappiness> ReadUnhappiness(PlayerRecord player) =>
+        new UnhappinessReader(_memory, Profile, Game.ModuleBase).Read(player);
+
+    /// <summary>Removes the active unhappiness motives (all when <paramref name="which"/> is null). Returns how many.</summary>
+    public int RemoveUnhappiness(PlayerRecord player, Func<PlayerUnhappiness, bool>? which = null) =>
+        new UnhappinessWriter(_memory, Profile, Game.ModuleBase).RemoveActive(player,
+            ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), which);
+
+    /// <summary>The player's injuries (empty when healthy), read only.</summary>
+    public IReadOnlyList<PlayerInjury> ReadInjuries(PlayerRecord player) =>
+        new InjuryReader(_memory, Profile, Game.ModuleBase).Read(player);
+
+    /// <summary>
+    /// Heal, as the user defined it: remove every injury, Condition (= FMRTE's Match Exercise) and Match Sharpness to
+    /// 10000, Jadedness to -500. Each step is guarded; a failure stops before the remaining steps.
+    /// </summary>
+    public void Heal(PlayerRecord player) => new PlayerHealer(_memory, Profile, Game.ModuleBase).Heal(player);
+
+    /// <summary>Inspire, as the user defined it: Morale to 20.</summary>
+    public void Inspire(PlayerRecord player) => new PlayerInspirer(_memory, Profile, Game.ModuleBase).Inspire(player);
+
+    /// <summary>Destroy, as the user defined it: Morale 1, Condition and Sharpness 5000, Jadedness 1000 (FM26 IGE limits).</summary>
+    public void Destroy(PlayerRecord player) => new PlayerDestroyer(_memory, Profile, Game.ModuleBase).Destroy(player);
+
+    /// <summary>Make it Expire: the contract expires on the current in-game date.</summary>
+    public void ExpireContract(PlayerRecord player) =>
+        Contracts.MakeExpire(player, ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"));
+
+    /// <summary>Players of a team (from <see cref="LoadClubs"/> → <c>ClubEntry.Teams</c>) in squad order, freshly read.</summary>
+    public IReadOnlyList<PlayerRecord> ReadSquad(ulong teamAddress)
+    {
+        var squad = new Clubs.SquadReader(_memory, Profile, Game.ModuleBase).Read(teamAddress);
+        // Ages need the in-game date, which a fresh read does not carry (lane D found the Age column empty).
+        if (ReadGameDate() is { } today)
+            foreach (var p in squad) p.GameDate = today;
+        return squad;
+    }
+
     /// <summary>Single-value club and team fields mapped in the profile (club.fields).</summary>
     public Clubs.ClubFieldAccess ClubFields => new(_memory, Profile, Game.ModuleBase);
 
     // Public names and parameter names are the list-provider contract agreed with lane B (STATUS [B 21:40]).
     public IReadOnlyList<Clubs.ClubVisionEntry> ReadClubVision(ulong teamAddress, IReadOnlyList<Clubs.ClubEntry>? clubs = null) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadClubVision(teamAddress, clubs);
+    public void SetClubVisionImportance(ulong teamAddress, Clubs.ClubVisionEntry entry, int importance) =>
+        new Clubs.ClubVisionWriter(_memory, Profile, ModuleBase).SetImportance(teamAddress, entry, importance);
     public IReadOnlyList<Clubs.ClubAffiliationEntry> ReadAffiliations(ulong clubAddress) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadAffiliations(clubAddress);
+    public void SetAffiliationAnnualFee(ulong clubAddress, Clubs.ClubAffiliationEntry entry, int fee) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetAnnualFee(clubAddress, entry, fee);
+    public void SetAffiliationEndDate(ulong clubAddress, Clubs.ClubAffiliationEntry entry, DateOnly date) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetEndDate(clubAddress, entry, date);
+    public void SetAffiliationStartDate(ulong clubAddress, Clubs.ClubAffiliationEntry entry, DateOnly date) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetStartDate(clubAddress, entry, date);
+    public void SetAffiliationFriendlyChance(ulong clubAddress, Clubs.ClubAffiliationEntry entry, int value) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetFriendlyChance(clubAddress, entry, value);
+    public void SetAffiliationParentWagePercent(ulong clubAddress, Clubs.ClubAffiliationEntry entry, int value) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetParentWagePercent(clubAddress, entry, value);
+    public void SetAffiliationPlayFriendlies(ulong clubAddress, Clubs.ClubAffiliationEntry entry, bool value) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetPlayFriendlies(clubAddress, entry, value);
+    public void SetAffiliationFirstOption(ulong clubAddress, Clubs.ClubAffiliationEntry entry, bool value) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetFirstOption(clubAddress, entry, value);
+    public void SetAffiliationPlayersOnLoan(ulong clubAddress, Clubs.ClubAffiliationEntry entry, bool value) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetPlayersOnLoan(clubAddress, entry, value);
+    public void SetAffiliationScoutingShared(ulong clubAddress, Clubs.ClubAffiliationEntry entry, bool value) =>
+        new Clubs.ClubAffiliationWriter(_memory, Profile, ModuleBase).SetScoutingShared(clubAddress, entry, value);
     public IReadOnlyList<Clubs.ClubRegionalDivisionEntry> ReadRegionalDivisions(ulong clubAddress) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadRegionalDivisions(clubAddress);
     public IReadOnlyList<Clubs.ClubSponsorEntry> ReadSponsors(ulong clubAddress) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadSponsors(clubAddress);
     public IReadOnlyList<Clubs.ClubDebtEntry> ReadDebts(ulong clubAddress) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadDebts(clubAddress);
+    public void SetDebtPayments(ulong clubAddress, Clubs.ClubDebtEntry entry, int repayment, int interest) =>
+        new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetPayments(clubAddress, entry, repayment, interest);
+    public void SetDebtInterestOnly(ulong clubAddress, Clubs.ClubDebtEntry entry, bool value) =>
+        new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetInterestOnly(clubAddress, entry, value);
+    public void SetDebtSource(ulong clubAddress, Clubs.ClubDebtEntry entry, byte value) =>
+        new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetSource(clubAddress, entry, value);
+    public void SetOriginalDebt(ulong clubAddress, Clubs.ClubDebtEntry entry, int value) =>
+        new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetOriginalDebt(clubAddress, entry, value);
+    public void SetDebtDates(ulong clubAddress, Clubs.ClubDebtEntry entry, DateOnly start, DateOnly end) =>
+        new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetDates(clubAddress, entry, start, end);
+
+    public IReadOnlyList<Clubs.ClubRelationship> ReadClubRelationships(ulong clubAddress) =>
+        new Clubs.ClubRelationshipReader(_memory, Profile, ModuleBase).Read(clubAddress);
+    public void SetClubRelationship(ulong clubAddress, Clubs.ClubRelationship row, int? reason, bool? permanent, int? value) =>
+        new Clubs.ClubRelationshipWriter(_memory, Profile, ModuleBase).SetDetails(clubAddress, row, reason, permanent, value);
 
     /// <summary>New sell-on owed by <paramref name="club"/>; the record is allocated in the game process.</summary>
     public ulong AddSellOn(ulong club, int playerId, ulong beneficiary, int percent, int? signedFor = null) =>
@@ -101,14 +334,22 @@ public sealed class GameSession : IDisposable
         foreach (var game in games)
         {
             WindowsProcessMemory memory;
-            try { memory = new WindowsProcessMemory(game.ProcessId, writable); }
+            try { memory = new WindowsProcessMemory(game.ProcessId, false); }
             catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or MemoryAccessException)
             { accessError = ex; continue; }
             try
             {
                 foreach (var profile in all)
-                    if (ReadBuild(memory, game.ModuleBase + profile.BuildStringRva, profile.Build.Length) == profile.Build)
+                    if (ProfileMatches(memory, game.ModuleBase, game.ModuleSize, profile))
+                    {
+                        if (writable && !profile.ReadOnly)
+                        {
+                            var writableMemory = new WindowsProcessMemory(game.ProcessId, true);
+                            memory.Dispose();
+                            memory = writableMemory;
+                        }
                         return new GameSession(memory, game, profile);
+                    }
             }
             catch { memory.Dispose(); throw; }
             memory.Dispose();
@@ -121,6 +362,22 @@ public sealed class GameSession : IDisposable
     {
         var bytes = new byte[length];
         return memory.TryRead(address, bytes) ? Encoding.ASCII.GetString(bytes) : null;
+    }
+
+    /// <summary>Checks build string and optional PE fingerprint without dereferencing game data.</summary>
+    public static bool ProfileMatches(IProcessMemory memory, ulong moduleBase, int moduleSize, OffsetProfile profile)
+    {
+        var build = profile.MatchBuild ?? profile.Build;
+        if (ReadBuild(memory, moduleBase + profile.BuildStringRva, build.Length) != build) return false;
+        if (profile.ImageSize is { } size && (ulong)moduleSize != size) return false;
+        if (profile.PeTimestamp is not { } expected) return true;
+        Span<byte> header = stackalloc byte[64];
+        if (!memory.TryRead(moduleBase, header) || header[0] != (byte)'M' || header[1] != (byte)'Z') return false;
+        uint pe = BitConverter.ToUInt32(header[0x3C..]);
+        if (pe > (uint)moduleSize || (uint)moduleSize - pe < 12) return false;
+        Span<byte> signature = stackalloc byte[12];
+        return memory.TryRead(moduleBase + pe, signature) && BitConverter.ToUInt32(signature) == 0x00004550 &&
+               BitConverter.ToUInt32(signature[8..]) == expected;
     }
 
     /// <summary>

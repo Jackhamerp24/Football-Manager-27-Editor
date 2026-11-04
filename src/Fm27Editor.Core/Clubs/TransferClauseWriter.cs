@@ -4,9 +4,12 @@ using Fm27Editor.Core.Players;
 
 namespace Fm27Editor.Core.Clubs;
 
+/// <summary>A clause save stopped after a write may have changed memory.</summary>
+public sealed class PartialClauseWriteException(Exception inner) : Exception("Some clause fields may have been saved; reload before retrying", inner);
+
 /// <summary>
-/// Changes transfer clauses read by <see cref="TransferClauseReader"/>. Each write first checks the record still has its
-/// vtable and the field still holds the snapshot value, then reads it back.
+/// Changes transfer clauses read by <see cref="TransferClauseReader"/>. Each write checks identity, list membership and
+/// the full record snapshot before writing and reading back the changed fields.
 /// Adding and removing is limited to sell-ons: they are referenced only from the club's vector. Appearance fees (and
 /// some competition bonuses) are also in a second game-wide list that is not decoded yet.
 /// </summary>
@@ -63,11 +66,68 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
         Write(c, 0x10, current, ends is { } d ? EncodeDate(d) : EncodeDate(new DateOnly(1900, 1, 1)));
     }
 
+    /// <summary>Writes the main and optional extra field of one clause against the same full record snapshot.</summary>
+    public void SetValues(TransferClause c, int? main, bool changeExtra, int? extraNumber, DateOnly? extraDate)
+    {
+        var writes = new List<(ulong Address, byte[] Expected, byte[] Value)>();
+        CheckVtable(c);
+        byte[] snapshot = CheckRecord(c);
+        void Add(int offset, byte[] value) => writes.Add((c.Address + (ulong)offset, snapshot[offset..(offset + value.Length)], value));
+        if (main is { } value)
+        {
+            if (c.Kind == TransferClauseKind.SellOn) { Range(value, 1, 100, "Sell-on percentage"); Add(0x22, BitConverter.GetBytes((short)value)); }
+            else { Range(value, 0, int.MaxValue, "Amount"); Add(c.Kind == TransferClauseKind.AppearanceFee ? 0x18 : 0x28, BitConverter.GetBytes(value)); }
+        }
+        if (changeExtra)
+        {
+            if (c.Kind == TransferClauseKind.SellOn)
+            {
+                if (extraNumber < 0) throw new ArgumentOutOfRangeException(nameof(extraNumber));
+                Add(0x18, BitConverter.GetBytes(extraNumber ?? -1));
+            }
+            else if (c.Kind == TransferClauseKind.AppearanceFee)
+            {
+                if (extraNumber is not { } appearances) throw new ArgumentNullException(nameof(extraNumber));
+                Range(appearances, 1, 1000, "Appearances");
+                Add(0x1C, BitConverter.GetBytes((short)appearances));
+            }
+            else
+            {
+                if (extraDate is { Year: <= 1900 or > 2300 }) throw new ArgumentOutOfRangeException(nameof(extraDate));
+                Add(0x10, EncodeDate(extraDate ?? new DateOnly(1900, 1, 1)));
+            }
+        }
+        if (writes.Count == 0) throw new InvalidOperationException("No clause fields were selected");
+        for (int i = 0; i < writes.Count; i++)
+        {
+            bool attempted = false;
+            try
+            {
+                CheckVtable(c);
+                if (!memory.Read(c.Address, snapshot.Length).AsSpan().SequenceEqual(snapshot))
+                    throw new StaleObjectException("The clause changed during save");
+                var write = writes[i];
+                if (!memory.Read(write.Address, write.Expected.Length).AsSpan().SequenceEqual(write.Expected))
+                    throw new StaleObjectException("The clause changed during save");
+                attempted = true;
+                if (!memory.TryWrite(write.Address, write.Value) || !memory.Read(write.Address, write.Value.Length).AsSpan().SequenceEqual(write.Value))
+                    throw new MemoryAccessException($"Write at 0x{write.Address:X} failed");
+                write.Value.CopyTo(snapshot, (int)(write.Address - c.Address));
+            }
+            catch (Exception ex) when ((i > 0 || attempted) && (ex is StaleObjectException or MemoryAccessException))
+            {
+                throw new PartialClauseWriteException(ex);
+            }
+        }
+    }
+
     /// <summary>Removes the sell-on's pointer from the club's vector (shift left, end − 8). The record itself stays allocated.</summary>
     public void RemoveSellOn(ulong club, TransferClause c)
     {
         Require(c, TransferClauseKind.SellOn);
         CheckVtable(c);
+        if (c.Origin?.Club != club) throw new StaleObjectException("The clause belongs to a different club");
+        CheckRecord(c);
         var (vector, begin, end, _) = Vector(club);
         var items = memory.Read(begin, (int)(end - begin));
         int n = items.Length / 8;
@@ -131,7 +191,8 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
         ulong holder = memory.ReadUInt64(club + (ulong)T.Pointer);
         if (holder == 0) throw new InvalidOperationException("The club has no clause list");
         ulong begin = memory.ReadUInt64(holder), end = memory.ReadUInt64(holder + 8), cap = memory.ReadUInt64(holder + 16);
-        if (end < begin || cap < end || (cap - begin) / 8 > 4096) throw new StaleObjectException("The club's clause list looks invalid");
+        if (end < begin || cap < end || (end - begin) % 8 != 0 || (cap - begin) % 8 != 0
+            || (cap - begin) / 8 > 4096) throw new StaleObjectException("The club's clause list looks invalid");
         return (holder, begin, end, cap);
     }
 
@@ -148,7 +209,19 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
     void Write(TransferClause c, int offset, byte[] expected, byte[] value)
     {
         CheckVtable(c);
+        CheckRecord(c);
         Apply([(c.Address + (ulong)offset, expected, value)]);
+    }
+
+    byte[] CheckRecord(TransferClause c)
+    {
+        int size = c.Kind == TransferClauseKind.CompetitionBonus ? 0x38 : 0x28;
+        if (c.Snapshot is not { } snapshot || snapshot.Length != size * 2)
+            throw new StaleObjectException("The clause snapshot is unavailable");
+        byte[] expected = Convert.FromHexString(snapshot);
+        if (!memory.Read(c.Address, size).AsSpan().SequenceEqual(expected))
+            throw new StaleObjectException("The clause changed since it was read");
+        return expected;
     }
 
     void CheckVtable(TransferClause c)
@@ -161,6 +234,17 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
         };
         if (rva is null || memory.ReadUInt64(c.Address) != moduleBase + rva.Value)
             throw new StaleObjectException($"0x{c.Address:X} is no longer a {c.Kind} clause");
+        if (BitConverter.ToInt32(memory.Read(c.Address + 8, 4)) != c.PlayerId)
+            throw new StaleObjectException($"The player of the clause at 0x{c.Address:X} changed since it was read");
+        if (c.Origin is not { } origin || profile.Club is not { } club
+            || memory.ReadUInt64(origin.Club) != moduleBase + club.ClubVtableRva
+            || memory.ReadUInt64(origin.Club + (ulong)T.Pointer) != origin.Holder
+            || memory.ReadUInt64(origin.Holder) != origin.Begin
+            || memory.ReadUInt64(origin.Holder + 8) != origin.End
+            || memory.ReadUInt64(origin.Holder + 16) != origin.Capacity
+            || origin.Slot < origin.Begin || origin.Slot >= origin.End
+            || (origin.Slot - origin.Begin) % 8 != 0 || memory.ReadUInt64(origin.Slot) != c.Address)
+            throw new StaleObjectException("The clause's containing list changed since it was read");
     }
 
     static void Require(TransferClause c, TransferClauseKind kind)

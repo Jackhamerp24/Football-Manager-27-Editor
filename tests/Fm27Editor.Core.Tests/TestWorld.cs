@@ -5,7 +5,7 @@ namespace Fm27Editor.Core.Tests;
 
 /// <summary>
 /// A fake game built from the real FM27 profile. Raw offsets are written as literals taken from
-/// the measured layout (see re/FMRTE26-findings.md section 6), not looked up from the profile,
+/// the measured layout (see re/FM27-findings.md section 6), not looked up from the profile,
 /// so a wrong profile entry makes the tests fail.
 /// </summary>
 sealed class TestWorld

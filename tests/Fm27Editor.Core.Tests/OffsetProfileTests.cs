@@ -46,6 +46,13 @@ public class OffsetProfileTests
         Assert.Equivalent(original.Fields, copy.Fields);
         Assert.Equivalent(original.Club, copy.Club);
         Assert.Equal(0x15F, copy.Attributes[PlayerAttribute.Crossing]);
+        Assert.Equal(new UnhappinessOffsets(0x30, 0x1C, 0, 4, 8, 0xC, 0x16, 0x18), copy.Unhappiness);
+        Assert.Equivalent(original.Staff, copy.Staff);
+        Assert.Equivalent(original.Stadium, copy.Stadium);
+        Assert.Equal(10, copy.Stadium!.Fields[Stadiums.StadiumField.PitchLength].Scale);
+        Assert.Equivalent(original.Nation!.Fields, copy.Nation!.Fields);
+        Assert.Equal((0x32, true), copy.Staff!.Attributes[Staff.StaffAttribute.CoachingAttacking]);
+        Assert.Equal((0x10, false), copy.Staff.Attributes[Staff.StaffAttribute.TacticalAttacking]);
         Assert.Equal(0x294, copy.Fields.Id);
         Assert.Equal(0xB0, copy.Club!.TransferClauses!.Pointer);
         Assert.Equal(0x4DC4088u, copy.Club.TransferClauses.CompetitionBonusVtableRva);
@@ -76,6 +83,10 @@ public class OffsetProfileTests
             (Clubs.ClubField.SupportersCasual, [0x100, 0x10B], Clubs.ClubFieldType.Byte),      // 14 / 0
             (Clubs.ClubField.SupporterPatience, [0x100, 0x116], Clubs.ClubFieldType.Byte),     // 6 / 10
             (Clubs.ClubField.SupporterExpectations, [0x100, 0x119], Clubs.ClubFieldType.Byte), // 10 / 10
+            // Found through the FM26 table (club detail +8, finance block unchanged), then checked against FMRTE:
+            // Morale Sheffield 7 / Everton 11 / Oxford 10; Corporate Facilities Sheffield 12 / Everton 15 (full finance only).
+            (Clubs.ClubField.Morale, [0x100, 0x121], Clubs.ClubFieldType.Byte),
+            (Clubs.ClubField.CorporateFacilities, [0x150, 0x8A9], Clubs.ClubFieldType.Byte),
             // Tied on Sheffield (15/15, 7/7); separated by FMRTE Everton 17/14, 7/14 and Tottenham 18/14, 14/7 (lane C2).
             (Clubs.ClubField.SupporterLoyalty, [0x100, 0x114], Clubs.ClubFieldType.Byte),
             (Clubs.ClubField.SupporterPassion, [0x100, 0x115], Clubs.ClubFieldType.Byte),
@@ -110,5 +121,6 @@ public class OffsetProfileTests
         Assert.Equal(new uint[] { 0x4CF0CC8 }, copy.Club.Fields[Clubs.ClubField.StadiumRentalPerYear].ObjectVtables);
         Assert.Equal(new ClubListOffsets(0x18, 0xA0, 0xC8, 0x78, 0x4DBAC98, 0x4B0E5C8,
             0x50, 0x2C, 0x2D, 0x20, 0x24, 0x8, 0xA, 0x118, 0x38, 0, 8, 0x20, 0x30, 0x138, 0xC, 0xA), copy.Club.Lists);
+        Assert.Equal(new ClubRelationshipOffsets(0x48, 0x10, 0, 8, 0xA, 0xB, 0xC, 0xD, 5, 1, 2, 1, 3, 4), copy.Club.Relationships);
     }
 }

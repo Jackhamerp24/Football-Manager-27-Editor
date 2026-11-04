@@ -1,4 +1,5 @@
 using Fm27Editor.Core.Game;
+using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Memory;
 using Fm27Editor.Core.Players;
 
@@ -10,6 +11,7 @@ public static class UserMessage
     {
         GameNotRunningException ex => ex.Message,
         UnsupportedBuildException => "This game version is not supported",
+        PartialClauseWriteException => "Some clause fields may have been saved. Reload before retrying.",
         StaleObjectException => "Player data changed in game; reloaded",
         MemoryAccessException => "Couldn't access game data. Check that a save is loaded and retry.",
         ArgumentOutOfRangeException => "Value is outside the allowed range",

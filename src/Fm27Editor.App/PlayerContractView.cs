@@ -43,17 +43,20 @@ public sealed partial class MainWindow
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     static string D(DateOnly? d) => d?.ToString("yyyy-MM-dd", Inv) ?? "";
 
-    Control ContractPanel(PlayerRecord player)
+    /// <summary>The Contract tab; with <paramref name="future"/> the same editor on a future transfer's contract (FMRTE's Future Contract).</summary>
+    Control ContractPanel(PlayerRecord player, ulong future = 0)
     {
+        var writer = future == 0 ? backend.Session.Contracts : backend.Session.FutureContract(future);
+        ulong key = future == 0 ? player.Address : future;
         var panel = new StackPanel { Spacing = 10, Margin = new Thickness(0, 6), MaxWidth = 880, HorizontalAlignment = HorizontalAlignment.Left };
         ContractDraft draft;
         try
         {
-            if (!contractDrafts.TryGetValue(player.Address, out draft!))
+            if (!contractDrafts.TryGetValue(key, out draft!))
             {
-                var details = backend.Session.Contracts.Read(player);
+                var details = writer.Read(player);
                 if (details is null) { panel.Children.Add(new TextBlock { Text = "Free agent", Foreground = Brush("#94A3B8") }); return panel; }
-                contractDrafts[player.Address] = draft = new(player, details);
+                contractDrafts[key] = draft = new(player, details);
             }
         }
         catch (Exception ex) { panel.Children.Add(new TextBlock { Text = UserMessage.For(ex), Foreground = Brush("#94A3B8") }); return panel; }
@@ -166,7 +169,7 @@ public sealed partial class MainWindow
                 int row = terms.RowDefinitions.Count; terms.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                 void Cell(Control c, int col) { c.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(c, row); Grid.SetColumn(c, col); terms.Children.Add(c); }
                 var remove = new Button { Content = "Remove" };
-                remove.Click += (_, _) => ChangeTerms(player, draft, () => backend.Session.Contracts.RemoveTerm(draft.Player, draft.Snapshot, term.Index), $"Removed {ContractLabels.Term(term.Type)}");
+                remove.Click += (_, _) => ChangeTerms(player, draft, () => writer.RemoveTerm(draft.Player, draft.Snapshot, term.Index), $"Removed {ContractLabels.Term(term.Type)}", future);
                 Cell(remove, 5);
                 Cell(new TextBlock { Text = ContractLabels.Term(term.Type), FontSize = 12.5, Foreground = Brush("#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }, 0);
                 if (ContractLabels.TermParameter(term.Type) is { } unit)
@@ -204,7 +207,7 @@ public sealed partial class MainWindow
                 {
                     int value = addValue.IsVisible ? int.Parse(addValue.Text ?? "", NumberStyles.Integer, Inv) : -1;
                     short parameter = addParam.IsVisible ? short.Parse(addParam.Text ?? "", Inv) : (short)-1;
-                    ChangeTerms(player, draft, () => backend.Session.AddContractTerm(draft.Player, draft.Snapshot, o.Type, value, parameter), $"Added {o.Label}");
+                    ChangeTerms(player, draft, () => backend.Session.AddContractTerm(draft.Player, draft.Snapshot, o.Type, value, parameter, future), $"Added {o.Label}", future);
                 }
                 catch (FormatException) { status.Text = "Enter whole numbers for the new clause"; }
             };
@@ -233,13 +236,14 @@ public sealed partial class MainWindow
             });
         }
 
-        if (TransferClausesPanel(player, draft, (key, original, width) => Text(key, original, width)) is { } transferClauses) panel.Children.Add(transferClauses);
+        if (future == 0 && TransferClausesPanel(player, draft, (k, original, width) => Text(k, original, width)) is { } transferClauses) panel.Children.Add(transferClauses);
+        if (future == 0 && UnhappinessPanel(player) is { } unhappiness) panel.Children.Add(unhappiness);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 2, 0, 0) };
         save = new Button { Content = "Save contract", IsEnabled = draft.Changes.Count > 0, Classes = { "accent" } };
         discard = new Button { Content = "Discard", IsEnabled = draft.Changes.Count > 0 };
-        save.Click += (_, _) => SaveContract(player, draft);
-        discard.Click += (_, _) => { contractDrafts.Remove(player.Address); RenderEditor(); };
+        save.Click += (_, _) => SaveContract(player, draft, future);
+        discard.Click += (_, _) => { contractDrafts.Remove(key); RenderEditor(); };
         buttons.Children.Add(save); buttons.Children.Add(discard); panel.Children.Add(buttons);
         return panel;
     }
@@ -251,7 +255,7 @@ public sealed partial class MainWindow
     Control? TransferClausesPanel(PlayerRecord player, ContractDraft draft, Func<string, string, double, Control> text)
     {
         if (player.Id is not { } id || player.Club is not { } club || backend.Session.Profile.Club?.TransferClauses is null) return null;
-        var competitions = competitionCache ??= backend.Session.LoadCompetitions(rows.OfType<PlayerRecord>());
+        var competitions = competitionCache ??= backend.Session.LoadCompetitions(Players());
         var clauses = draft.TransferClauses ??= backend.Session.ReadTransferClauses(club.Address, competitions).Where(c => c.PlayerId == id).ToList();
 
         TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
@@ -295,7 +299,7 @@ public sealed partial class MainWindow
             try
             {
                 int clubId = int.Parse(addClub.Text ?? "", NumberStyles.Integer, Inv), percent = int.Parse(addPercent.Text ?? "", NumberStyles.Integer, Inv);
-                var clubs = clubCache ??= backend.Session.LoadClubs(rows.OfType<PlayerRecord>().ToArray());
+                var clubs = clubCache ??= backend.Session.LoadClubs(Players());
                 var beneficiary = clubs.FirstOrDefault(k => k.Id == clubId);
                 if (beneficiary is null) { status.Text = $"No club with ID {clubId}"; return; }
                 ClauseChange(player, draft, () => backend.Session.AddSellOn(club.Address, id, beneficiary.Address, percent), $"Sell-on to {beneficiary.DisplayName} added");
@@ -337,6 +341,64 @@ public sealed partial class MainWindow
         };
     }
 
+    /// <summary>Active unhappiness motives (as FMRTE lists them), each removable, plus Remove All. Null when there are none.</summary>
+    Control? UnhappinessPanel(PlayerRecord player)
+    {
+        if (backend.Session.Profile.Unhappiness is null || backend.Session.ReadGameDate() is not { } today) return null;
+        var motives = backend.Session.ReadUnhappiness(player).Where(m => m.IsActive(today)).ToList();
+        if (motives.Count == 0) return null;
+
+        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
+        void Remove(Func<PlayerUnhappiness, bool>? which, string done)
+        {
+            try
+            {
+                int n = 0;
+                backend.Edits.Execute(() => n = backend.Session.RemoveUnhappiness(player, which));
+                RenderEditor();
+                status.Text = $"{done} ({n}). Continue in FM to see updates.";
+            }
+            catch (Exception ex) { status.Text = ex.Message; }
+        }
+
+        var list = new Grid { ColumnDefinitions = new ColumnDefinitions("*,110,90,90,Auto"), RowSpacing = 6, ColumnSpacing = 12, Margin = new Thickness(12, 10, 12, 8) };
+        foreach (var m in motives)
+        {
+            int row = list.RowDefinitions.Count; list.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            void Cell(Control control, int col) { control.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(control, row); Grid.SetColumn(control, col); list.Children.Add(control); }
+            Cell(Label(UnhappinessLabels.Motive(m.Motive), "#F1F5F9"), 0);
+            Cell(Label(UnhappinessLabels.Type(m.Type), "#CBD5E1"), 1);
+            Cell(Label(D(m.Start)), 2);
+            Cell(Label(m.End is { } e ? D(e) : ""), 3);
+            var remove = new Button { Content = "Remove" };
+            int index = m.Index;
+            remove.Click += (_, _) => Remove(x => x.Index == index, "Unhappiness removed");
+            Cell(remove, 4);
+        }
+        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), FontSize = 11 };
+        removeAll.Click += (_, _) => Remove(null, "Unhappiness removed");
+        var title = new DockPanel();
+        DockPanel.SetDock(removeAll, Dock.Right);
+        title.Children.Add(removeAll);
+        title.Children.Add(new TextBlock { Text = "UNHAPPINESS", FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Brush("#E2E8F0"), VerticalAlignment = VerticalAlignment.Center });
+        return new Border
+        {
+            Background = Brush("#161822"),
+            BorderBrush = Brush("#242636"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            ClipToBounds = true,
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new Border { Background = Brush("#1D1F2D"), BorderBrush = Brush("#6D28D9"), BorderThickness = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 4), Child = title },
+                    list
+                }
+            }
+        };
+    }
+
     static string ClauseKey(TransferClause c, string part) => $"xfer {c.Address:X} {part}";
 
     /// <summary>Remove/add a sell-on right away; refuses while clause value edits are pending, since the list moves.</summary>
@@ -354,14 +416,8 @@ public sealed partial class MainWindow
         catch (Exception ex) { status.Text = $"Clause change stopped: {UserMessage.For(ex)}"; }
     }
 
-    static int? ParseOptionalInt(string? text) =>
-        string.IsNullOrWhiteSpace(text) ? null : int.Parse(text.Trim(), NumberStyles.Integer, Inv);
-
-    static DateOnly? ParseOptionalDate(string? text) =>
-        string.IsNullOrWhiteSpace(text) ? null : DateOnly.ParseExact(text.Trim(), "yyyy-MM-dd", Inv);
-
     /// <summary>Adds or removes a clause right away; pending field edits are kept only if nothing else in the list moved.</summary>
-    void ChangeTerms(PlayerRecord player, ContractDraft draft, Action change, string done)
+    void ChangeTerms(PlayerRecord player, ContractDraft draft, Action change, string done, ulong future = 0)
     {
         if (draft.Changes.Keys.Any(k => k.StartsWith("term ", StringComparison.Ordinal)))
         { status.Text = "Save or discard the clause edits first"; return; }
@@ -369,12 +425,14 @@ public sealed partial class MainWindow
         {
             backend.Edits.Execute(change);
             var pending = draft.Changes;
-            contractDrafts.Remove(player.Address);
+            ulong key = future == 0 ? player.Address : future;
+            contractDrafts.Remove(key);
             selected = backend.Players.Reload(player.Address);
             if (selected is not null)
             {
                 ReplaceRow(selected);
-                if (backend.Session.Contracts.Read(selected) is { } fresh) contractDrafts[player.Address] = new(selected, fresh) { Changes = pending };
+                var writer = future == 0 ? backend.Session.Contracts : backend.Session.FutureContract(future);
+                if (writer.Read(selected) is { } fresh) contractDrafts[key] = new(selected, fresh) { Changes = pending };
             }
             RenderEditor();
             status.Text = $"{done}. Continue in FM to see updates.";
@@ -385,12 +443,12 @@ public sealed partial class MainWindow
     static string TermValueKey(ContractTerm t) => $"term {t.Index} value";
     static string TermParameterKey(ContractTerm t) => $"term {t.Index} parameter";
 
-    void SaveContract(PlayerRecord player, ContractDraft draft)
+    void SaveContract(PlayerRecord player, ContractDraft draft, ulong future = 0)
     {
         try
         {
             var actions = new List<(string[] keys, Action write)>();
-            var c = backend.Session.Contracts; var p = draft.Player; var d = draft.Snapshot;
+            var c = future == 0 ? backend.Session.Contracts : backend.Session.FutureContract(future); var p = draft.Player; var d = draft.Snapshot;
             void Add<T>(string key, Func<string, T> parse, Action<T> action) { if (draft.Changes.TryGetValue(key, out var value)) { T parsed = parse(value); actions.Add(([key], () => action(parsed))); } }
             int Number(string x) => int.Parse(x, NumberStyles.Integer, Inv);
             DateOnly Date(string x) { var date = DateOnly.ParseExact(x, "yyyy-MM-dd", Inv); return date.Year is >= 1901 and <= 2300 ? date : throw new ArgumentOutOfRangeException(nameof(x), "Year must be 1901-2300"); }
@@ -402,7 +460,7 @@ public sealed partial class MainWindow
             Add("Type", EnumValue<ContractType>, x => c.SetType(p, d, x));
             Add("Loyalty Bonus", x => Range(x, 0, 10_000_000), x => c.SetLoyaltyBonus(p, d, x)); Add("Number", x => Range(x, -1, 99), x => c.SetSquadNumber(p, d, x));
             Add("Playing Time", EnumValue<PlayingTime>, x => c.SetPlayingTime(p, d, x));
-            Add("Happiness", x => Range(x, 0, 100), x => c.SetHappiness(p, d, x)); Add("Playing Time Happiness", x => Range(x, 0, 100), x => c.SetPlayingTimeHappiness(p, d, x));
+            Add("Happiness", x => Range(x, -100, 100), x => c.SetHappiness(p, d, x)); Add("Playing Time Happiness", x => Range(x, -100, 100), x => c.SetPlayingTimeHappiness(p, d, x));
             if (draft.Changes.ContainsKey("Future Playing Time") || draft.Changes.ContainsKey("Future Year"))
             {
                 var time = EnumValue<PlayingTime>(draft.Changes.GetValueOrDefault("Future Playing Time", d.FuturePlayingTime!.Value.ToString()));
@@ -424,21 +482,16 @@ public sealed partial class MainWindow
             {
                 string mk = ClauseKey(t, "main"), ek = ClauseKey(t, "extra");
                 bool m = draft.Changes.TryGetValue(mk, out var mv), e = draft.Changes.TryGetValue(ek, out var ev);
-                if (m)
+                if (m || e)
                 {
-                    int value = Number(mv!);
-                    actions.Add(([mk], t.Kind == TransferClauseKind.SellOn ? () => xw.SetPercentage(t, value) : () => xw.SetAmount(t, value)));
-                }
-                if (e)
-                {
-                    if (t.Kind == TransferClauseKind.SellOn) { var fee = ParseOptionalInt(ev); actions.Add(([ek], () => xw.SetSignedFor(t, fee))); }
-                    else if (t.Kind == TransferClauseKind.AppearanceFee) { int apps = Number(ev!); actions.Add(([ek], () => xw.SetAppearances(t, apps))); }
-                    else { var ends = ParseOptionalDate(ev); actions.Add(([ek], () => xw.SetEnds(t, ends))); }
+                    var values = ClauseSaveInput.Parse(t.Kind, m, mv, e, ev);
+                    string[] keys = m && e ? [mk, ek] : m ? [mk] : [ek];
+                    actions.Add((keys, () => xw.SetValues(t, values.Main, values.ChangeExtra, values.ExtraNumber, values.ExtraDate)));
                 }
             }
             int saved = 0;
             foreach (var action in actions) { backend.Edits.Execute(action.write); foreach (var key in action.keys) draft.Changes.Remove(key); saved++; }
-            contractDrafts.Remove(player.Address); selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected); RenderEditor();
+            contractDrafts.Remove(future == 0 ? player.Address : future); selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected); RenderEditor();
             status.Text = $"Saved {saved} contract change(s). Continue in FM to see updates.";
         }
         catch (Exception ex) { status.Text = $"Contract save stopped: {UserMessage.For(ex)}"; }

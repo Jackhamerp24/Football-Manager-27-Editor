@@ -41,7 +41,8 @@ public enum ClubField
 /// <param name="ObjectVtables">When set, the object that holds the field (after the last pointer) must have one of these
 /// vtable RVAs. Small clubs have a 0x38-byte finance object where the full one is 0x8B0, so budget offsets would land in
 /// the next club's object.</param>
-public sealed record ClubFieldOffset(ClubFieldRoot Root, IReadOnlyList<int> Path, ClubFieldType Type, int Scale = 1, IReadOnlyList<uint>? ObjectVtables = null)
+/// <remarks>A non-zero <c>Mask</c> makes a byte field one bit: it reads 0/1 and writes keep the other bits (see the three-argument Encode).</remarks>
+public sealed record ClubFieldOffset(ClubFieldRoot Root, IReadOnlyList<int> Path, ClubFieldType Type, int Scale = 1, IReadOnlyList<uint>? ObjectVtables = null, int Mask = 0)
 {
     public string PathText => string.Join("->", Path.Select(p => $"0x{p:X}"));
 
@@ -112,15 +113,16 @@ public sealed class ClubFieldAccess(IProcessMemory memory, OffsetProfile profile
         return at + (ulong)o.Path[^1];
     }
 
-    static int Size(ClubFieldType t) => t switch
+    internal static int Size(ClubFieldType t) => t switch
     {
         ClubFieldType.Byte or ClubFieldType.SByte or ClubFieldType.Bool => 1,
         ClubFieldType.Int16 => 2,
         _ => 4,
     };
 
-    static long Decode(byte[] b, ClubFieldOffset o)
+    internal static long Decode(byte[] b, ClubFieldOffset o)
     {
+        if (o.Mask != 0) return (b[0] & o.Mask) != 0 ? 1 : 0;
         long raw = o.Type switch
         {
             ClubFieldType.Byte or ClubFieldType.Bool => b[0],
@@ -134,8 +136,17 @@ public sealed class ClubFieldAccess(IProcessMemory memory, OffsetProfile profile
         return o.Type is ClubFieldType.Date or ClubFieldType.Colour or ClubFieldType.Bool ? raw : raw / o.Scale;
     }
 
-    static byte[] Encode(long value, ClubFieldOffset o)
+    /// <summary>Like <see cref="Encode(long, ClubFieldOffset)"/>; a masked field sets or clears its bit in <paramref name="current"/>.</summary>
+    internal static byte[] Encode(long value, ClubFieldOffset o, byte[] current)
     {
+        if (o.Mask == 0) return Encode(value, o);
+        if (value is < 0 or > 1) throw new ArgumentOutOfRangeException(nameof(value), value, "A flag is 0 or 1");
+        return [(byte)(value == 1 ? current[0] | o.Mask : current[0] & ~o.Mask)];
+    }
+
+    internal static byte[] Encode(long value, ClubFieldOffset o)
+    {
+        if (o.Mask != 0) throw new InvalidOperationException("A masked field needs the current byte to encode");
         long raw = o.Type is ClubFieldType.Date or ClubFieldType.Colour or ClubFieldType.Bool ? value : value * o.Scale;
         void Range(long min, long max) { if (raw < min || raw > max) throw new ArgumentOutOfRangeException(nameof(value), value, $"Out of range for {o.Type}"); }
         switch (o.Type)

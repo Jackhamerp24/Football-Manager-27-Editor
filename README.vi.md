@@ -144,3 +144,13 @@ App sẽ không gắn vào bản game chưa có profile. Như vậy app không b
 
 Dự án này không liên kết với và không được Sports Interactive hay SEGA bảo trợ. Football Manager là thương hiệu của họ.
 Sửa bộ nhớ game có thể làm hỏng save, hãy giữ bản sao lưu. Bạn tự chịu rủi ro khi sử dụng.
+
+## Ủng hộ
+
+Nếu editor có ích, bạn có thể ủng hộ qua [Ko-fi](https://ko-fi.com/quyduongvu) hoặc quét mã VietQR (mọi ngân hàng và ví điện tử):
+
+<img src="docs/images/donate-vietqr.png" alt="VietQR Vietcombank" width="240">
+
+## Giấy phép
+
+GPL-3.0 trở lên. Xem [LICENSE](LICENSE).

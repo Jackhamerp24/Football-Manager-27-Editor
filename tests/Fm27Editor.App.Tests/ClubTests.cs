@@ -95,6 +95,8 @@ public sealed class ClubTests
                 ClubSection.RegionalDivisions,
                 ClubSection.Kits,
                 ClubSection.TransferCenter,
+                ClubSection.Relationships,
+                ClubSection.Staff,
             ],
             ClubFieldInfo.TopLevelListSections);
         Assert.Equal(
@@ -113,6 +115,8 @@ public sealed class ClubTests
                 ClubSection.Debts,
                 ClubSection.Kits,
                 ClubSection.TransferCenter,
+                ClubSection.Relationships,
+                ClubSection.Staff,
             ],
             ClubFieldInfo.ListSections);
         Assert.Equal(
@@ -126,6 +130,8 @@ public sealed class ClubTests
                 ClubSection.RegionalDivisions,
                 ClubSection.Kits,
                 ClubSection.TransferCenter,
+                ClubSection.Relationships,
+                ClubSection.Staff,
             ],
             ClubFieldInfo.Sections);
         Assert.Equal(
@@ -139,6 +145,8 @@ public sealed class ClubTests
                 "Regional Divisions",
                 "Kits and Colours",
                 "Transfer Center",
+                "Relationships",
+                "Staff",
             ],
             ClubFieldInfo.Sections.Select(ClubFieldInfo.SectionTitle));
         Assert.Equal(
@@ -782,6 +790,18 @@ public sealed class ClubTests
             transfers.Rows[1].Cells.Select(c => c.Text));
         Assert.Equal(["Braiden Graham", "Everton", "MK Dons", "", ""], transfers.Rows[2].Cells.Select(c => c.Text));
         Assert.DoesNotContain(transfers.Rows[2].Details, d => d.Label is "Fee" or "Status");
+    }
+
+    [Fact]
+    public void Transfer_center_shows_offer_type_and_FMRTE_status()
+    {
+        var table = ClubListBuilder.BuildTransferCenter([
+            new ClubTransferOfferRow(5624, "Alejandro Balde", BuyerClub: "Manchester United", SellerClub: "Barcelona", Fee: 150000, StatusCode: 12, TypeName: "Loan"),
+            new ClubTransferOfferRow(4062, "Julio Figueroa", BuyerClub: "Manchester United", Fee: 0, StatusCode: 10, TypeName: "Transfer"),
+        ]);
+        Assert.Equal(["Type", "Person", "From", "To", "Fee", "Status"], table.Columns.Select(c => c.Header));
+        Assert.Equal(["Loan", "Alejandro Balde", "Barcelona", "Manchester United", "150,000", "Ready to sign"], table.Rows[0].Cells.Select(c => c.Text));
+        Assert.Equal(["Transfer", "Julio Figueroa", "", "Manchester United", "0", "Unknown status 1"], table.Rows[1].Cells.Select(c => c.Text));
     }
 
     sealed record StubCoreVisionItem(

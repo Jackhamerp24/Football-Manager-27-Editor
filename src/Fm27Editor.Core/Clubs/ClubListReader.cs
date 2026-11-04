@@ -11,11 +11,18 @@ public sealed record ClubListClub(ulong Address, int? Id, string? Name, string? 
 
 /// <summary>Confirmed culture fields only. Source, Value, ForCompetition and unverified objective records are omitted.</summary>
 public sealed record ClubVisionEntry(ulong Address, byte TypeCode, byte Importance, DateOnly? StartDate,
-    DateOnly? EndDate, short? ItemIndex, ClubListClub? ClubItem);
+    DateOnly? EndDate, short? ItemIndex, ClubListClub? ClubItem, ClubVisionSnapshot? Snapshot = null);
 
-/// <summary>Fee, end date and benefit bits have no second independent oracle and are deliberately absent.</summary>
+public sealed record ClubVisionSnapshot(ulong Team, ulong Detail, ulong Holder, ulong Vector, ulong Begin, ulong End,
+    ulong Capacity, ulong Slot, string Bytes);
+
+public sealed record ClubAffiliationSnapshot(ulong Club, ulong Begin, ulong End, ulong Capacity, ulong Slot, string Bytes);
+
+/// <summary>Benefit bits and negative fee encodings remain unresolved.</summary>
 public sealed record ClubAffiliationEntry(ulong Address, ClubListClub? ParentClub, ClubListClub? FeederClub,
-    DateOnly? StartDate, byte TypeCode);
+    DateOnly? StartDate, byte TypeCode, int? AnnualFee = null, ClubAffiliationSnapshot? Snapshot = null, DateOnly? EndDate = null,
+    byte? FriendlyChance = null, byte? ParentWagePercent = null, bool? PlayFriendlies = null, bool? FirstOption = null,
+    bool? PlayersOnLoan = null, bool? ScoutingShared = null);
 
 /// <summary>The two competition IDs are indistinguishable and every observed year is zero; only Level is confirmed.</summary>
 public sealed record ClubRegionalDivisionEntry(ulong Address, byte Level);
@@ -23,8 +30,11 @@ public sealed record ClubRegionalDivisionEntry(ulong Address, byte Level);
 /// <summary>Finances → Sponsors and Other. Annual value and the Renew Income / Fixed Value flags are not confirmed and are absent.</summary>
 public sealed record ClubSponsorEntry(ulong Address, byte IncomeTypeCode, int TotalValue, DateOnly? StartDate, DateOnly? EndDate);
 
-/// <summary>Finances → Debt and Loans. Monthly repayment/interest have one oracle only and are absent.</summary>
-public sealed record ClubDebtEntry(ulong Address, byte SourceCode, int OriginalDebt, DateOnly? StartDate, DateOnly? EndDate);
+/// <summary>Immutable identity and bytes of a debt record, including its containing vector.</summary>
+public sealed record ClubDebtSnapshot(ulong Club, ulong Holder, ulong Begin, ulong End, ulong Capacity, ulong Slot, string Bytes);
+
+public sealed record ClubDebtEntry(ulong Address, byte SourceCode, int OriginalDebt, DateOnly? StartDate, DateOnly? EndDate,
+    int? MonthlyRepayment = null, int? MonthlyInterestRepayment = null, ClubDebtSnapshot? Snapshot = null, bool? InterestOnly = null);
 
 /// <summary>Read-only, bounded snapshots of the layouts confirmed in re/club/lists.md. No allocator or write access.</summary>
 public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
@@ -38,16 +48,20 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
             || !Fits(l.CultureSize, (0, 8), (l.VisionType, 1), (l.Importance, 1), (l.VisionStart, 4),
                 (l.VisionEnd, 4), (l.ItemIndex, 2), (l.ItemMarker, 2))) return [];
         ulong detail = PointerAt(teamAddress, l.TeamDetails), holder = PointerAt(detail, l.Vision);
-        if (!Vtable(holder, l.VisionHolderVtable) || Vector(PointerAt(holder, l.VisionVector)) is not { } pointers) return [];
+        ulong header = PointerAt(holder, l.VisionVector);
+        if (!Vtable(holder, l.VisionHolderVtable) || VectorSnapshot(header) is not { } vector) return [];
         var result = new List<ClubVisionEntry>();
-        foreach (ulong address in pointers)
+        for (int row = 0; row < vector.Pointers.Length; row++)
         {
+            ulong address = vector.Pointers[row];
             if (!Vtable(address, l.CultureVtable) || Bytes(address, l.CultureSize) is not { } b) continue;
             // 00/03 was observed on all four independently named club-item references; other marker kinds stay unresolved.
             short? index = BitConverter.ToUInt16(b, l.ItemMarker) == 0x0300
                 && BitConverter.ToInt16(b, l.ItemIndex) is >= 0 and var i ? i : null;
             result.Add(new(address, b[l.VisionType], b[l.Importance], Date(b, l.VisionStart), Date(b, l.VisionEnd),
-                index, index is { } idx ? FindClub(idx, clubs) : null));
+                index, index is { } idx ? FindClub(idx, clubs) : null,
+                new(teamAddress, detail, holder, header, vector.Begin, vector.End, vector.Capacity,
+                    vector.Begin + (ulong)row * 8, Convert.ToHexString(b))));
         }
         return result.AsReadOnly();
     }
@@ -56,15 +70,26 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
     {
         if (Layout is not { } l || !ClubRoot(clubAddress)
             || !Fits(l.AffiliationSize, (l.Parent, 8), (l.Feeder, 8), (l.AffiliationStart, 4), (l.AffiliationType, 1))
-            || Vector(Field(clubAddress, l.Affiliations)) is not { } pointers) return [];
+            || VectorSnapshot(Field(clubAddress, l.Affiliations)) is not { } vector) return [];
         var result = new List<ClubAffiliationEntry>();
-        foreach (ulong address in pointers)
+        for (int i = 0; i < vector.Pointers.Length; i++)
         {
+            ulong address = vector.Pointers[i];
             if (Bytes(address, l.AffiliationSize) is not { } b) continue;
             var parent = Club(BitConverter.ToUInt64(b, l.Parent));
             var feeder = Club(BitConverter.ToUInt64(b, l.Feeder));
             if (parent is null || feeder is null) continue;
-            result.Add(new(address, parent, feeder, Date(b, l.AffiliationStart), b[l.AffiliationType]));
+            int? fee = l.AffiliationAnnualFee is { } offset && Fits(l.AffiliationSize, (offset, 4))
+                && BitConverter.ToInt32(b, offset) is >= 0 and var value ? value : null;
+            result.Add(new(address, parent, feeder, Date(b, l.AffiliationStart), b[l.AffiliationType], fee,
+                new(clubAddress, vector.Begin, vector.End, vector.Capacity, vector.Begin + (ulong)i * 8, Convert.ToHexString(b)),
+                l.AffiliationEnd is { } end && Fits(l.AffiliationSize, (end, 4)) ? Date(b, end) : null,
+                l.AffiliationFriendlyChance is { } chance && Fits(l.AffiliationSize, (chance, 1)) && b[chance] <= 100 ? b[chance] : null,
+                l.AffiliationParentWagePercent is { } wage && Fits(l.AffiliationSize, (wage, 1)) && b[wage] <= 100 ? b[wage] : null,
+                l.AffiliationPlayFriendlies is { } friendly && Fits(l.AffiliationSize, (friendly, 1)) ? (b[friendly] & 0x10) != 0 : null,
+                l.AffiliationFirstOption is { } option && Fits(l.AffiliationSize, (option, 1)) ? (b[option] & 0x08) != 0 : null,
+                l.AffiliationPlayersOnLoan is { } loan && Fits(l.AffiliationSize, (loan, 1)) ? (b[loan] & 0x04) != 0 : null,
+                l.AffiliationScoutingShared is { } scouting && Fits(l.AffiliationSize, (scouting, 1)) ? (b[scouting] & 0x40) != 0 : null));
         }
         return result.AsReadOnly();
     }
@@ -94,12 +119,20 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
     public IReadOnlyList<ClubDebtEntry> ReadDebts(ulong clubAddress)
     {
         if (profile.Club?.FinanceLists is not { } f || !ClubRoot(clubAddress)
-            || !Fits(f.DebtSize, (f.DebtOriginal, 4), (f.DebtEnd, 4), (f.DebtStart, 4), (f.DebtSource, 1))
-            || Vector(Field(PointerAt(clubAddress, f.DebtsPointer), f.DebtsVector)) is not { } pointers) return [];
+            || !Fits(f.DebtSize, (f.DebtOriginal, 4), (f.DebtEnd, 4), (f.DebtStart, 4), (f.DebtSource, 1))) return [];
+        ulong holder = PointerAt(clubAddress, f.DebtsPointer);
+        if (holder == 0 || VectorSnapshot(Field(holder, f.DebtsVector)) is not { } vector) return [];
         var result = new List<ClubDebtEntry>();
-        foreach (ulong address in pointers)
+        for (int i = 0; i < vector.Pointers.Length; i++)
+        {
+            ulong address = vector.Pointers[i];
             if (Bytes(address, f.DebtSize) is { } b)
-                result.Add(new(address, b[f.DebtSource], BitConverter.ToInt32(b, f.DebtOriginal), Date(b, f.DebtStart), Date(b, f.DebtEnd)));
+                result.Add(new(address, b[f.DebtSource], BitConverter.ToInt32(b, f.DebtOriginal), Date(b, f.DebtStart), Date(b, f.DebtEnd),
+                    f.MonthlyRepayment is { } repayment && Fits(f.DebtSize, (repayment, 4)) ? BitConverter.ToInt32(b, repayment) : null,
+                    f.MonthlyInterestRepayment is { } interest && Fits(f.DebtSize, (interest, 4)) ? BitConverter.ToInt32(b, interest) : null,
+                    new(clubAddress, holder, vector.Begin, vector.End, vector.Capacity, vector.Begin + (ulong)i * 8, Convert.ToHexString(b)),
+                    f.DebtInterestOnly is { } flag && Fits(f.DebtSize, (flag, 1)) ? b[flag] switch { 0 => false, 1 => true, _ => (bool?)null } : null));
+        }
         return result.AsReadOnly();
     }
 
@@ -128,18 +161,20 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
     }
 
     // Read precisely [begin,end). Capacity is validated, never enumerated. No partially aligned or enormous vectors.
-    ulong[]? Vector(ulong header)
+    sealed record VectorView(ulong Begin, ulong End, ulong Capacity, ulong[] Pointers);
+    ulong[]? Vector(ulong header) => VectorSnapshot(header)?.Pointers;
+    VectorView? VectorSnapshot(ulong header)
     {
         if (Bytes(header, 24) is not { } h) return null;
         ulong begin = BitConverter.ToUInt64(h), end = BitConverter.ToUInt64(h, 8), cap = BitConverter.ToUInt64(h, 16);
-        if (begin == 0) return end == 0 && cap == 0 ? [] : null;
+        if (begin == 0) return end == 0 && cap == 0 ? new(begin, end, cap, []) : null;
         if (!Address(begin) || end < begin || cap < end || (end - begin) % 8 != 0 || (cap - begin) % 8 != 0
             || (cap - begin) / 8 > MaxEntries) return null;
-        if (end == begin) return [];
+        if (end == begin) return new(begin, end, cap, []);
         if (Bytes(begin, (int)(end - begin)) is not { } bytes) return null;
         var pointers = new ulong[bytes.Length / 8];
         for (int i = 0; i < pointers.Length; i++) pointers[i] = BitConverter.ToUInt64(bytes, i * 8);
-        return pointers;
+        return new(begin, end, cap, pointers);
     }
 
     static bool Fits(int size, params (int Offset, int Width)[] fields) => size is > 0 and <= 4096

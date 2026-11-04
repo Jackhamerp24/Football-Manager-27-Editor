@@ -25,7 +25,7 @@ public sealed record TransferPlan(
 /// <list type="bullet">
 /// <item>buyer: balance −fee, transfer spend this month +fee, spent this season +fee, transfer budget −fee (not below 0), wage bill +wage;</item>
 /// <item>seller: balance +fee, players sold +fee, transfer budget +fee, wage bill −wage;</item>
-/// <item>contract team and playing team → the buyer's first team, or a buyer team with room in its squad;</item>
+/// <item>contract team and senior team → the buyer's first team; playing team → the selected buyer team;</item>
 /// <item>removed from the old team's squad vector, appended to the new one.</item>
 /// </list>
 /// Not done (IGE does): a new contract object, transfer history, news, solidarity/sell-on payments to third clubs.
@@ -46,7 +46,12 @@ public sealed class TransferService(IProcessMemory memory, OffsetProfile profile
         var contract = player.Contract ?? throw new InvalidOperationException("The player has no contract (free agent)");
         if (memory.ReadUInt64(player.Address + (ulong)C.PlayerContract) != contract.Address)
             throw new StaleObjectException("The player's contract changed since it was read");
+        if (memory.ReadUInt64(contract.Address) != moduleBase + C.ContractVtableRva)
+            throw new StaleObjectException("The player's contract is no longer a contract object");
+        int seniorTeamOffset = C.SeniorTeam ?? throw new InvalidOperationException("Profile has no contract senior team offset");
         ulong contractTeam = memory.ReadUInt64(contract.Address + (ulong)C.Team);
+        if (memory.ReadUInt64(contract.Address + (ulong)seniorTeamOffset) != contractTeam)
+            throw new InvalidOperationException("The contract's employer and senior team differ; this move is not supported");
         ulong fromTeam = memory.ReadUInt64(player.Address + (ulong)T.PlayerTeam);
         var seller = clubs.FirstOrDefault(c => c.Teams.Any(t => t.Address == contractTeam))
                      ?? throw new InvalidOperationException("Seller club not found for the contract team");
@@ -67,6 +72,7 @@ public sealed class TransferService(IProcessMemory memory, OffsetProfile profile
         AddMoney(writes, seller, F.TransferBudget, fee, "seller transfer budget");
         AddMoney(writes, seller, F.WageBill, -wage, "seller wage bill");
         writes.Add(Pointer(contract.Address + (ulong)C.Team, firstTeam.Address, "contract team"));
+        writes.Add(Pointer(contract.Address + (ulong)seniorTeamOffset, firstTeam.Address, "contract senior team"));
         writes.Add(Pointer(player.Address + (ulong)T.PlayerTeam, to.Address, "playing team"));
 
         // Old squad: shift the tail left over the player and move end back by one.
@@ -102,6 +108,11 @@ public sealed class TransferService(IProcessMemory memory, OffsetProfile profile
     /// </summary>
     public void Apply(TransferPlan plan, Func<int, ulong>? allocate = null)
     {
+        var contract = plan.Player.Contract ?? throw new StaleObjectException("The player has no contract snapshot");
+        if (!profile.PlayerVtableRvas.Any(v => moduleBase + v == memory.ReadUInt64(plan.Player.Address)) ||
+            memory.ReadUInt64(plan.Player.Address + (ulong)C.PlayerContract) != contract.Address ||
+            memory.ReadUInt64(contract.Address) != moduleBase + C.ContractVtableRva)
+            throw new StaleObjectException("The player or contract changed since the plan was made; nothing written");
         foreach (var w in plan.Writes)
             if (!memory.Read(w.Address, w.Expected.Length).AsSpan().SequenceEqual(w.Expected))
                 throw new StaleObjectException($"{w.What} changed since the plan was made; nothing written");

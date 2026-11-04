@@ -9,7 +9,8 @@ TestResults/
 
 # FMRTE 26 reverse-engineering material stays local: tools that unpack its protected
 # assemblies, the offset tables extracted from it, and the notes built on them.
-re/FMRTE26-findings.md
+re/FM27-findings.md
+re/archive/
 re/fm26-dump/
 re/tools/unpacker/
 re/tools/dumper/
@@ -19,5 +20,6 @@ re/tools/mapattrs.py
 # Local builds and the RE working notes (RAM addresses, values copied from FMRTE screens, RAM snapshots).
 /*.exe
 re/club/
+re/squad/
 re/transfer/
 re/rca-experiments/

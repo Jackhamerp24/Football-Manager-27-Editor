@@ -17,6 +17,8 @@ public enum ClubSection
     Debts,
     Kits,
     TransferCenter,
+    Relationships,
+    Staff,
 }
 
 public enum ClubDisplayKind
@@ -120,6 +122,8 @@ public static class ClubFieldInfo
         ClubSection.RegionalDivisions,
         ClubSection.Kits,
         ClubSection.TransferCenter,
+        ClubSection.Relationships,
+        ClubSection.Staff,
     ];
 
     public static IReadOnlyList<ClubSection> FinanceSubSections { get; } =
@@ -138,6 +142,8 @@ public static class ClubFieldInfo
         ClubSection.Debts,
         ClubSection.Kits,
         ClubSection.TransferCenter,
+        ClubSection.Relationships,
+        ClubSection.Staff,
     ];
 
     public static IReadOnlyList<ClubSection> Sections { get; } =
@@ -153,7 +159,9 @@ public static class ClubFieldInfo
         ClubSection.Sponsors or
         ClubSection.Debts or
         ClubSection.Kits or
-        ClubSection.TransferCenter;
+        ClubSection.TransferCenter or
+        ClubSection.Relationships or
+        ClubSection.Staff;
 
     public static string SectionTitle(ClubSection section) => section switch
     {
@@ -168,6 +176,8 @@ public static class ClubFieldInfo
         ClubSection.Debts => "Debt and Loans",
         ClubSection.Kits => "Kits and Colours",
         ClubSection.TransferCenter => "Transfer Center",
+        ClubSection.Relationships => "Relationships",
+        ClubSection.Staff => "Staff",
         _ => ContractLabels.Spaced(section.ToString()),
     };
 

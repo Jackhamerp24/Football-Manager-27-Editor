@@ -62,8 +62,11 @@ public class TransferServiceTests
     void Contract(ulong contract, ulong team, int wage)
     {
         var c = _w.Memory.Map(contract, 0x60);
+        // Cunha's Game Pass contract bytes; pointer relocation and fixture wage are substituted below.
+        Convert.FromHexString("F80562DDFA7F000030B80A3772020000003EA72D72020000003EA72D72020000400D03000B0001000000000000000000000000000000000032660000FFFFFFFFFFFFFFFFA300E907B500EE07A300E90701006C07020002000000505C140A0000").CopyTo(c, 0);
         TestWorld.Set64(c, 0, TestWorld.ModuleBase + ContractVt);
         TestWorld.Set64(c, 0x10, team);
+        TestWorld.Set64(c, 0x18, team);
         BitConverter.GetBytes(wage).CopyTo(c, 0x20);
     }
 
@@ -104,6 +107,7 @@ public class TransferServiceTests
         Assert.Equal(3_000_000 - 135_000, I32(SellerFin + 0x810));
 
         Assert.Equal(BuyerTeam, Q(MainooContract + 0x10));
+        Assert.Equal(BuyerTeam, Q(MainooContract + 0x18));
         Assert.Equal(BuyerTeam, Q(TestWorld.Mainoo + 0x130));
         Assert.Equal(SellerSquad + 16, Q(SellerTeam + 0x40));           // 3 players -> 2
         Assert.Equal(new[] { Other, Other + 8 }, new[] { Q(SellerSquad), Q(SellerSquad + 8) });
@@ -163,6 +167,18 @@ public class TransferServiceTests
         var (service, clubs, mainoo) = Setup();
         var plan = service.Plan(mainoo, clubs, clubs.Single(c => c.Id == 868), 1_000);
         Assert.True(_w.Memory.TryWrite(SellerFin + 0xC, BitConverter.GetBytes(1)));
+        int writes = _w.Memory.Writes;
+        Assert.Throws<StaleObjectException>(() => service.Apply(plan));
+        Assert.Equal(writes, _w.Memory.Writes);
+        Assert.Equal(SellerTeam, Q(MainooContract + 0x10));
+    }
+
+    [Fact]
+    public void Rejects_stale_senior_team_before_any_write()
+    {
+        var (service, clubs, mainoo) = Setup();
+        var plan = service.Plan(mainoo, clubs, clubs.Single(c => c.Id == 868), 1_000);
+        Set(MainooContract + 0x18, BuyerTeam);
         int writes = _w.Memory.Writes;
         Assert.Throws<StaleObjectException>(() => service.Apply(plan));
         Assert.Equal(writes, _w.Memory.Writes);

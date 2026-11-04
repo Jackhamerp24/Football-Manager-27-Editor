@@ -19,11 +19,12 @@ public sealed class AttributeFilterDialog : Window
         public required Border RowBorder { get; init; }
         public required CheckBox Toggle { get; init; }
         public required TextBlock NameText { get; init; }
-        public required TextBlock GeText { get; init; }
+        public required TextBlock RangeText { get; init; }
         public required NumericUpDown ValueInput { get; init; }
+        public required NumericUpDown MaxInput { get; init; }
     }
 
-    readonly Dictionary<PlayerAttribute, int> staged = [];
+    readonly Dictionary<PlayerAttribute, (int Min, int Max)> staged = [];
     readonly HashSet<PlayerPosition> stagedPositions = [];
     readonly Dictionary<PlayerAttribute, RowControls> rows = [];
     readonly Dictionary<PlayerPosition, Button> positionButtons = [];
@@ -74,7 +75,7 @@ public sealed class AttributeFilterDialog : Window
 
     public bool Saved { get; private set; }
     public IReadOnlyList<AttributeThreshold> ResultThresholds =>
-        staged.OrderBy(kv => kv.Key).Select(kv => new AttributeThreshold(kv.Key, kv.Value)).ToArray();
+        staged.OrderBy(kv => kv.Key).Select(kv => new AttributeThreshold(kv.Key, kv.Value.Min, kv.Value.Max)).ToArray();
     public IReadOnlyList<PlayerPosition> ResultPositions =>
         stagedPositions.OrderBy(p => p).ToArray();
     public int ResultPositionMinRating => Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
@@ -105,7 +106,7 @@ public sealed class AttributeFilterDialog : Window
         presets = currentPresets;
         SelectedPresetName = activePresetName;
         foreach (var t in initialFilter.AttributeThresholds)
-            staged[t.Attribute] = Math.Clamp(t.MinValue, 1, 20);
+            staged[t.Attribute] = (Math.Clamp(t.MinValue, 1, 20), Math.Clamp(t.MaxValue ?? 20, 1, 20));
         foreach (var pos in initialFilter.Positions)
             stagedPositions.Add(pos);
 
@@ -221,7 +222,7 @@ public sealed class AttributeFilterDialog : Window
 
                 staged.Clear();
                 foreach (var t in chosen.AttributeThresholds)
-                    staged[t.Attribute] = Math.Clamp(t.MinValue, 1, 20);
+                    staged[t.Attribute] = (Math.Clamp(t.MinValue, 1, 20), Math.Clamp(t.MaxValue ?? 20, 1, 20));
                 SyncAllRowsFromStaged();
             }
             else
@@ -566,9 +567,9 @@ public sealed class AttributeFilterDialog : Window
             TextTrimming = TextTrimming.CharacterEllipsis,
             Cursor = new Cursor(StandardCursorType.Hand)
         };
-        var geText = new TextBlock
+        var rangeText = new TextBlock
         {
-            Text = ">=",
+            Text = "–",
             FontSize = 11,
             Foreground = Brush("#A78BFA"),
             VerticalAlignment = VerticalAlignment.Center,
@@ -581,17 +582,25 @@ public sealed class AttributeFilterDialog : Window
             Increment = 1,
             Value = 15,
             ShowButtonSpinner = false,
-            Width = 46,
+            Width = 38,
             FontSize = 12.5,
             FontWeight = FontWeight.Bold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
             Background = Brush("#0E1018"),
             BorderBrush = Brush("#282E42")
         };
+        var maxInput = new NumericUpDown
+        {
+            Minimum = 1, Maximum = 20, Increment = 1, Value = 20,
+            ShowButtonSpinner = false, Width = 38, FontSize = 12.5, FontWeight = FontWeight.Bold,
+            HorizontalContentAlignment = HorizontalAlignment.Right,
+            Background = Brush("#0E1018"), BorderBrush = Brush("#282E42")
+        };
 
         var dock = new DockPanel { Height = 28, LastChildFill = true };
+        DockPanel.SetDock(maxInput, Dock.Right); dock.Children.Add(maxInput);
+        DockPanel.SetDock(rangeText, Dock.Right); dock.Children.Add(rangeText);
         DockPanel.SetDock(input, Dock.Right); dock.Children.Add(input);
-        DockPanel.SetDock(geText, Dock.Right); dock.Children.Add(geText);
         DockPanel.SetDock(toggle, Dock.Left); dock.Children.Add(toggle);
         dock.Children.Add(nameText);
 
@@ -610,19 +619,23 @@ public sealed class AttributeFilterDialog : Window
             RowBorder = rowBorder,
             Toggle = toggle,
             NameText = nameText,
-            GeText = geText,
-            ValueInput = input
+            RangeText = rangeText,
+            ValueInput = input,
+            MaxInput = maxInput
         };
         rows[attr] = rc;
 
-        void SetActive(bool active, int? newValue = null)
+        void SetActive(bool active, int? newMin = null, int? newMax = null)
         {
             if (updatingControls) return;
             int defaultMin = Math.Clamp((int)(defaultMinInput.Value ?? 15), 1, 20);
             if (active)
             {
-                int val = newValue ?? (staged.TryGetValue(attr, out int existing) ? existing : defaultMin);
-                staged[attr] = Math.Clamp(val, 1, 20);
+                var existing = staged.TryGetValue(attr, out var range) ? range : (Min: newMax is null ? defaultMin : 1, Max: 20);
+                int min = Math.Clamp(newMin ?? existing.Min, 1, 20);
+                int max = Math.Clamp(newMax ?? existing.Max, 1, 20);
+                if (min > max) { if (newMax is not null) min = max; else max = min; }
+                staged[attr] = (min, max);
             }
             else
             {
@@ -637,7 +650,12 @@ public sealed class AttributeFilterDialog : Window
         input.ValueChanged += (_, e) =>
         {
             if (updatingControls || e.NewValue is null) return;
-            SetActive(true, (int)e.NewValue.Value);
+            SetActive(true, newMin: (int)e.NewValue.Value);
+        };
+        maxInput.ValueChanged += (_, e) =>
+        {
+            if (updatingControls || e.NewValue is null) return;
+            SetActive(true, newMax: (int)e.NewValue.Value);
         };
 
         return rowBorder;
@@ -654,16 +672,21 @@ public sealed class AttributeFilterDialog : Window
     void SyncRow(RowControls rc, bool odd)
     {
         updatingControls = true;
-        bool active = staged.TryGetValue(rc.Attribute, out int val);
+        bool active = staged.TryGetValue(rc.Attribute, out var range);
         int defaultMin = Math.Clamp((int)(defaultMinInput.Value ?? 15), 1, 20);
-        int shownVal = active ? val : defaultMin;
+        int shownVal = active ? range.Min : defaultMin;
+        int shownMax = active ? range.Max : 20;
 
         rc.Toggle.IsChecked = active;
         rc.ValueInput.Value = shownVal;
+        rc.MaxInput.Value = shownMax;
         rc.ValueInput.Opacity = active ? 1.0 : 0.4;
         rc.ValueInput.Foreground = active ? RatingColor(shownVal) : Brush("#64748B");
         rc.ValueInput.BorderBrush = Brush(active ? "#7C3AED" : "#282E42");
-        rc.GeText.IsVisible = active;
+        rc.MaxInput.Opacity = active ? 1.0 : 0.4;
+        rc.MaxInput.Foreground = active ? RatingColor(shownMax) : Brush("#64748B");
+        rc.MaxInput.BorderBrush = Brush(active ? "#7C3AED" : "#282E42");
+        rc.RangeText.IsVisible = active;
         rc.NameText.Foreground = Brush(active ? "#F8FAFC" : "#94A3B8");
         rc.NameText.FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
         rc.RowBorder.Background = active ? Brush("#221A3A") : (odd ? Brush("#121520") : Brushes.Transparent);

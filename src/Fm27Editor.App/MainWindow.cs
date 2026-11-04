@@ -5,6 +5,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Fm27Editor.Core.Players;
 
@@ -52,6 +53,9 @@ public sealed partial class MainWindow : Window
     readonly ComboBox sortCombo = new() { Width = 172 };
     readonly Button sortDirButton = new() { Content = "↓", Width = 40, HorizontalContentAlignment = HorizontalAlignment.Center };
     readonly Button resetFiltersButton = new() { Content = "Reset" };
+    readonly Button exportCsvButton = new() { Content = "CSV", IsEnabled = false };
+    readonly Button exportJsonButton = new() { Content = "JSON", IsEnabled = false };
+    readonly Button massEditButton = new() { Content = "Mass Edit", IsEnabled = false };
 
     readonly ComboBox divisionFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox clubFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -90,10 +94,13 @@ public sealed partial class MainWindow : Window
     readonly TextBlock status = new() { Margin = new Thickness(14, 5), Foreground = Brush("#94A3B8"), FontSize = 12 };
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(3) };
     IReadOnlyList<object> rows = [];
+    readonly PlayerSearchIndex playerSearchIndex = new();
+    readonly LatestSearch latestPlayerSearch = new();
     IEditorModule? module;
     PlayerRecord? selected;
     bool updating, busy;
-    int generation;
+    string? lastFreezeError;
+    int generation, searchVersion;
     int editorTab;
     PlayerPosition? selectedPosition;
     readonly Dictionary<ulong, PlayerDraft> drafts = [];
@@ -219,7 +226,23 @@ public sealed partial class MainWindow : Window
         Opened += async (_, _) => { modules.SelectedIndex = 0; await ConnectAsync(); timer.Start(); };
         Closed += (_, _) => { timer.Stop(); backend.Dispose(); };
         timer.Tick += async (_, _) => await CheckSelectedAsync();
+        timer.Tick += (_, _) =>
+        {
+            if (busy || backend.State.Status != ConnectionStatus.Connected) return;
+            if (backend.Freezer is not null) backend.TickFreezer();
+            if (backend.FreezeError is { } error && error != lastFreezeError)
+            {
+                lastFreezeError = error;
+                status.Text = $"Freezer stopped: {error}";
+            }
+        };
         RegisterClubsView(root, split);
+        RegisterStaffView(split);
+        RegisterNationView(split);
+        RegisterStadiumView(split);
+        RegisterCityView(split);
+        RegisterCompetitionView(split);
+        RegisterAwardView(split);
     }
 
     void InitializeFilterControls()
@@ -432,10 +455,16 @@ public sealed partial class MainWindow : Window
         stack.Children.Add(row2);
 
         // Row 3: Filters & Attributes Dialog button + Preset selector + Clear button (Grid with *,*,Auto -> never overflows)
-        var row3 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,Auto"), ColumnSpacing = 6 };
+        var row3 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,Auto,Auto,Auto,Auto"), ColumnSpacing = 6 };
         Grid.SetColumn(openAttrDialogButton, 0); row3.Children.Add(openAttrDialogButton);
         Grid.SetColumn(quickPresetCombo, 1); row3.Children.Add(quickPresetCombo);
         Grid.SetColumn(clearAttrButton, 2); row3.Children.Add(clearAttrButton);
+        Grid.SetColumn(exportCsvButton, 3); row3.Children.Add(exportCsvButton);
+        Grid.SetColumn(exportJsonButton, 4); row3.Children.Add(exportJsonButton);
+        Grid.SetColumn(massEditButton, 5); row3.Children.Add(massEditButton);
+        exportCsvButton.Click += async (_, _) => await ExportPlayersAsync(false);
+        exportJsonButton.Click += async (_, _) => await ExportPlayersAsync(true);
+        massEditButton.Click += async (_, _) => await ShowMassEditAsync();
         stack.Children.Add(row3);
         stack.Children.Add(attrChipsPanel);
 
@@ -597,10 +626,16 @@ public sealed partial class MainWindow : Window
         try
         {
             await backend.ConnectAsync(CancellationToken.None);
+            massUndo.Clear();
+            squadPresetUndo.Clear();
+            releaseUndo.Clear();
+            captainUndo.Clear();
+            lastFreezeError = null;
             UpdateConnectionBadge();
             connection.Text = backend.State.Message;
             if (backend.State.Status == ConnectionStatus.Connected) await LoadAsync();
             else gameDateBadge.IsVisible = false;
+            if (backend.FreezeError is { } error) status.Text = $"Freezer unavailable: {error}";
         }
         finally { busy = false; retry.IsEnabled = true; }
     }
@@ -617,7 +652,7 @@ public sealed partial class MainWindow : Window
             selected = null;
             drafts.Clear();
             contractDrafts.Clear();
-            clubCache = null; competitionCache = null;
+            clubCache = null; competitionCache = null; playerSource = null; languageCatalogue = null; nationCatalogue = null; cityCatalogue = null; careerCatalogue = null;
             editor.Children.Clear();
 
             if (backend.GameDate is { } gd)
@@ -688,11 +723,14 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    void Filter()
+    async void Filter()
     {
+        int version = ++searchVersion;
+        exportCsvButton.IsEnabled = exportJsonButton.IsEnabled = massEditButton.IsEnabled = false;
         if (module is null) return;
-        var prevSelectedAddress = selected?.Address;
-        IReadOnlyList<object> result;
+        var currentRows = rows;
+        var currentModule = module;
+        IReadOnlyList<object>? result;
         if (module is PlayersModule pm)
         {
             var filter = BuildCurrentFilter();
@@ -701,7 +739,13 @@ public sealed partial class MainWindow : Window
                 sortOpt?.Key ?? PlayerSortKey.CurrentAbility,
                 sortDescending,
                 sortOpt?.Attribute);
-            result = pm.FilterAndSort(rows.OfType<PlayerRecord>(), filter, sort);
+            try
+            {
+                result = await latestPlayerSearch.RunAsync(
+                    ct => playerSearchIndex.Filter(currentRows, pm, filter, sort, ct), TimeSpan.FromMilliseconds(100));
+            }
+            catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
+            if (result is null || version != searchVersion || !ReferenceEquals(rows, currentRows) || !ReferenceEquals(module, currentModule)) return;
         }
         else
         {
@@ -709,8 +753,10 @@ public sealed partial class MainWindow : Window
             result = query.Length == 0 ? rows : rows.Where(r => module.Matches(r, query)).ToArray();
         }
 
+        var prevSelectedAddress = selected?.Address;
         updating = true;
         grid.ItemsSource = result;
+        exportCsvButton.IsEnabled = exportJsonButton.IsEnabled = massEditButton.IsEnabled = module is PlayersModule;
         PlayerRecord? nextSelection = null;
         if (prevSelectedAddress is { } addr)
             nextSelection = result.OfType<PlayerRecord>().FirstOrDefault(p => p.Address == addr);
@@ -781,6 +827,12 @@ public sealed partial class MainWindow : Window
         discardButton.Click += (_, _) => { drafts.Remove(player.Address); status.Text = "Changes discarded"; RenderEditor(); };
         commands.Children.Add(saveButton);
         commands.Children.Add(discardButton);
+        if (backend.Freezer is not null)
+        {
+            var freeze = new Button { Content = "Freezer" };
+            freeze.Click += async (_, _) => await ShowPlayerFreezerAsync(player);
+            commands.Children.Add(freeze);
+        }
         DockPanel.SetDock(commands, Dock.Right);
         headerDock.Children.Add(commands);
 
@@ -847,17 +899,33 @@ public sealed partial class MainWindow : Window
             personality.Children.Add(GroupControl(group, player));
 
         var pitch = CreatePitch(player, draft);
-        tabs.ItemsSource = new[]
+        var tabList = new List<TabItem>
         {
+            new TabItem { Header = "Information", Content = InformationPanel(player) },
             new TabItem { Header = "Attributes", Content = attributes },
+            new TabItem { Header = "Comparison", Content = ComparisonPanel(player) },
             new TabItem { Header = "Positions", Content = pitch },
             new TabItem { Header = "Personality", Content = personality },
-            new TabItem { Header = "Contract", Content = ContractPanel(player) },
-            new TabItem { Header = "Move to club", Content = MovePanel(player) }
+            new TabItem { Header = "Contract", Content = ContractTabs(player) },
+            new TabItem { Header = "Career Plans", Content = CareerPlansPanel(player) },
+            new TabItem { Header = "Clone Center", Content = ClonePanel(player) },
+            new TabItem { Header = "Move to club", Content = MovePanel(player) },
+            new TabItem { Header = "Swap National Call Up", Content = CallUpPanel(player) },
+            new TabItem { Header = "Injury", Content = InjuryPanel(player) },
+            new TabItem { Header = "Unavailability", Content = UnavailabilityPanel(player) },
+            new TabItem { Header = "Transfer Proposals", Content = ProposalsPanel(player) },
+            new TabItem { Header = "Preferred Moves", Content = PreferredMovesPanel(player) },
+            new TabItem { Header = "Relationships", Content = RelationshipsPanel(player) },
+            new TabItem { Header = "Languages", Content = LanguagesPanel(player) }
         };
-        tabs.SelectedIndex = editorTab;
+        // Like FMRTE, Future Transfer appears only for players with an agreed future move.
+        if (FutureTransferPanel(player) is { } future)
+            tabList.Insert(tabList.FindIndex(t => (string?)t.Header == "Swap National Call Up") + 1, new TabItem { Header = "Future Transfer", Content = future });
+        tabs.ItemsSource = tabList;
+        tabs.SelectedIndex = Math.Min(editorTab, tabList.Count - 1);
         tabs.SelectionChanged += (_, _) => { if (tabs.SelectedIndex >= 0) editorTab = tabs.SelectedIndex; };
         editor.Children.Add(tabs);
+        HookPlayerActions(player);
     }
 
     Control GroupControl(string group, PlayerRecord player)

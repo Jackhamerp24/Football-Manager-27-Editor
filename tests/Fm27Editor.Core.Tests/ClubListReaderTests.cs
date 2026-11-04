@@ -1,11 +1,45 @@
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Memory;
 using Fm27Editor.Core.Offsets;
+using Fm27Editor.Core.Players;
 
 namespace Fm27Editor.Core.Tests;
 
 public class ClubListReaderTests
 {
+    // Opt in only in fake-memory tests; shipped profiles carry the flag since the live CLI write of 5/11.
+    static OffsetProfile VisionTestProfile() => OffsetProfile.Load(File.ReadAllText(TestWorld.ProfilePath)
+        .Replace("\"importance\": \"0x2D\"", "\"importance\": \"0x2D\", \"visionImportanceEditable\": true"));
+
+    [Theory]
+    [InlineData("C805C41CFB7F0000FFFF7FFF0000000008DD8E9372020000000000000000000001006C0701006C07FFFFFFFF9605000001006C07FFFFFFFF02000000020000000000000000000000D047179600F70590", 150, 5)]
+    [InlineData("C805C41CFB7F0000FFFF7FFF0000000008DD8E9372020000000000000000000001006C0701006C07FFFFFFFF7803000001006C070000000001001500020000000000000000000000704A779200170590", 120, 3)]
+    public void New_build_reads_captured_vision_and_writes_importance(string raw, byte type, byte importance)
+    {
+        // FM27 2493426 live RAM, 4/11/2026: Sheffield 708 and Everton 650 first culture records.
+        // Writing became allowed after the CLI write of 5/11/2026 (Sheffield 150: 5 -> 6, read back from RAM).
+        const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
+        const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
+        var memory = new FakeMemory();
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var teamBytes = memory.Map(team, 0xB8);
+        Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
+        Put64(memory.Map(detail, 0xD0), 0xC8, holder);
+        var holderBytes = memory.Map(holder, 0x80);
+        Put64(holderBytes, 0, module + 0x4DBCC98); Put64(holderBytes, 0x78, header);
+        var headerBytes = memory.Map(header, 24);
+        Put64(headerBytes, 0, vector); Put64(headerBytes, 8, vector + 8); Put64(headerBytes, 16, vector + 8);
+        Put64(memory.Map(vector, 8), 0, record);
+        Convert.FromHexString(raw).CopyTo(memory.Map(record, 0x50), 0);
+
+        var row = Assert.Single(new ClubListReader(memory, profile, module).ReadClubVision(team));
+        Assert.Equal((type, importance), (row.TypeCode, row.Importance));
+        new ClubVisionWriter(memory, profile, module).SetImportance(team, row, 6);
+        var expected = Convert.FromHexString(raw);
+        expected[0x2D] = 6;
+        Assert.Equal(expected, memory.Read(record, 0x50));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -26,6 +60,54 @@ public class ClubListReaderTests
         Assert.Equal(everton ? new[] { "Liverpool" } : ["Sheffield Wednesday", "Leeds United", "Nottingham Forest"],
             rows.Where(r => r.ClubItem is not null).Select(r => r.ClubItem!.Name));
         Assert.Equal(f.InitialWrites, f.Memory.Writes);
+    }
+
+    [Fact]
+    public void Vision_importance_writer_uses_FMRTE_values_and_preserves_the_real_record()
+    {
+        var sheffield = new Fixture(false);
+        var everton = new Fixture(true);
+        var row = sheffield.Reader.ReadClubVision(Fixture.Team, sheffield.Clubs)[0];
+        Assert.Equal((byte)5, row.Importance);
+        Assert.Equal((byte)3, everton.Reader.ReadClubVision(Fixture.Team, everton.Clubs)[0].Importance);
+        var writer = new ClubVisionWriter(sheffield.Memory, VisionTestProfile(), Fixture.Module);
+        writer.SetImportance(Fixture.Team, row, 6);
+        var expected = Convert.FromHexString(ClubListRamFixtures.SheffieldVision[0]);
+        expected[0x2D] = 6;
+        Assert.Equal(expected, sheffield.Memory.Read(row.Address, 0x50));
+
+        var newProfile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var oldProfile = OffsetProfile.LoadFile(TestWorld.ProfilePath);
+        // Changed deliberately: the 2493426 profiles now allow this write after the live CLI verification of 5/11
+        // (Sheffield 708 type 150 5 -> 6, re-read from a fresh process). The older 2486695 profile still refuses.
+        Assert.False(oldProfile.Club!.Lists!.VisionImportanceEditable);
+        Assert.True(newProfile.Club!.Lists!.VisionImportanceEditable);
+        int writes = everton.Memory.Writes;
+        Assert.Throws<InvalidOperationException>(() => new ClubVisionWriter(everton.Memory, oldProfile, Fixture.Module)
+            .SetImportance(Fixture.Team, everton.Reader.ReadClubVision(Fixture.Team)[0], 4));
+        Assert.Equal(writes, everton.Memory.Writes);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Vision_importance_writer_rejects_a_changed_record_or_vector(bool changeVector)
+    {
+        var f = new Fixture(false);
+        var row = f.Reader.ReadClubVision(Fixture.Team)[0];
+        if (changeVector)
+        {
+            ulong cap = BitConverter.ToUInt64(f.Memory.Read(Fixture.VisionHeader + 16, 8));
+            Assert.True(f.Memory.TryWrite(Fixture.VisionHeader + 16, BitConverter.GetBytes(cap + 8)));
+        }
+        else Assert.True(f.Memory.TryWrite(row.Address + 0x2E, new byte[] { 1 }));
+        var record = f.Memory.Read(row.Address, 0x50);
+        int writes = f.Memory.Writes;
+        var writer = new ClubVisionWriter(f.Memory, VisionTestProfile(), Fixture.Module);
+
+        Assert.Throws<StaleObjectException>(() => writer.SetImportance(Fixture.Team, row, 6));
+        Assert.Equal(writes, f.Memory.Writes);
+        Assert.Equal(record, f.Memory.Read(row.Address, 0x50));
     }
 
     [Theory]

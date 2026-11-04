@@ -77,7 +77,8 @@ public sealed record ClubTransferOfferRow(
     int? BuyerClubId = null,
     int? Fee = null,
     byte? StatusCode = null,
-    string? StatusName = null);
+    string? StatusName = null,
+    string? TypeName = null);
 
 public sealed record ClubListColumn(
     string Header,
@@ -163,6 +164,7 @@ public static class ClubListLabels
     public static IReadOnlyDictionary<byte, string> DebtSources { get; } = new Dictionary<byte, string>
     {
         [1] = "Bank",
+        [5] = "State",
         [10] = "Loan Repayable On Promotion To Top Division",
         [15] = "Miscellaneous",
     };
@@ -177,6 +179,9 @@ public static class ClubListLabels
     public static IReadOnlyDictionary<byte, string> TransferOfferStatuses { get; } = new Dictionary<byte, string>
     {
         [8] = "Player accepted",
+        [10] = "Unknown status 1",
+        [12] = "Ready to sign",
+        [19] = "Confirmed",
     };
 
     public static string VisionType(byte code) =>
@@ -554,6 +559,7 @@ public static class ClubListBuilder
     {
         var list = rows.ToArray();
         bool hasStatus = list.Any(r => !string.IsNullOrWhiteSpace(r.StatusName) || r.StatusCode is not null);
+        bool hasType = list.Any(r => !string.IsNullOrWhiteSpace(r.TypeName));
 
         var cols = new List<ClubListColumn>(5)
         {
@@ -562,6 +568,7 @@ public static class ClubListBuilder
             new("To", 1.2, IsStar: true),
             new("Fee", 112, RightAlign: true),
         };
+        if (hasType) cols.Insert(0, new("Type", 85));
         if (hasStatus) cols.Add(new("Status", 1.1, IsStar: true));
 
         var models = new List<ClubListRowModel>(list.Length);
@@ -584,6 +591,7 @@ public static class ClubListBuilder
                 new(toText),
                 new(feeText, RightAlign: true),
             };
+            if (hasType) cells.Insert(0, new(r.TypeName ?? ""));
             if (hasStatus) cells.Add(new(statusText));
 
             var details = new List<ClubListDetailField>(8)

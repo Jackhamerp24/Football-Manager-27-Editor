@@ -1,60 +1,7 @@
-# Club module: plan and lanes
+# Club: số liệu FMRTE 27 cũ (save 22/7/2026)
 
-Read [AGENTS.md](../AGENTS.md) first (sandbox, test discipline, UI rules, hard rules). This file is the shared plan for the
-Club module, done by 5 agents at once. **Each lane edits only the files it owns.** Shared state goes into your own findings
-file; Claude merges offsets into the profile.
-
-## Goal
-
-A Club section in the app like FMRTE 27's: pick a club, see and edit Information, Finances, Supporters, Tactical
-Understanding, then lists (sponsors, debts, club vision, affiliations, regional divisions, kits, staff). Every value that
-FMRTE can edit must be readable **and writable**.
-
-## Live game state (do not change)
-
-- FM27 `27.0.0+2486695` is running with a save the user has already loaded. **Do not load another save** and do not
-  click Continue in FM: addresses and values below belong to this exact state.
-- The game date is 22/7/2026. Test club: **Sheffield United, ID 708** (England, Sky Bet Championship).
-- FMRTE 27 is open on Sheffield United. It runs as admin, so other programs cannot click it. When you need FMRTE to
-  change a value (to tell two candidate offsets apart), **ask the user** to change it and say what to set it to.
-- **Writing to the game is only done by Claude or the user.** Your tools are read-only.
-
-## Tools (read-only)
-
-Build once, then copy to `%TEMP%` (a copy in the workspace cannot open `fm.exe`):
-
-```bash
-dotnet build src/Fm27Editor.Tools -c Release
-```
-
-```bash
-cp -r src/Fm27Editor.Tools/bin/Release/net10.0 "$TEMP/fm27tools-<yourname>"
-```
-
-- `Fm27Editor.Tools.exe club 708` prints the club address, finance object, clause holder, teams and module base.
-- `Fm27Editor.Tools.exe probe <hexAddr> <hexSize> <depth> <value>...` searches int32/int16 (and a single byte when only
-  one value is given) in `[addr, addr+size)`, and with depth ≥ 1 in the first 0x1000 bytes of every object a qword
-  there points to. Output `+0x100->+0xD8 int32 = 1889` means: read the pointer at club+0x100, the field is at +0xD8.
-- `Fm27Editor.Tools.exe clauses 708` lists transfer clauses (already done, a worked example of a list).
-- `re/tools/memscan` (`dump`, `refs`, `findval`, ...) for harder cases. Read its `Program.cs` header.
-
-Sheffield United in this session: club `0x1AB691E24E0`, finance `0x1AB0ED6C750`, first team `0x1AB312D8A08`,
-U21 `0x1AB5A0A4538`, U18 `0x1AB5A0A4480`, module `0x7FFAF3E20000`. Re-check with `club 708` before you start.
-
-Example, already measured with probe (use these as a pattern, then confirm them):
-
-| Field | Value | Candidate |
-|---|---|---|
-| Year founded | 1889 | club `+0x100->+0xD8` int32 |
-| Chairman status | 6916 | club `+0x100->+0xDE` int16 |
-| Season ticket holders | 19725 | club `+0x100->+0xC0` int32 |
-| Social media followers | 574287 | club `+0x100->+0xF8` int32 |
-| Average attendance | 27676 | club `+0xB0->+0x68` int32 |
-| Maximum attendance | 34595 | club `+0xB0->+0x70` int32 |
-| Wage budget | 496589 | finance `+0x808` and `+0x834` (ambiguous) |
-| Max wage | 25000 | finance `+0x80C` |
-| Wage used | 490710 | finance `+0x814` (already in the profile as `wageSpend`) |
-| Transfer budget | 6000000 | finance `+0x7C4`, `+0x7C8`, `+0x7D4` (ambiguous; season vs remaining) |
+Chỉ là dữ liệu đáp án mà code và test trích dẫn. Không phải hướng dẫn làm việc; quy trình hiện tại ở `docs/HANDOVER.md`.
+Địa chỉ RAM trong file chỉ đúng cho phiên save cũ đó.
 
 ## Values on screen (FMRTE 27, Sheffield United, unedited)
 
@@ -125,52 +72,3 @@ Lists (sponsors, debts, vision, affiliations, divisions, kit items, transfer cen
 (club → … → vector begin/end/capacity or linked list), the element size and vtable, and each element's field offsets,
 in the same Observed / Inferred / Unknown style. `TransferClauseReader.cs` is the worked example.
 
-## Lanes
-
-| Lane | Agent | Owns (only these files) | Output |
-|---|---|---|---|
-| A. Core + merge | Claude | `src/Fm27Editor.Core/**`, `offsets/*.json`, `tests/Fm27Editor.Core.Tests/**`, `src/Fm27Editor.Tools/**`, `AGENTS.md`, this file | profile, readers/writers, tests, live writes |
-| B. App UI | Gemini 4 Argon | `src/Fm27Editor.App/Club*.cs` (new files), `tests/Fm27Editor.App.Tests/Club*.cs`; one registration line in `Modules.cs`/`MainWindow.cs` | Clubs screen |
-| C1. Scalars: finance | DeepSeek V4.1 Flash | `re/club/scalars-finance.md`, `re/club/scalars-finance.json` | Finances overview, transfer embargo, Information overview (incl. colours, status/ownership/chairperson dropdowns) |
-| C2. Scalars: other | Gemini 3.8 Flash | `re/club/scalars-other.md`, `re/club/scalars-other.json` | Facilities, Supporters, team reputation + Allow Licensed Kits, Tactical Understanding |
-| D. Lists + visual checks | GPT-6.1 Sol | `re/club/lists.md`, `re/club/ui-review.md` | layouts for sponsors, debts, club vision, affiliations, regional divisions, kits, transfer center; screenshot review of lane B |
-
-Shared rules for every lane:
-
-- **Report progress in `re/club/STATUS.md`** (one file for all lanes; its own rules at the top say how to edit it
-  without overwriting others). Update your section whenever your status changes, and read the other sections.
-
-- **Batch questions to the user.** When you need FMRTE changed to separate candidates, collect every request first and
-  ask once, as a short list: field, what to set it to, and that it should be set back afterwards.
-- Never write to the game. Never rename `ClubField` members; ask Claude in your findings file to add one.
-- `re/` is local only (not in git). Keep findings files short: a table of field → path → type → status, then notes.
-
-Lane notes:
-
-- **B (Argon):** build against `backend.Session.ClubFields` (`ReadAll(club, firstTeam)`, `Read`, `Set`) and the
-  `ClubField` enum; clubs come from `backend.Session.LoadClubs(players)`. Show a field only when `IsMapped`; edit through
-  a draft + Save like the player Attributes tab; write through `backend.Edits.Execute(() => access.Set(root, field,
-  expected, value))`. Layout like FMRTE: left section list with Information, Finances, Supporters, Tactical Understanding
-  first; club picker by name or ID like Move to club. Labels and min/max per field live in your own `ClubFieldInfo.cs`.
-  Follow AGENTS.md section 6 (no taglines, no helper text, dense, one accent colour). The FMRTE screenshots the user sent
-  are described in "Values on screen"; ask the user for the images if you want to see them. Until fields are mapped the
-  screen is mostly empty; Claude adds mappings as lanes C1/C2/D confirm them, so check that a new mapping appears without
-  code changes. Run tests from a `%TEMP%` copy (`dotnet vstest`).
-- **C1 (DeepSeek, no image input):** every number you need is written above. Start with the ambiguous finance
-  candidates (transfer budget season vs remaining, wage budget at two addresses). Dropdowns (Status, Ownership Type,
-  Chairperson Title, Rich Benefactor, Embargo Reason) are small ints; record the raw value and that the name mapping is
-  unknown. Colours: Sheffield background is dark red, foreground white.
-- **C2 (Gemini Flash):** Supporters percentages may be stored ×10 or ×100; Tactical Understanding and Team Reputation are
-  per team (root `team`): first team and U21 have different values, which tells the right team apart. Facilities values
-  repeat (13, 13, 12, 15, 14, 12), so confirm the order on a second club.
-- **D (GPT Sol):** use the distinctive numbers (10591455, 8316273, 23954758, 21503936, 4500000) to find list elements with
-  `probe`/`memscan`, then `memscan refs` to walk up to the container and from there to the club. Report as in the worked
-  example; do not write code. When lane B has a build, run the app from a `%TEMP%` copy, screenshot the Clubs screen and
-  write problems into `ui-review.md` (clipped controls, wrong values against "Values on screen", rule breaks).
-
-## Done means
-
-- Every confirmed field reads correctly in the app for Sheffield United and one other club, and a write made in the app
-  shows in FMRTE after refresh (Claude or the user does the write).
-- Core tests for each field with literal offsets and the FMRTE value as the oracle; one mutation per new reader proven
-  to fail (see AGENTS.md).

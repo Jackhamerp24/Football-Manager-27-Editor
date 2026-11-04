@@ -144,3 +144,11 @@ To make a profile for a new build:
 
 This project is not affiliated with or endorsed by Sports Interactive or SEGA. Football Manager is their trademark.
 Editing the game's memory can corrupt a save, so keep backups. Use at your own risk.
+
+## Support
+
+If the editor helps you, you can support development on [Ko-fi](https://ko-fi.com/quyduongvu).
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

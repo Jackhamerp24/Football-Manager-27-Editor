@@ -10,6 +10,24 @@ namespace Fm27Editor.Core.Tests;
 /// </summary>
 public class GameClockTests
 {
+    [Fact]
+    public void Game_pass_reads_flagged_direct_date_and_rejects_unset_date()
+    {
+        var profile = GameSession.BuiltInProfiles().Single(p => p.Build == "27.0.0+2493426 Game Pass");
+        var copy = OffsetProfile.Load(profile.ToJson());
+        Assert.Equal(0x56257C8u, copy.DirectGameDateRva);
+        var memory = new FakeMemory();
+        var date = memory.Map(TestWorld.ModuleBase + 0x56257C8, 4);
+        // FMLibreEditor documented 9 September 2026; direct bytes observed on 0.9.2409.0.
+        new byte[] { 0xFC, 0x3A, 0xEA, 0x07 }.CopyTo(date, 0);
+        Assert.Equal(new DateOnly(2026, 9, 9), GameClock.Read(memory, copy, TestWorld.ModuleBase));
+        // Local save, 15 August 2026, observed 4/11/2026.
+        new byte[] { 0xE3, 0x3A, 0xEA, 0x07 }.CopyTo(date, 0);
+        Assert.Equal(new DateOnly(2026, 8, 15), GameClock.Read(memory, copy, TestWorld.ModuleBase));
+        new byte[] { 0x01, 0x00, 0x6C, 0x07 }.CopyTo(date, 0);
+        Assert.Null(GameClock.Read(memory, copy, TestWorld.ModuleBase));
+    }
+
     const ulong Obj = 0x5000_0000;
     readonly TestWorld _w = new();
 
