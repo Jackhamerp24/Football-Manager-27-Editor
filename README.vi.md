@@ -103,7 +103,8 @@ src/Fm27Editor.Tools/bin/Release/net10.0/Fm27Editor.Tools.exe verify tests/golde
 | `set <tên> <field> <giá trị>` | Ghi một giá trị. Field là chỉ số (`Pace`), vị trí (`Striker`), tính cách (`Ambition`), `CA` hoặc `PA` |
 | `verify <golden.json>` | So bộ nhớ game với các giá trị chép từ giao diện game |
 | `find-offsets <golden.json> <out.json> [--date yyyy-MM-dd]` | Dựng lại profile offset cho bản game mới |
-nCòn nhiều lệnh khác (nhân sự, CLB, quốc gia, sửa hàng loạt, preset, giải phóng, đội trưởng, chuyển nhân sự), liệt kê ở đầu
+
+Còn nhiều lệnh khác (nhân sự, CLB, quốc gia, sửa hàng loạt, preset, giải phóng, đội trưởng, chuyển nhân sự), liệt kê ở đầu
 `src/Fm27Editor.Tools/Program.cs`.
 
 ## Cơ chế CA trong FM
