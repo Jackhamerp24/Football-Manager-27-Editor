@@ -144,9 +144,23 @@ For Xbox / Game Pass, `re/tools/gamepass-rva-map.ps1` builds the profile from th
 
 ## Roadmap
 
+Done:
+
+- Steam and Xbox / Game Pass, one profile per build.
+- Players, staff, clubs, nations, stadiums, cities, competitions and awards in their own screens.
+- Mass edit, team presets, freezer, export, advanced search, attribute export / import.
+- Club kits and colours, finances and sponsors; competition VAR, prize money, squad rules and standings; nation
+  agreements, transfer preferences and EuroCoefficients.
+
+Next:
+
 - Move a player on a set date and on loan, with a new career history row, as FMRTE does.
-- Club kits and tactics, competition rules and prize money, nation agreements.
+- Club and national team tactics; national team squads and staff in the app.
+- Kit items: change type, add, remove, duplicate.
+- Work permits, promises, renaming players, injury type.
+- City region, language and weather; stadium owner and location.
 - Shortlists, favourites, player progress.
+- Rebuild the profile for a new game build with one command.
 - A smaller, faster-starting exe.
 
 ## Disclaimer

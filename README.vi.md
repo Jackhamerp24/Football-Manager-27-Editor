@@ -144,9 +144,23 @@ mất vài giây.
 
 ## Lộ trình
 
+Đã xong:
+
+- Steam và Xbox / Game Pass, mỗi bản game một profile.
+- Cầu thủ, nhân sự, CLB, quốc gia, sân, thành phố, giải đấu, giải thưởng, mỗi loại một màn riêng.
+- Sửa hàng loạt, preset cả đội, khoá giá trị, xuất dữ liệu, tìm kiếm nâng cao, xuất / nhập chỉ số.
+- Áo đấu và màu CLB, tài chính và nhà tài trợ; VAR, tiền thưởng, luật đăng ký và bảng xếp hạng giải đấu; thoả thuận,
+  ưu tiên chuyển nhượng và hệ số UEFA của quốc gia.
+
+Sắp làm:
+
 - Chuyển cầu thủ theo ngày và cho mượn, có thêm dòng lịch sử sự nghiệp, giống FMRTE.
-- Áo đấu và chiến thuật CLB, luật và tiền thưởng giải đấu, thoả thuận giữa các quốc gia.
+- Chiến thuật CLB và đội tuyển; đội hình và ban huấn luyện đội tuyển trên app.
+- Item áo đấu: đổi loại, thêm, xoá, nhân bản.
+- Giấy phép lao động, lời hứa, đổi tên cầu thủ, loại chấn thương.
+- Vùng, ngôn ngữ, khí hậu của thành phố; chủ sở hữu và vị trí sân.
 - Danh sách theo dõi, yêu thích, theo dõi tiến bộ cầu thủ.
+- Dựng lại profile cho bản game mới bằng một lệnh.
 - Exe nhẹ hơn, mở nhanh hơn.
 
 ## Miễn trừ trách nhiệm
