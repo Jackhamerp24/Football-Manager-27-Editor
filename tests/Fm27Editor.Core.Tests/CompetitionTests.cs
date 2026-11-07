@@ -126,4 +126,47 @@ public class CompetitionTests
         Assert.Throws<StaleObjectException>(() => writer.SetReputation(c[2] with { Address = NotACompetition }, 150));
         Assert.Equal(writes, _m.Writes);
     }
+
+    [Fact]
+    public void Writers_change_substitution_rules_colour_and_winter_date_and_refuse_a_changed_object()
+    {
+        // The 2493426 Game Pass profile is the one that carries the substitution rules offset measured on 5/11/2026.
+        const ulong module = 0x7100_0000_0000, at = 0x7200_0000;
+        var profile = Fm27Editor.Core.Game.GameSession.BuiltInProfiles().Single(p => p.Build == "27.0.0+2493426 Game Pass");
+        var memory = new FakeMemory();
+        var o = memory.Map(at, 0x1B0);
+        TestWorld.Set64(o, 0, module + profile.Competition!.VtableRva);
+        BitConverter.GetBytes(11).CopyTo(o, 0xC);
+        BitConverter.GetBytes(189).CopyTo(o, 0x188);
+        BitConverter.GetBytes(189).CopyTo(o, 0x18A);
+        o[0xFD] = 0x11;                                             // FMRTE's "5 from 9"
+        Convert.FromHexString("000000FF").CopyTo(o, 0x138);         // black trim
+        Convert.FromHexString("2A01EA075700EB07").CopyTo(o, 0x150); // 25/10/2026 - 28/3/2027
+        var repo = new CompetitionRepository(memory, profile, module);
+        var writer = new CompetitionWriter(memory, profile, module);
+        var c = repo.Reload(at)!;
+        Assert.Equal((byte)0x11, c.SubstitutionRules);
+
+        writer.SetSubstitutionRules(c, CompetitionWriter.SubstitutionRulesNone);
+        Assert.Equal(0xFF, memory.Read(at + 0xFD, 1)[0]);
+        var afterSubs = repo.Reload(at)!;
+        Assert.Equal(CompetitionWriter.SubstitutionRulesNone, afterSubs.SubstitutionRules);
+
+        writer.SetColour(afterSubs, CompetitionColour.Trim, 0xFF00FF00);
+        Assert.Equal("00FF00FF", Convert.ToHexString(memory.Read(at + 0x138, 4)));   // B, G, R, A
+        var afterColour = repo.Reload(at)!;
+        Assert.Equal(0xFF00FF00u, afterColour.Trim);
+
+        // A flag above the 9-bit day survives the write, as it does for contract dates.
+        Assert.True(memory.TryWrite(at + 0x150, Convert.FromHexString("2A03EA075700EB07")));
+        writer.SetWinterBallDate(repo.Reload(at)!, start: true, new DateOnly(2026, 10, 20));
+        Assert.Equal("2503EA07", Convert.ToHexString(memory.Read(at + 0x150, 4)));   // day 293 kept the 0x300 flag
+        Assert.Equal(new DateOnly(2026, 10, 20), repo.Reload(at)!.WinterBallStart);
+        Assert.Equal(new DateOnly(2027, 3, 28), repo.Reload(at)!.WinterBallEnd);
+
+        Assert.True(memory.TryWrite(at + 0xFD, [0x22]));            // the game (or FMRTE) changed it behind our back
+        int writes = memory.Writes;
+        Assert.Throws<StaleObjectException>(() => writer.SetSubstitutionRules(afterColour, 0x11));
+        Assert.Equal(writes, memory.Writes);
+    }
 }

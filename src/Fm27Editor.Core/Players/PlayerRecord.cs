@@ -32,6 +32,14 @@ public sealed class PlayerRecord
     public string ClubName => Club?.DisplayName ?? "";
     public string NationalityName => Nationality?.DisplayName ?? "";
     public string DivisionName => Division?.DisplayName ?? "";
+    public string PositionSummary => PlayerPositionSummary.Format(Positions);
+    public long? AskingPrice { get; init; }
+    public long? DisplayAskingPrice => AskingPrice is >= 0 ? AskingPrice : null;
+    public long? InternationalCaps { get; init; }
+    public long? InternationalGoals { get; init; }
+    public long? Ethnicity { get; init; }
+    public long? TreatedAsNonEuInItaly { get; init; }
+    public ulong? PreferredMoveBits { get; init; }
 
     /// <summary>
     /// Address of the agreed-but-not-completed contract (player+0x328 on 27.0.0+2486695), or 0.

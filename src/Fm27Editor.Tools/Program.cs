@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using Fm27Editor.Core.Discovery;
 using Fm27Editor.Core.Clubs;
+using Fm27Editor.Core.Competitions;
 using Fm27Editor.Core.Game;
 using Fm27Editor.Core.Memory;
+using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Offsets;
 using Fm27Editor.Core.Players;
 using Fm27Editor.Core.Staff;
@@ -21,6 +23,9 @@ using Fm27Editor.Core.Verification;
 //   captain <id> [vice] [--restore 0x<person>] [--write]   set/undo team captain or vice captain
 //   clubvision <club> <type> <importance> [--from <old>] [--write]   set a club vision importance
 //   maxattrs <id> [--write]            team preset: every performance attribute 20
+//   compinfo <id>                      read one competition's editable fields
+//   compset <id> <subs|fg|bg|trim|wb|wbstart|wbend|rep> <value>   write one competition field
+//   compsnap | compdiff <path>         baseline the whole competition list and diff it after an FMRTE Save
 //   keepplaying <id>|batch <ids...> [--write]   remove a planned retirement
 string offsetsDir = Environment.GetEnvironmentVariable("FM27_OFFSETS") ?? Path.Combine(AppContext.BaseDirectory, "offsets");
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -34,6 +39,8 @@ try
         "healthstructure" => HealthStructure(),
         "healthstaff" => HealthStaff(),
         "healthclubs" => HealthClubs(),
+            "healthprofile" => HealthProfileCommand(),
+            "healthodd" => HealthOddCommand(),
         "exportplayers" => ExportPlayers(args[1], args[2], args[3..].Select(int.Parse).ToArray()),
         "freezecheck" => FreezeCheck(int.Parse(args[1]), Enum.Parse<PlayerAttribute>(args[2], true), int.Parse(args[3])),
         "freezedecreasecheck" => FreezeDecreaseCheck(int.Parse(args[1]), Enum.Parse<PlayerAttribute>(args[2], true)),
@@ -61,7 +68,7 @@ try
         "masswagecheck" => MassWageCheck(int.Parse(args[1]), args[2..].Select(int.Parse).ToArray()),
         "staffwagemass" => StaffWageMassCommand(int.Parse(args[1]), args[2..]),
         "unhundo" => UnhUndoCheck(int.Parse(args[1])),
-        "unhids" => UnhappyIds(),
+        "unhids" => UnhappyIds(args.Length > 1 ? string.Join(' ', args[1..]) : null),
         "banids" => BannedIds(),
         "banundo" => BanUndoCheck(int.Parse(args[1])),
         "setattrid" => SetAttributeById(int.Parse(args[1]), Enum.Parse<PlayerAttribute>(args[2], true), int.Parse(args[3])),
@@ -72,11 +79,22 @@ try
         "move" => Move(args[1], int.Parse(args[2]), int.Parse(args[3]), args.Contains("--write")),
         "releaseinspect" => ReleaseInspect(int.Parse(args[1])),
         "release" => ReleasePlayer(int.Parse(args[1]), args.Contains("--write")),
-        "contract" => ContractCommand(args[1], args.Length > 2 ? args[2] : null, args.Length > 3 ? args[3] : null),
+        "contractrm" => args.Length >= 3 ? ContractRemove(args[1], int.Parse(args[2])) : Usage(),
+            "contract" => ContractCommand(args[1], args.Length > 2 ? args[2] : null, args.Length > 3 ? args[3] : null),
         "find-offsets" => FindOffsets(args[1], args[2], args.SkipWhile(a => a != "--date").Skip(1).FirstOrDefault()),
         "transfer" => Transfer(args[1..]),
         "clauses" => args[1] == "fee" ? SellOnsWithFee() : Clauses(int.Parse(args[1])),
+        "income" => IncomeCommand(int.Parse(args[1]), args[2..]),
+        "alloc" => AllocCommand(int.Parse(args[1])),
+        "clubdebt" => ClubDebtCommand(args[1..]),
+        "visionprobe" => VisionProbeCommand(int.Parse(args[1])),
+        "stadiumprobe" => StadiumProbeCommand(),
+        "visiondump" => VisionDumpCommand(int.Parse(args[1]), args.Length > 2 ? int.Parse(args[2]) : 3),
+        "visionstatus" => VisionStatusCommand(),
+        "visionscan" => VisionScanCommand(),
+        "vision" => VisionCommand(int.Parse(args[1]), args[2..]),
         "club" => ClubInfoCommand(int.Parse(args[1])),
+        "financeprobe" => FinanceProbeCommand(int.Parse(args[1])),
         "clubfields" => ClubFieldsCommand(int.Parse(args[1])),
         "squad" => SquadCommand(int.Parse(args[1])),
         "heal" => HealCommand(string.Join(" ", args[1..])),
@@ -86,13 +104,22 @@ try
         "nearptr" => NearPtrCommand(Convert.ToUInt64(args[1], 16), args[2..]),
         "reltype" => RelTypeCommand(Convert.ToInt32(args[1], 16)),
         "cities" => CitiesCommand(string.Join(" ", args[1..])),
+        "playersborn" => PlayersBornCommand(int.Parse(args[1])),
+        "playerscontract" => PlayersContractCommand(args[1], args[2], args[3..]),
+        "playersclause" => PlayersClauseCommand(args[1], args[2], args[3..]),
+        "playerscontinent" => PlayersContinentCommand(string.Join(' ', args[1..])),
+        "playersnation" => PlayersNationCommand(int.Parse(args[1]), args.Contains("--include-other")),
+        "playerstrained" => PlayersTrainedCommand(args[1], int.Parse(args[2])),
+        "playerswonderkids" => PlayersWonderkidsCommand(),
         "careersurvey" => CareerSurvey(),
         "offerscan" => OfferScan(),
         "staffcontract" => StaffContractCommand(string.Join(" ", args[1..])),
         "callups" => CallUpsCommand(string.Join(" ", args[1..])),
         "ctypes" => ContractTypes(),
         "future" => FutureCommand(string.Join(" ", args[1..])),
+        "untrained" => UntrainedCommand(args[1..]),
         "proposalsurvey" => ProposalSurvey(),
+            "proposalsurveyraw" => ProposalSurveyRaw(),
         "offerlist" => OfferList(args.Length > 1 ? string.Join(" ", args[1..]) : null),
         "careers" => CareersCommand(string.Join(" ", args[1..])),
         "pfhist" => PlayerFieldHistogram(Enum.Parse<PlayerField>(args[1]), args.Length > 2 ? int.Parse(args[2]) : 0),
@@ -112,7 +139,11 @@ try
         "ptrvt" => PtrVtCommand(Convert.ToUInt64(args[1], 16), Convert.ToInt32(args[2], 16)),
         "nation" => args.Length >= 4 && long.TryParse(args[^1], out long nv) && !args[^2].All(char.IsDigit)
             ? NationCommand(string.Join(" ", args[1..^2]), args[^2], nv) : NationCommand(string.Join(" ", args[1..]), null, null),
-        "stadium" => args.Length >= 4 && long.TryParse(args[^1], out long sv) && Enum.TryParse<Fm27Editor.Core.Stadiums.StadiumField>(args[^2], true, out _) ? StadiumCommand(string.Join(" ", args[1..^2]), args[^2], sv) : StadiumCommand(string.Join(" ", args[1..]), null, null),
+            "export" => ExportCommand(args[1], args[2]),
+            "restore" => RestoreCommand(args[1], args[2]),
+            "tactics" => TacticsCommand(args[1]),
+            "stadiumcolour" => StadiumColourCommand(args[1..]),
+            "stadium" => args.Length >= 4 && long.TryParse(args[^1], out long sv) && Enum.TryParse<Fm27Editor.Core.Stadiums.StadiumField>(args[^2], true, out _) ? StadiumCommand(string.Join(" ", args[1..^2]), args[^2], sv) : StadiumCommand(string.Join(" ", args[1..]), null, null),
         "poke" => PokeCommand(Convert.ToUInt64(args[1], 16), args[2], args[3]),
         "rootvecs" => RootVecsCommand(Convert.ToUInt64(args[1], 16)),
         "vecbounds" => VecBoundsCommand(Convert.ToUInt64(args[1], 16), Convert.ToUInt64(args[2], 16)),
@@ -127,6 +158,8 @@ try
         "staffmovesurvey" => StaffMoveSurvey(int.Parse(args[1])),
         "setstaffabilityid" => SetStaffAbilityById(int.Parse(args[1]), int.Parse(args[2]), int.Parse(args[3])),
         "staffcontractid" => StaffContractById(int.Parse(args[1]), null),
+        "staffrenew" => StaffRenewCommand(int.Parse(args[1]), args.Length > 2 ? int.Parse(args[2]) : 4),
+        "staffexpire" => StaffExpireCommand(int.Parse(args[1])),
         "setstaffwageid" => StaffContractById(int.Parse(args[1]), int.Parse(args[2])),
         "staffcareers" => StaffCareers(),
         "staffknowledge" => StaffKnowledgeCommand(string.Join(" ", args[1..])),
@@ -145,14 +178,37 @@ try
         "setclub" => SetClubField(int.Parse(args[1]), args[2], long.Parse(args[3])),
         "clublists" => ClubListsCommand(int.Parse(args[1])),
         "clubvision" => ClubVisionCommand(args[1..]),
+        "addclubvis" => ClubVisAddCommand(int.Parse(args[1]), int.Parse(args[2])),
+        "addclubaff" => ClubAffAddCommand(int.Parse(args[1]), int.Parse(args[2])),
+        "delclubaff" => ClubAffDeleteCommand(int.Parse(args[1]), int.Parse(args[2])),
+        "delclubvis" => ClubVisDeleteCommand(int.Parse(args[1]), int.Parse(args[2])),
         "clubfinancelists" => ClubFinanceListsCommand(int.Parse(args[1])),
+            "clubsponsor" => ClubSponsorCommand(args[1..]),
         "clubstaff" => ClubStaffCommand(int.Parse(args[1])),
         "comps" => CompsCommand(string.Join(" ", args[1..])),
+        "compinfo" => CompInfoCommand(int.Parse(args[1])),
+        "compprize" => CompPrizeCommand(args[1..]),
+        "compstandings" => CompStandingsCommand(args[1..]),
+        "compvar" => CompVarCommand(args[1..]),
+        "comprules" => CompRulesCommand(args[1..]),
+        "compset" => CompSetCommand(args[1..]),
         "awards" => AwardsCommand(string.Join(" ", args[1..])),
         "nationcap" => NationCapCommand(string.Join(" ", args[1..])),
         "nationteams" => NationTeamsCommand(string.Join(" ", args[1..])),
+        "nationkits" => NationKitsCommand(string.Join(" ", args[1..])),
+        "fam" => FamiliarityCommand(args[1..]),
+        "nationsquad" => NationSquadCommand(string.Join(" ", args[1..])),
+        "nationstaff" => NationStaffCommand(string.Join(" ", args[1..])),
+        "nationkititem" => NationKitItemCommand(args[1..]),
+        "nationcolours" => NationColoursCommand(args[1..]),
         "nationfind" => NationFindCommand(args[1], int.Parse(args[2]), args[3..]),
-        "nationcolours" => NationColoursCommand(args[1], args[2]),
+        "natpref" => NatPrefCommand(args[1..]),
+        "nationagr" => NationAgrCommand(args[1..], null),
+        "nationregions" => NationRegionsCommand(),
+        "nationagrempty" => NationAgrEmptyCommand(args[1..]),
+        "nationcoeff" => NationCoeffCommand(string.Join(" ", args[1..])),
+        "nationcont" => NationContCommand(string.Join(" ", args[1..]), null),
+        "setnationcont" => NationContCommand(string.Join(" ", args[1..^5]), args[^5..]),
         "nationdeep" => NationDeepCommand(args[1], args[2], int.Parse(args[3]), int.Parse(args[4]), int.Parse(args[5]), args[6..]),
         "compsurvey" => CompSurveyCommand(Convert.ToInt32(args[1], 16), int.Parse(args[2])),
         "compscan" => CompScanCommand(Convert.ToInt32(args[1], 16), int.Parse(args[2])),
@@ -160,6 +216,8 @@ try
         "compdiff" => CompDiffCommand(args[1]),
         "clubdeep" => ClubDeepCommand(int.Parse(args[1]), int.Parse(args[2]), int.Parse(args[3]), int.Parse(args[4]), int.Parse(args[5]), args[6..]),
         "clubrel" => ClubRelCommand(int.Parse(args[1]), null),
+        "addclubrel" => ClubRelAddCommand(int.Parse(args[1]), int.Parse(args[2]), args.Length > 3 ? int.Parse(args[3]) : 50),
+        "delclubrel" => ClubRelDeleteCommand(int.Parse(args[1]), int.Parse(args[2])),
         "setclubrel" => ClubRelCommand(int.Parse(args[1]), args[2..]),
         "probe" => Probe(Convert.ToUInt64(args[1], 16), Convert.ToInt32(args[2], 16), int.Parse(args[3]), args[4..]),
         _ => Usage(),
@@ -179,6 +237,50 @@ int Usage()
 
 GameSession Attach(bool writable) => GameSession.Attach(GameSession.LoadProfiles(offsetsDir), writable);
 
+// healthprofile: read a sample of every module with the loaded profile and print PASS/FAIL per module.
+// healthodd: list the players behind the healthprofile players/contracts near-misses (first 400 records).
+int HealthOddCommand()
+{
+    using var session = Attach(writable: false);
+    var profile = session.Profile;
+    var all = session.Players.LoadAll();
+    var sample = all.Take(400).ToList();
+    Console.WriteLine($"first {sample.Count} players of {all.Count:N0}");
+    foreach (var p in sample)
+    {
+        var name = p.DisplayName;
+        bool printable = !string.IsNullOrWhiteSpace(name) && name.Length <= 80 && name.All(c => c >= ' ' && c != '\u007f');
+        if (!printable)
+        {
+            var raw = session.Memory.Read(p.Address + (ulong)profile.Fields.FullName, 16);
+            Console.WriteLine($"odd name  id {p.Id} at 0x{p.Address:X} bytes {Convert.ToHexString(raw)}");
+        }
+    }
+    if (profile.Contract is { } offsets)
+    {
+        int bad = 0;
+        foreach (var p in sample)
+        {
+            ulong contract = session.Memory.ReadUInt64(p.Address + (ulong)offsets.PlayerContract);
+            if (contract == 0) continue;
+            ulong vtable = session.Memory.ReadUInt64(contract);
+            if (vtable == session.ModuleBase + offsets.ContractVtableRva) continue;
+            if (++bad > 30) continue;
+            Console.WriteLine($"odd contract id {p.Id} '{p.DisplayName}' contract 0x{contract:X} vt 0x{vtable:X} (want 0x{session.ModuleBase + offsets.ContractVtableRva:X})");
+        }
+        Console.WriteLine($"{bad} contract mismatches");
+    }
+    return 0;
+}
+int HealthProfileCommand()
+{
+    using var session = Attach(writable: false);
+    var results = new Fm27Editor.Core.Offsets.ProfileHealth(session.Memory, session.Profile, session.ModuleBase).Run();
+    foreach (var r in results) Console.WriteLine($"{(r.Ok ? "PASS" : "FAIL")} {r.Module,-14} {r.Detail}");
+    int failed = results.Count(r => !r.Ok);
+    Console.WriteLine(failed == 0 ? "profile ok" : $"{failed} module(s) failed");
+    return failed == 0 ? 0 : 1;
+}
 int HealthPlayers()
 {
     using var session = Attach(writable: false);
@@ -395,18 +497,20 @@ int BanUndoCheck(int id)
     return 0;
 }
 
-int UnhappyIds()
+int UnhappyIds(string? club)
 {
     using var session = Attach(writable: false);
     var date = session.ReadGameDate() ?? throw new InvalidOperationException("Game date unavailable");
     int shown = 0;
     foreach (var p in session.Players.LoadAll())
     {
+        if (club is not null && !(p.ClubName?.Contains(club, StringComparison.OrdinalIgnoreCase) ?? false)) continue;
         var active = session.ReadUnhappiness(p).Count(x => x.IsActive(date));
         if (active == 0) continue;
         Console.WriteLine($"{p.Id} {p.DisplayName}: {active} active");
-        if (++shown == 10) break;
+        shown++;
     }
+    Console.WriteLine($"{shown} unhappy players");
     return 0;
 }
 
@@ -993,6 +1097,35 @@ int StaffContractById(int id, int? wage)
     return 0;
 }
 
+
+// staffrenew <staffId> [years]: extends the staff contract (write)
+int StaffRenewCommand(int id, int years)
+{
+    using var session = Attach(writable: true);
+    var staff = session.Staff.LoadAll().Single(s => s.Id == id);
+    var contract = session.StaffContracts.Read(staff) ?? throw new StaleObjectException("Staff contract is not readable");
+    var today = session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+    Console.WriteLine($"{staff.DisplayName}: expires {contract.Expires:yyyy-MM-dd} -> renew {years} years from {today:yyyy-MM-dd}");
+    session.StaffContracts.Renew(staff, contract, years, today);
+    var after = session.StaffContracts.Read(staff) ?? throw new StaleObjectException("Staff contract is no longer readable");
+    Console.WriteLine($"  now expires {after.Expires:yyyy-MM-dd}");
+    return 0;
+}
+
+// staffexpire <staffId>: ends the staff contract yesterday (write)
+int StaffExpireCommand(int id)
+{
+    using var session = Attach(writable: true);
+    var staff = session.Staff.LoadAll().Single(s => s.Id == id);
+    var contract = session.StaffContracts.Read(staff) ?? throw new StaleObjectException("Staff contract is not readable");
+    var today = session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+    Console.WriteLine($"{staff.DisplayName}: expires {contract.Expires:yyyy-MM-dd} -> expire");
+    session.StaffContracts.Expire(staff, contract, today);
+    var after = session.StaffContracts.Read(staff) ?? throw new StaleObjectException("Staff contract is no longer readable");
+    Console.WriteLine($"  now expires {after.Expires:yyyy-MM-dd}");
+    return 0;
+}
+
 int Status()
 {
     using var session = Attach(writable: true);
@@ -1148,9 +1281,125 @@ int Clauses(int clubId)
     return 0;
 }
 
-// clubfinancelists <id>   Finances sponsors and debts read from the live game
-int ClubFinanceListsCommand(int clubId)
+// alloc <bytes>   check that the editor can allocate memory inside the game process
+int AllocCommand(int bytes)
 {
+    using var session = Attach(writable: true);
+    Console.WriteLine($"writable {session.CanWrite}");
+    ulong address = session.Process.Allocate(bytes);
+    Console.WriteLine($"allocated {bytes} bytes at 0x{address:X}");
+    return 0;
+}
+
+// income <club id> [set <period> <income|expenditure> <field> <value> [--write]]
+int IncomeCommand(int clubId, string[] rest)
+{
+    bool write = rest.Contains("--write");
+    using var session = Attach(writable: write);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var periods = session.FinancialStatements.Read(club.Address);
+    Console.WriteLine($"{club.Name}: {periods.Count} statement periods");
+    foreach (var p in periods)
+        Console.WriteLine($"  period {p.Index}: income {p.TotalIncome,14:N0}  expenditure {p.TotalExpenditure,14:N0}  " +
+                          $"net {p.TotalIncome - p.TotalExpenditure,14:N0}  (gates {p.GateReceipts:N0}, wages {p.PlayerWages:N0})");
+    if (periods.Count > 0)
+    {
+        var p = periods[0];
+        Console.WriteLine("  current block detail:");
+        Console.WriteLine($"    income      gate {p.GateReceipts:N0} other {p.OtherIncome:N0} season {p.SeasonTickets:N0} interest {p.Interest:N0} " +
+                          $"invest {p.Investments:N0} merch {p.Merchandising:N0} sold {p.PlayersSold:N0} sponsor {p.Sponsorship:N0} " +
+                          $"matchday {p.MatchDayIncome:N0} grants {p.Grants:N0}");
+        Console.WriteLine($"    expenditure other {p.Other:N0} loan {p.LoanRepayment:N0} fines {p.LeagueFines:N0} ground {p.GroundMaintenance:N0} " +
+                          $"playerWages {p.PlayerWages:N0} staffWages {p.StaffWages:N0} bonuses {p.Bonuses:N0} loyalty {p.LoyaltyBonuses:N0} " +
+                          $"transfers {p.TransferExpenditure:N0} vat {p.Vat:N0} ni {p.NiEmployerTax:N0}");
+    }
+
+    if (rest.Length == 0) return 0;
+    if (rest[0] != "set" || rest.Length < 5)
+    {
+        Console.Error.WriteLine("usage: income <club-id> [set <period> <income|expenditure> <field> <value> [--write]]");
+        return 2;
+    }
+    int period = int.Parse(rest[1]);
+    bool isIncome = rest[2].StartsWith("inc", StringComparison.OrdinalIgnoreCase);
+    string field = rest[3];
+    long value = long.Parse(rest[4]);
+    var all = isIncome ? ClubStatementOffsets.IncomeKeys : ClubStatementOffsets.ExpenditureKeys;
+    if (!all.Contains(field)) { Console.Error.WriteLine($"unknown field; one of {string.Join(", ", all)}"); return 2; }
+    if (period < 0 || period >= periods.Count) { Console.Error.WriteLine($"period must be 0..{periods.Count - 1}"); return 2; }
+    var current = CurrentValue(periods[period], isIncome, field);
+    Console.WriteLine($"{(isIncome ? "income" : "expenditure")}.{field} period {period}: {current:N0} -> {value:N0}");
+    if (!write) { Console.WriteLine("plan only; add --write to apply"); return 0; }
+    session.FinancialStatements.Set(club.Address, period, isIncome, field, current, value);
+    var after = session.FinancialStatements.Read(club.Address);
+    var readBack = CurrentValue(after[period], isIncome, field);
+    Console.WriteLine($"written; read back {readBack:N0}" + (readBack == value ? " (matches)" : " (MISMATCH)"));
+    return readBack == value ? 0 : 1;
+}
+
+static long CurrentValue(ClubFinancialPeriod p, bool income, string field) => (income, field) switch
+{
+    (true, "gateReceipts") => p.GateReceipts,
+    (true, "other") => p.OtherIncome,
+    (true, "seasonTickets") => p.SeasonTickets,
+    (true, "interest") => p.Interest,
+    (true, "investments") => p.Investments,
+    (true, "merchandising") => p.Merchandising,
+    (true, "playersSold") => p.PlayersSold,
+    (true, "sponsorship") => p.Sponsorship,
+    (true, "matchDayIncome") => p.MatchDayIncome,
+    (true, "grants") => p.Grants,
+    (false, "other") => p.Other,
+    (false, "loanRepayment") => p.LoanRepayment,
+    (false, "leagueFines") => p.LeagueFines,
+    (false, "groundMaintenance") => p.GroundMaintenance,
+    (false, "playerWages") => p.PlayerWages,
+    (false, "staffWages") => p.StaffWages,
+    (false, "bonuses") => p.Bonuses,
+    (false, "loyaltyBonuses") => p.LoyaltyBonuses,
+    (false, "transferExpenditure") => p.TransferExpenditure,
+    (false, "vat") => p.Vat,
+    (false, "niEmployerTax") => p.NiEmployerTax,
+    _ => throw new ArgumentOutOfRangeException(nameof(field)),
+};
+
+// financeprobe <id>   dump the club finance object and the FM Studio candidate statement offsets
+int FinanceProbeCommand(int clubId)
+{
+    using var session = Attach(writable: false);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var memory = session.Memory;
+    ulong Pointer(ulong address)
+    {
+        var b = memory.Read(address, 8);
+        return b.Length < 8 ? 0 : BitConverter.ToUInt64(b, 0);
+    }
+    ulong finance = Pointer(club.Address + 0x150);
+    Console.WriteLine($"{club.Name}: club 0x{club.Address:X} finance 0x{finance:X}");
+    Console.WriteLine($"  balance {session.ClubFields.Read(club.Address, Fm27Editor.Core.Clubs.ClubField.Balance)}");
+    if (finance == 0) return 0;
+    foreach (int offset in new[] { 0x280, 0x31C, 0x398, 0x434, 0x4B0, 0x560, 0x568, 0x5C8, 0x604, 0x664 })
+    {
+        var raw = memory.Read(finance + (ulong)offset, 8);
+        if (raw.Length < 8) continue;
+        Console.WriteLine($"  +0x{offset:X3}  i32 {BitConverter.ToInt32(raw, 0),12:N0}  u64 0x{BitConverter.ToUInt64(raw, 0):X}");
+    }
+    Console.WriteLine("  non-trivial int32 in finance+0x200..0x700:");
+    for (int offset = 0x200; offset < 0x700; offset += 4)
+    {
+        var raw = memory.Read(finance + (ulong)offset, 4);
+        if (raw.Length < 4) break;
+        int value = BitConverter.ToInt32(raw, 0);
+        if (value is < 1000 and > -1000) continue;
+        Console.WriteLine($"    +0x{offset:X3} {value,14:N0}");
+    }
+    return 0;
+}
+
+// clubfinancelists <id>   Finances sponsors and debts read from the live game
+int ClubFinanceListsCommand(int clubId){
     using var session = Attach(writable: false);
     var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
     if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
@@ -1160,6 +1409,49 @@ int ClubFinanceListsCommand(int clubId)
     var debts = session.ReadDebts(club.Address);
     Console.WriteLine($"{debts.Count} debts");
     foreach (var d in debts) Console.WriteLine($"  source {d.SourceCode,3} {d.OriginalDebt,12:N0} {d.StartDate:yyyy-MM-dd} {d.EndDate:yyyy-MM-dd}");
+    return 0;
+}
+
+// clubsponsor <id> <index> <total|dates> <value[|start,end]> [--write]   guarded edit of one existing sponsor record
+int ClubSponsorCommand(string[] args)
+{
+    bool write = args.Contains("--write");
+    var words = args.Where(a => a != "--write").ToArray();
+    if (words.Length >= 2 && words[1].Equals("add", StringComparison.OrdinalIgnoreCase))
+        return ClubSponsorAdd(words[0], words[2..], write);
+    if (words.Length >= 3 && words[1].Equals("remove", StringComparison.OrdinalIgnoreCase))
+        return ClubSponsorRemove(words[0], words[2], write);
+    if (words.Length < 4) throw new ArgumentException("usage: clubsponsor <club-id> <index> <total|dates> <value|start,end> [--write] | add <type> <total> <start,end> | remove <index>");
+    int clubId = int.Parse(words[0]), index = int.Parse(words[1]);
+    using var session = Attach(writable: write);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var sponsors = session.ReadSponsors(club.Address);
+    if (index < 0 || index >= sponsors.Count) { Console.Error.WriteLine($"club has {sponsors.Count} sponsors"); return 2; }
+    var entry = sponsors[index];
+    Console.WriteLine($"{club.Name} sponsor {index}: type {entry.IncomeTypeCode} total {entry.TotalValue:N0} {entry.StartDate:yyyy-MM-dd}..{entry.EndDate:yyyy-MM-dd} renew {entry.RenewIncome} fixed {entry.FixedValue}");
+    if (!write) return 0;
+    if (words[2].Equals("total", StringComparison.OrdinalIgnoreCase))
+        session.SponsorWriter.SetTotal(club.Address, entry, int.Parse(words[3]));
+    else if (words[2].Equals("dates", StringComparison.OrdinalIgnoreCase))
+    {
+        var parts = words[3].Split(',');
+        if (parts.Length != 2) throw new ArgumentException("dates takes start,end as yyyy-MM-dd");
+        session.SponsorWriter.SetDates(club.Address, entry,
+            DateOnly.ParseExact(parts[0], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            DateOnly.ParseExact(parts[1], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+    }
+    else if (words[2].Equals("flags", StringComparison.OrdinalIgnoreCase))
+    {
+        var flags = words[3].Split(",");
+        if (flags.Length != 2) throw new ArgumentException("flags takes renew,fixed as 0/1");
+        session.SponsorWriter.SetFlags(club.Address, entry, flags[0] == "1", flags[1] == "1");
+    }
+    else if (words[2].Equals("income", StringComparison.OrdinalIgnoreCase))
+        session.SponsorWriter.SetIncomeType(club.Address, entry, byte.Parse(words[3]));
+    else throw new ArgumentException("field must be total, dates, income or flags");
+    var after = session.ReadSponsors(club.Address)[index];
+    Console.WriteLine($"read back: type {after.IncomeTypeCode} total {after.TotalValue:N0} {after.StartDate:yyyy-MM-dd}..{after.EndDate:yyyy-MM-dd} renew {after.RenewIncome} fixed {after.FixedValue}");
     return 0;
 }
 
@@ -1537,6 +1829,82 @@ int NationCommand(string name, string? field, long? value)
 }
 
 // stadium <name> [<StadiumField> <value>]   one stadium with every mapped value; with a field, a guarded write (writes to the game)
+// export csv|json <path>   current player snapshots, same columns as the app's Export button
+// restore <export.json> <club>   write every exported attribute back for the players of one club (repairs a bad preset)
+int RestoreCommand(string path, string club)
+{
+    using var session = Attach(writable: true);
+    var live = session.Players.LoadAll();
+    using var stream = File.OpenRead(path);
+    var exported = System.Text.Json.JsonSerializer.Deserialize<List<Dictionary<string, System.Text.Json.JsonElement>>>(stream)
+        ?? throw new InvalidOperationException("export is empty");
+    var targets = exported.Where(p => p.TryGetValue("Club", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String
+        && string.Equals(c.GetString(), club, StringComparison.OrdinalIgnoreCase)).ToArray();
+    if (targets.Length == 0) { Console.Error.WriteLine($"no exported player has club '{club}'"); return 2; }
+    var byId = live.Where(p => p.Id is > 0).GroupBy(p => p.Id!.Value).ToDictionary(g => g.Key, g => g.First());
+    int players = 0, attributes = 0, missing = 0;
+    foreach (var row in targets)
+    {
+        if (!row.TryGetValue("Id", out var idValue) || !byId.TryGetValue(idValue.GetInt32(), out var player)) { missing++; continue; }
+        foreach (var attribute in Enum.GetValues<Fm27Editor.Core.Players.PlayerAttribute>())
+        {
+            if (!row.TryGetValue($"Attribute.{attribute}", out var value) || value.ValueKind != System.Text.Json.JsonValueKind.Number) continue;
+            int display = value.GetInt32();
+            if (display < 1 || display > 20 || player.Attribute(attribute) == display) continue;
+            session.Writer.SetAttribute(player, attribute, display);
+            player = session.Players.Reload(player.Address) ?? throw new InvalidOperationException("player disappeared");
+            attributes++;
+        }
+        players++;
+    }
+    Console.WriteLine($"restored {attributes:N0} attributes for {players} players of {club}" + (missing > 0 ? $", {missing} not found" : ""));
+    return 0;
+}
+// tactics <hex-address>   decode a team's Tactical Understanding block (offsets measured from FMRTE)
+int TacticsCommand(string address)
+{
+    using var session = Attach(writable: false);
+    ulong block = Convert.ToUInt64(address.Replace("0x", ""), 16);
+    var values = Fm27Editor.Core.Clubs.TacticalBlock.Read(session.Memory, block)
+        ?? throw new InvalidOperationException($"no tactical block at 0x{block:X}");
+    Console.WriteLine($"0x{block:X}: Passing Style {values.PassingStyle}, Build Up {values.BuildUp}, Chance Creation {values.ChanceCreation}, " +
+        $"Line Of Engagement {values.LineOfEngagement}, Pressing Intensity {values.PressingIntensity}, Pressing Trap {values.PressingTrap}, Position/Role {values.PositionRole?.ToString() ?? "?"}");
+    return 0;
+}
+int ExportCommand(string format, string path)
+{
+    using var session = Attach(writable: false);
+    var players = session.Players.LoadAll();
+    if (session.ReadGameDate() is { } gameDate)
+        foreach (var player in players) player.GameDate = gameDate;
+    using (var stream = File.Create(path))
+    {
+        if (format.Equals("json", StringComparison.OrdinalIgnoreCase)) Fm27Editor.Core.Players.PlayerExport.WriteJson(stream, players);
+        else Fm27Editor.Core.Players.PlayerExport.WriteCsv(stream, players);
+    }
+    Console.WriteLine($"exported {players.Count:N0} players to {path}");
+    return 0;
+}
+int StadiumColourCommand(string[] words)
+{
+    bool write = words.Contains("--write");
+    var rest = words.Where(w => w != "--write").ToArray();
+    if (rest.Length < 2) throw new ArgumentException("usage: stadiumcolour <name> <#AARRGGBB> [--write]");
+    string name = string.Join(" ", rest[..^1]), hex = rest[^1];
+    using var session = Attach(writable: write);
+    var all = session.Stadiums.LoadAll();
+    var found = all.Where(s => s.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (found.Count == 0) { Console.Error.WriteLine($"no stadium named '{name}'"); return 2; }
+    uint argb = uint.Parse(hex.TrimStart('#'), System.Globalization.NumberStyles.HexNumber);
+    foreach (var s in found)
+    {
+        Console.WriteLine($"{s.DisplayName} seat colour #{s.SeatColour:X8}");
+        if (!write) continue;
+        session.StadiumWriter.SetSeatColour(s, argb);
+        Console.WriteLine($"read back: #{session.Stadiums.Reload(s.Address)!.SeatColour:X8}");
+    }
+    return 0;
+}
 int StadiumCommand(string name, string? field, long? value)
 {
     using var session = Attach(writable: field is not null);
@@ -2038,6 +2406,106 @@ int CitiesCommand(string query)
     return 0;
 }
 
+// playersborn <city id>   exact city ID, not a city-name substring (read only)
+int PlayersBornCommand(int cityId)
+{
+    using var session = Attach(writable: false);
+    var players = session.Players.LoadAll();
+    var matches = session.Cities.FindPlayersBornInCity(players, cityId);
+    foreach (var p in matches) Console.WriteLine($"{p.Id,10} {p.DisplayName} · {p.ClubName}");
+    Console.WriteLine($"{matches.Count} players born in city {cityId}");
+    return 0;
+}
+
+// playerscontract <type|any> <playing-time|any>  (read only; enum names as in Core)
+int PlayersContractCommand(string typeText, string playingText, string[] ranges)
+{
+    ContractType? type = typeText.Equals("any", StringComparison.OrdinalIgnoreCase) ? null : Enum.Parse<ContractType>(typeText, true);
+    PlayingTime? playing = playingText.Equals("any", StringComparison.OrdinalIgnoreCase) ? null : Enum.Parse<PlayingTime>(playingText, true);
+    using var session = Attach(writable: false);
+    if (ranges.Length is not (0 or 4)) throw new ArgumentException("Use: playerscontract <type|any> <playing|any> [min-wage max-wage min-price max-price]; use any for an open bound");
+    long? Bound(int index) => ranges.Length == 0 || ranges[index].Equals("any", StringComparison.OrdinalIgnoreCase) ? null : long.Parse(ranges[index]);
+    var result = new ContractSearch(session.Contracts).Find(session.Players.LoadAll(), new(type, playing, Bound(0), Bound(1), Bound(2), Bound(3)));
+    foreach (var p in result.Matches.Take(30)) Console.WriteLine($"{p.Id,10} {p.DisplayName} · {p.ClubName}");
+    Console.WriteLine($"{result.Matches.Count} matches; {result.Unavailable.Count} unavailable");
+    return 0;
+}
+
+// playerscontinent <exact continent name> — primary nationality only (read only)
+int PlayersClauseCommand(string typeText, string presence, string[] bounds)
+{
+    bool present = presence.Equals("present", StringComparison.OrdinalIgnoreCase) ? true : presence.Equals("absent", StringComparison.OrdinalIgnoreCase) ? false : throw new ArgumentException("Use present or absent");
+    if (bounds.Length is not (0 or 2)) throw new ArgumentException("Use: playersclause <raw-type> <present|absent> [min max]");
+    int? Bound(int i) => bounds.Length == 0 || bounds[i].Equals("any", StringComparison.OrdinalIgnoreCase) ? null : int.Parse(bounds[i]);
+    using var session = Attach(writable: false);
+    var result = new ContractSearch(session.Contracts).Find(session.Players.LoadAll(), new(ClauseType: short.Parse(typeText), HasClause: present, MinimumClauseValue: Bound(0), MaximumClauseValue: Bound(1)));
+    foreach (var p in result.Matches.Take(30)) Console.WriteLine($"{p.Id,10} {p.DisplayName} · {p.ClubName}");
+    Console.WriteLine($"{result.Matches.Count} matches; {result.Unavailable.Count} unavailable");
+    return 0;
+}
+
+// playerscontinent <exact continent name> — primary nationality only (read only)
+int PlayersContinentCommand(string name)
+{
+    using var session = Attach(writable: false);
+    var continent = session.NationLinks.Continents(session.Nations.LoadAll()).SingleOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    if (continent is null) { Console.Error.WriteLine("Continent not found"); return 2; }
+    var result = new PlayerContinentSearch(session.NationLinks).Find(session.Players.LoadAll(), continent);
+    foreach (var p in result.Matches.Take(30)) Console.WriteLine($"{p.Id,10} {p.DisplayName} · {p.NationalityName}");
+    Console.WriteLine($"{result.Matches.Count} matches; {result.Unavailable.Count} unavailable");
+    return 0;
+}
+
+// playersnation <nation-id> [--include-other] — exact nation object (read only)
+int PlayersTrainedCommand(string targetKind, int id)
+{
+    using var session = Attach(writable: false);
+    var players = session.Players.LoadAll();
+    PlayerRelationCriteria criteria;
+    if (targetKind.Equals("club", StringComparison.OrdinalIgnoreCase))
+    {
+        var club = session.LoadClubs(players).SingleOrDefault(c => c.Id == id) ?? throw new ArgumentException("Club ID not found in loaded players");
+        criteria = new(TrainedAtClub: club.Address);
+    }
+    else if (targetKind.Equals("nation", StringComparison.OrdinalIgnoreCase))
+    {
+        var nation = session.Nations.LoadAll().SingleOrDefault(n => n.Id == id) ?? throw new ArgumentException("Nation ID not found");
+        criteria = new(TrainedAtNation: nation.Address);
+    }
+    else throw new ArgumentException("Use playerstrained <club|nation> <id>");
+    var reader = new PlayerStatusReader(session.Memory, session.Profile, session.ModuleBase);
+    var result = new PlayerRelationSearch(reader).Find(players, criteria);
+    foreach (var player in result.Matches.Take(30)) Console.WriteLine($"{player.Id,10} {player.DisplayName} · {player.ClubName}");
+    Console.WriteLine($"{result.Matches.Count} matches; {result.Unavailable.Count} unavailable");
+    return 0;
+}
+
+// playersnation <nation-id> [--include-other] — exact nation object (read only)
+int PlayersWonderkidsCommand()
+{
+    using var session = Attach(writable: false);
+    var date = session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+    var players = session.Players.LoadAll();
+    foreach (var player in players) player.GameDate = date;
+    var matches = players.Where(p => WonderkidSearch.IsWonderkid(p) == true).ToArray();
+    foreach (var player in matches.Take(30)) Console.WriteLine($"{player.Id,10} {player.DisplayName} · age {player.Age} · PA {player.PotentialAbility}");
+    Console.WriteLine($"{matches.Length} matches; {players.Count(p => WonderkidSearch.IsWonderkid(p) is null)} unavailable");
+    return 0;
+}
+
+// playersnation <nation-id> [--include-other] — exact nation object (read only)
+int PlayersNationCommand(int nationId, bool includeOther)
+{
+    using var session = Attach(writable: false);
+    var nation = session.Nations.LoadAll().SingleOrDefault(n => n.Id == nationId);
+    if (nation is null) { Console.Error.WriteLine("Nation ID not found"); return 2; }
+    var reader = new PlayerStatusReader(session.Memory, session.Profile, session.ModuleBase);
+    var result = new PlayerNationalitySearch(reader).Find(session.Players.LoadAll(), nation, includeOther);
+    foreach (var p in result.Matches.Take(30)) Console.WriteLine($"{p.Id,10} {p.DisplayName} · {p.NationalityName}");
+    Console.WriteLine($"{result.Matches.Count} matches; {result.Unavailable.Count} unavailable");
+    return 0;
+}
+
 // staffcontract <name>   staff job record [person+0xA8]: vtable and the contract fields the offered-contract reader sees (read only)
 int StaffContractCommand(string query)
 {
@@ -2060,6 +2528,23 @@ int CallUpsCommand(string query)
     var sw = System.Diagnostics.Stopwatch.StartNew();
     var all = session.CallUps.All();
     Console.WriteLine($"{all.Count} called-up players, {all.Values.Select(c => c.Team).Distinct().Count()} squads in {sw.ElapsedMilliseconds} ms");
+    if (query is "--pair" or "-p")
+    {
+        // first squad with two called-up players: a swap test needs two team-mates
+        var squad = session.Players.LoadAll().Where(p => all.ContainsKey(p.Address))
+            .GroupBy(p => all[p.Address].Team).FirstOrDefault(g => g.Count() >= 2);
+        if (squad is null) { Console.WriteLine("no squad with two called-up players"); return 2; }
+        foreach (var p in squad.Take(2))
+            Console.WriteLine($"{p.DisplayName} ({p.ClubName}) {session.CareerPlans.Item(all[p.Address].NationFootball)?.Name} team 0x{all[p.Address].Team:X} slot 0x{all[p.Address].Slot:X}");
+        return 0;
+    }
+    if (query is "--list" or "-l")
+    {
+        // list called-up players grouped by squad so a swap can be tested on two team-mates
+        foreach (var p in session.Players.LoadAll().Where(p => all.ContainsKey(p.Address)).Take(20))
+            Console.WriteLine($"{p.DisplayName} ({p.ClubName}) {session.CareerPlans.Item(all[p.Address].NationFootball)?.Name} team 0x{all[p.Address].Team:X} slot 0x{all[p.Address].Slot:X}");
+        return 0;
+    }
     foreach (var p in session.Players.LoadAll().Where(p => p.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)).Take(10))
         Console.WriteLine(all.TryGetValue(p.Address, out var c) ? $"{p.DisplayName}: {session.CareerPlans.Item(c.NationFootball)?.Name} team 0x{c.Team:X} slot 0x{c.Slot:X}" : $"{p.DisplayName}: none");
     return 0;
@@ -2101,11 +2586,69 @@ int FutureCommand(string query)
 }
 
 // proposalsurvey   offers listed by each player (ids at [player+0x320]): one sample per vtable / status (read only)
+
+// untrained <player>   removes the "trained at club" row for the player's current club, undoing that preset (write)
+int UntrainedCommand(string[] words)
+{
+    string name = string.Join(" ", words);
+    using var session = Attach(writable: true);
+    var player = session.Players.LoadAll().FirstOrDefault(p => p.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no player named '{name}'");
+    ulong club = player.Club?.Address ?? 0;
+    if (club == 0) { Console.WriteLine($"{player.DisplayName} has no club"); return 2; }
+    bool removed = new RelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).RemoveTrainedAtClub(player, club);
+    Console.WriteLine(removed ? $"removed trained at club row for {player.DisplayName}" : $"no trained at club row for {player.DisplayName}");
+    foreach (var c in session.ReadStatuses(player).TrainedAtClubs) Console.WriteLine($"  trained at club {c.Club?.DisplayName} period {c.Period}");
+    return removed ? 0 : 1;
+}
+
 int ProposalSurvey()
+{
+    using var session = Attach(writable: false);
+    if (session.Profile.Proposals is null) { Console.WriteLine("profile has no proposal offsets"); return 2; }
+    int players = 0, proposals = 0;
+    var byStatus = new Dictionary<string, int>();
+    foreach (var p in session.Players.LoadAll())
+    {
+        var list = session.Proposals.Read(p);
+        if (list.Count == 0) continue;
+        players++;
+        proposals += list.Count;
+        foreach (var x in list)
+        {
+            string key = $"{x.Type} {ProposalStatusName(x.Status)}";
+            byStatus[key] = byStatus.GetValueOrDefault(key) + 1;
+        }
+    }
+    int shown = 0;
+    foreach (var p in session.Players.LoadAll())
+    {
+        foreach (var x in session.Proposals.Read(p).Where(x => TransferProposalReader.ShownByFmrte(x.Status)))
+        {
+            if (shown++ >= 10) break;
+            Console.WriteLine($"  shown: {p.DisplayName} {p.Id} {x.Type} {x.From} -> {x.To} fee {x.Value} status {ProposalStatusName(x.Status)}");
+        }
+        if (shown >= 10) break;
+    }
+    Console.WriteLine($"{proposals} proposals for {players} players");
+    foreach (var (k, n) in byStatus.OrderByDescending(kv => kv.Value)) Console.WriteLine($"{n,6} {k}");
+    return 0;
+}
+
+// Names as the app shows them (ClubLists.TransferOfferStatuses); 2/3/15/20 are the codes FMRTE hides.
+static string ProposalStatusName(int status) => status switch
+{
+    8 => "Player accepted", 10 => "Unknown status 1", 12 => "Ready to sign", 19 => "Confirmed",
+    2 or 3 or 15 or 20 => $"{status} (hidden by FMRTE)",
+    _ => status.ToString(),
+};
+
+int ProposalSurveyRaw()
 {
     using var session = Attach(writable: false);
     var m = session.Memory; ulong mb = session.Game.ModuleBase;
     ulong root = m.ReadUInt64(mb + 0x56F2EF0);
+    if (root == 0) { Console.WriteLine("offer root is null; use proposalsurvey"); return 2; }
     var byId = new Dictionary<int, ulong>();
     for (ulong a = m.ReadUInt64(root + 8), e = m.ReadUInt64(root + 0x10); a < e; a += 8) { ulong o = m.ReadUInt64(a); byId.TryAdd(BitConverter.ToInt32(m.Read(o + 0x5C, 4)), o); }
     var seen = new Dictionary<string, int>(); int listed = 0, missing = 0;
@@ -2356,6 +2899,310 @@ int SquadCommand(int clubId)
     return 0;
 }
 
+// vision <club-id> [set <index> target|status <value> --write]
+int VisionCommand(int clubId, string[] rest)
+{
+    using var session = Attach(writable: rest.Contains("--write"));
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var team = club.Teams[0];
+    var rows = session.ReadClubVision(team.Address, null);
+    Console.WriteLine($"{club.Name}: {rows.Count} rows");
+    for (int i = 0; i < rows.Count; i++)
+    {
+        var r = rows[i];
+        Console.WriteLine($"  [{i,2}] type {r.TypeCode,3} importance {r.Importance,3} target {r.Target?.ToString() ?? "-",5} " +
+                          $"status {r.Status?.ToString() ?? "-",2} {r.StartDate:yyyy-MM-dd}..{r.EndDate:yyyy-MM-dd} {r.ClubItem?.DisplayName}");
+    }
+
+    var words = rest.Where(w => w != "--write").ToArray();
+    if (words.Length < 4 || !words[0].Equals("set", StringComparison.OrdinalIgnoreCase)) return 0;
+    int index = int.Parse(words[1]);
+    if (index < 0 || index >= rows.Count) { Console.Error.WriteLine($"row {index} is out of range"); return 2; }
+    var row = rows[index];
+    string what = words[2].ToLowerInvariant();
+    if (what == "target")
+    {
+        int value = int.Parse(words[3]);
+        Console.WriteLine($"target row {index}: {row.Target} -> {value}");
+        if (!rest.Contains("--write")) return 0;
+        session.ClubVisionWriter.SetTarget(team.Address, row, value);
+    }
+    else if (what == "status")
+    {
+        byte value = byte.Parse(words[3]);
+        Console.WriteLine($"status row {index}: {row.Status} -> {value}");
+        if (!rest.Contains("--write")) return 0;
+        session.ClubVisionWriter.SetStatus(team.Address, row, value);
+    }
+    else { Console.Error.WriteLine("field must be target or status"); return 2; }
+    var after = session.ReadClubVision(team.Address, null)[index];
+    Console.WriteLine($"written; read back target {after.Target} status {after.Status}");
+    return 0;
+}
+
+// visionscan   histograms for the unknown dwords/bytes of culture records, split by "already ended"
+int VisionScanCommand()
+{
+    using var session = Attach(writable: false);
+    var today = session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.UtcNow);
+    var clubs = session.LoadClubs(session.Players.LoadAll());
+    var d34 = new SortedDictionary<int, int>();
+    var d38 = new SortedDictionary<int, int>();
+    var b3c = new SortedDictionary<byte, int>();
+    var b39 = new SortedDictionary<byte, int>();
+    var d38Ended = new SortedDictionary<int, int>();
+    int rows = 0;
+    foreach (var club in clubs)
+        foreach (var team in club.Teams)
+        {
+            IReadOnlyList<Fm27Editor.Core.Clubs.ClubVisionEntry> list;
+            try { list = session.ReadClubVision(team.Address); } catch { continue; }
+            foreach (var row in list)
+            {
+                var raw = session.Memory.Read(row.Address, 0x50);
+                if (raw.Length < 0x40) continue;
+                rows++;
+                Bump(d34, BitConverter.ToInt32(raw, 0x34));
+                Bump(d38, BitConverter.ToInt32(raw, 0x38));
+                Bump(b3c, raw[0x3C]);
+                Bump(b39, raw[0x39]);
+                if (row.EndDate is { } end && end < today) Bump(d38Ended, BitConverter.ToInt32(raw, 0x38));
+            }
+        }
+    Console.WriteLine($"game date {today:yyyy-MM-dd}, {rows:N0} rows");
+    Dump("i32@0x34", d34);
+    Dump("i32@0x38", d38);
+    Dump("i32@0x38 (already ended)", d38Ended);
+    Dump("b@0x39", b39);
+    Dump("b@0x3C", b3c);
+    return 0;
+
+    static void Bump<TKey>(SortedDictionary<TKey, int> map, TKey key) where TKey : notnull
+    {
+        map.TryGetValue(key, out int n);
+        map[key] = n + 1;
+    }
+
+    static void Dump<TKey>(string title, SortedDictionary<TKey, int> map) where TKey : notnull =>
+        Console.WriteLine($"{title}: " + string.Join(", ", map.Select(p => $"{p.Key}:{p.Value:N0}")));
+}
+
+// visionstatus   correlate record byte +0x38 with whether the row is still running, across every loaded club
+int VisionStatusCommand()
+{
+    using var session = Attach(writable: false);
+    var today = session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.UtcNow);
+    Console.WriteLine($"game date {today:yyyy-MM-dd}");
+    var clubs = session.LoadClubs(session.Players.LoadAll());
+    var byStatus = new SortedDictionary<byte, int>();
+    var expiredByStatus = new SortedDictionary<byte, int>();
+    int rows = 0, unreadable = 0;
+    foreach (var club in clubs)
+    {
+        foreach (var team in club.Teams)
+        {
+            IReadOnlyList<Fm27Editor.Core.Clubs.ClubVisionEntry> list;
+            try { list = session.ReadClubVision(team.Address); }
+            catch { unreadable++; continue; }
+            foreach (var row in list)
+            {
+                rows++;
+                var raw = session.Memory.Read(row.Address, 0x50);
+                if (raw.Length < 0x40) continue;
+                byte status = raw[0x38];
+                byStatus.TryGetValue(status, out int count);
+                byStatus[status] = count + 1;
+                if (row.EndDate is { } end && end < today)
+                {
+                    expiredByStatus.TryGetValue(status, out int expired);
+                    expiredByStatus[status] = expired + 1;
+                }
+            }
+        }
+    }
+    Console.WriteLine($"{clubs.Count} clubs, {rows:N0} vision rows ({unreadable} teams unreadable)");
+    Console.WriteLine("byte +0x38 distribution: " + string.Join(", ", byStatus.Select(p => $"{p.Key}:{p.Value:N0}")));
+    Console.WriteLine("of which already ended:   " + string.Join(", ", expiredByStatus.Select(p => $"{p.Key}:{p.Value:N0}")));
+    return 0;
+}
+
+// visiondump <club-id> [count]   raw 0x50 bytes of the first culture records, for field hunting
+int VisionDumpCommand(int clubId, int count)
+{
+    using var session = Attach(writable: false);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var rows = session.ReadClubVision(club.Teams[0].Address, null);
+    Console.WriteLine($"{club.Name}: {rows.Count} rows");
+    foreach (var row in rows.Take(count))
+    {
+        var raw = session.Memory.Read(row.Address, 0x50);
+        Console.WriteLine($"  0x{row.Address:X} type {row.TypeCode} importance {row.Importance} {row.StartDate:yyyy-MM-dd}..{row.EndDate:yyyy-MM-dd}");
+        Console.WriteLine($"    {Convert.ToHexString(raw)}");
+        Console.WriteLine($"    i32@20 {BitConverter.ToInt32(raw, 0x20)} i32@24 {BitConverter.ToInt32(raw, 0x24)} " +
+                          $"i32@28 {BitConverter.ToInt32(raw, 0x28)} b@2C {raw[0x2C]} b@2D {raw[0x2D]} " +
+                          $"i32@30 {BitConverter.ToInt32(raw, 0x30)} i32@34 {BitConverter.ToInt32(raw, 0x34)} " +
+                          $"b@38 {raw[0x38]} b@39 {raw[0x39]} i32@3C {BitConverter.ToInt32(raw, 0x3C)}");
+    }
+    return 0;
+}
+
+// stadiumprobe   walk the global stadium list pointer and say where it stops
+int StadiumProbeCommand()
+{
+    using var session = Attach(writable: false);
+    var memory = session.Memory;
+    var s = session.Profile.Stadium;
+    if (s is null) { Console.Error.WriteLine("profile has no stadium offsets"); return 2; }
+    ulong module = session.Game.ModuleBase;
+    ulong rootAddress = module + s.ListRootRva;
+    var rootRaw = memory.Read(rootAddress, 8);
+    ulong root = rootRaw.Length < 8 ? 0 : BitConverter.ToUInt64(rootRaw, 0);
+    Console.WriteLine($"module 0x{module:X} listRootRva 0x{s.ListRootRva:X} -> rootAddress 0x{rootAddress:X} root 0x{root:X}");
+    if (root == 0) return 0;
+    var vec = memory.Read(root + (ulong)s.ListOffset, 0x18);
+    if (vec.Length < 0x18) { Console.WriteLine("vector unreadable"); return 0; }
+    ulong begin = BitConverter.ToUInt64(vec, 0), end = BitConverter.ToUInt64(vec, 8), cap = BitConverter.ToUInt64(vec, 16);
+    Console.WriteLine($"  listOffset 0x{s.ListOffset:X}: begin 0x{begin:X} end 0x{end:X} cap 0x{cap:X}" +
+                      (end >= begin && (end - begin) % 8 == 0 ? $" count {(end - begin) / 8:N0}" : " (bad)"));
+    // Nearby qwords from the root: helps spot a moved list offset without a full profile rebuild.
+    var window = memory.Read(root, 0x2000);
+    for (int off = 0; off + 16 <= window.Length; off += 8)
+    {
+        ulong b = BitConverter.ToUInt64(window, off), e = BitConverter.ToUInt64(window, off + 8);
+        if (b == 0 || e <= b || (e - b) % 8 != 0) continue;
+        long count = (long)((e - b) / 8);
+        if (count is < 100 or > 200000) continue;
+        var firstPtr = memory.Read(b, 8);
+        ulong first = firstPtr.Length < 8 ? 0 : BitConverter.ToUInt64(firstPtr, 0);
+        var head = first == 0 ? [] : memory.Read(first, 8);
+        ulong vtable = head.Length < 8 ? 0 : BitConverter.ToUInt64(head, 0);
+        uint vtableRva = (uint)(vtable - module);
+        string marker = vtableRva == s.VtableRva ? "  <== STADIUM" : "";
+        Console.WriteLine($"  root+0x{off:X}: count {count:N0} vtable 0x{vtableRva:X}{marker}");
+    }
+    return 0;
+}
+
+// visionprobe <club-id>   walk the club team's vision pointers and say where the read stops
+int VisionProbeCommand(int clubId)
+{
+    using var session = Attach(writable: false);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var memory = session.Memory;
+    var layout = session.Profile.Club?.Lists;
+    if (layout is null) { Console.Error.WriteLine("profile has no club lists"); return 2; }
+    ulong Q(ulong a)
+    {
+        var b = memory.Read(a, 8);
+        return b.Length < 8 ? 0 : BitConverter.ToUInt64(b, 0);
+    }
+    Console.WriteLine($"{club.Name}: {club.Teams.Count} teams");
+    foreach (var team in club.Teams)
+    {
+        var head = memory.Read(team.Address, 8);
+        ulong vtable = head.Length < 8 ? 0 : BitConverter.ToUInt64(head, 0);
+        ulong detail = Q(team.Address + (ulong)layout.TeamDetails);
+        ulong holder = detail == 0 ? 0 : Q(detail + (ulong)layout.Vision);
+        ulong header = holder == 0 ? 0 : Q(holder + (ulong)layout.VisionVector);
+        var holderHead = holder == 0 ? [] : memory.Read(holder, 8);
+        ulong holderVtable = holderHead.Length < 8 ? 0 : BitConverter.ToUInt64(holderHead, 0);
+        var vec = header == 0 ? [] : memory.Read(header, 24);
+        string vectorText = vec.Length < 24 ? "-"
+            : $"begin 0x{BitConverter.ToUInt64(vec, 0):X} end 0x{BitConverter.ToUInt64(vec, 8):X} cap 0x{BitConverter.ToUInt64(vec, 16):X}";
+        Console.WriteLine($"  team 0x{team.Address:X} vtable 0x{vtable - session.Game.ModuleBase:X} " +
+                          $"detail 0x{detail:X} holder 0x{holder:X} holderVtable 0x{holderVtable - session.Game.ModuleBase:X} vector {vectorText}");
+    }
+    // First few culture records: their vtable is the reliable anchor when team/holder vtables move between builds.
+    var firstTeam = club.Teams[0];
+    ulong firstDetail = Q(firstTeam.Address + (ulong)layout.TeamDetails);
+    ulong firstHolder = firstDetail == 0 ? 0 : Q(firstDetail + (ulong)layout.Vision);
+    ulong firstHeader = firstHolder == 0 ? 0 : Q(firstHolder + (ulong)layout.VisionVector);
+    var firstVec = firstHeader == 0 ? [] : memory.Read(firstHeader, 24);
+    if (firstVec.Length == 24)
+    {
+        ulong begin = BitConverter.ToUInt64(firstVec, 0), end = BitConverter.ToUInt64(firstVec, 8);
+        int count = (int)Math.Min(3, (long)((end - begin) / 8));
+        for (int i = 0; i < count; i++)
+        {
+            ulong record = Q(begin + (ulong)(i * 8));
+            var head = record == 0 ? [] : memory.Read(record, 8);
+            ulong vtable = head.Length < 8 ? 0 : BitConverter.ToUInt64(head, 0);
+            var body = record == 0 ? [] : memory.Read(record, 0x30);
+            Console.WriteLine($"    record {i} 0x{record:X} vtable 0x{vtable - session.Game.ModuleBase:X}" +
+                              (body.Length >= 0x30 ? $" type {body[layout.VisionType]} importance {body[layout.Importance]}" : ""));
+        }
+    }
+    var rows = session.ReadClubVision(club.Teams[0].Address);
+    Console.WriteLine($"reader returned {rows.Count} rows for team 0x{club.Teams[0].Address:X}");
+    return 0;
+}
+
+// clubdebt <club-id> clear [--write]   drops every debt of the club
+int ClubDebtCommand(string[] args)
+{
+    bool write = args.Contains("--write");
+    var words = args.Where(a => a != "--write").ToArray();
+    if (words.Length < 2 || !words[1].Equals("clear", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("usage: clubdebt <club-id> clear [--write]");
+        return 2;
+    }
+    int clubId = int.Parse(words[0]);
+    using var session = Attach(writable: write);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var debts = session.ReadDebts(club.Address);
+    Console.WriteLine($"{club.Name}: {debts.Count} debts");
+    foreach (var d in debts)
+        Console.WriteLine($"  source {d.SourceCode,3} {d.OriginalDebt,14:N0} {d.StartDate:yyyy-MM-dd}..{d.EndDate:yyyy-MM-dd}");
+    if (!write) { Console.WriteLine("plan only; add --write to clear"); return 0; }
+    session.RemoveAllDebts(club.Address);
+    Console.WriteLine($"cleared; {session.ReadDebts(club.Address).Count} debts after");
+    return 0;
+}
+
+// clubsponsor add <club-id> <income-type> <total> <start,end> [--write]   appends one sponsor record
+int ClubSponsorAdd(string clubText, string[] rest, bool write)
+{
+    if (rest.Length < 3) { Console.Error.WriteLine("usage: clubsponsor <club-id> add <income-type> <total> <start,end> [--write]"); return 2; }
+    int clubId = int.Parse(clubText);
+    byte type = byte.Parse(rest[0]);
+    int total = int.Parse(rest[1]);
+    var dates = rest[2].Split(',');
+    if (dates.Length != 2) { Console.Error.WriteLine("dates take start,end as yyyy-MM-dd"); return 2; }
+    var start = DateOnly.ParseExact(dates[0], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    var end = DateOnly.ParseExact(dates[1], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    using var session = Attach(writable: write);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    Console.WriteLine($"{club.Name}: {session.ReadSponsors(club.Address).Count} sponsors before");
+    Console.WriteLine($"add type {type} total {total:N0} {start:yyyy-MM-dd}..{end:yyyy-MM-dd}" + (write ? "" : " (plan only; add --write)"));
+    if (!write) return 0;
+    var added = session.SponsorWriter.Add(club.Address, type, total, start, end);
+    Console.WriteLine($"added at 0x{added.Address:X}; {session.ReadSponsors(club.Address).Count} sponsors after");
+    return 0;
+}
+
+// clubsponsor remove <club-id> <index> [--write]   drops one entry from the sponsor list
+int ClubSponsorRemove(string clubText, string indexText, bool write)
+{
+    int clubId = int.Parse(clubText), index = int.Parse(indexText);
+    using var session = Attach(writable: write);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var sponsors = session.ReadSponsors(club.Address);
+    if (index < 0 || index >= sponsors.Count) { Console.Error.WriteLine($"club has {sponsors.Count} sponsors"); return 2; }
+    var entry = sponsors[index];
+    Console.WriteLine($"remove {club.Name} sponsor {index}: type {entry.IncomeTypeCode} total {entry.TotalValue:N0}" + (write ? "" : " (plan only; add --write)"));
+    if (!write) return 0;
+    session.SponsorWriter.Remove(club.Address, entry);
+    Console.WriteLine($"removed; {session.ReadSponsors(club.Address).Count} sponsors after");
+    return 0;
+}
+
 // clubfields <id>   every club.fields mapping read from the live game (club fields + first team)
 int ClubListsCommand(int clubId)
 {
@@ -2473,40 +3320,6 @@ int NationDeepCommand(string nameA, string nameB, int size, int depth, int span,
     return 0;
 }
 
-// nationcolours <nationA> <nationB>: RE (read only), lockstep walk of two nations looking for a BGRA dword that is red-ish in A and yellow-ish in B.
-int NationColoursCommand(string nameA, string nameB)
-{
-    using var session = Attach(writable: false);
-    var mem = session.Memory;
-    var nations = session.Nations.LoadAll();
-    var a = nations.First(n => string.Equals(n.Name, nameA, StringComparison.OrdinalIgnoreCase));
-    var b = nations.First(n => string.Equals(n.Name, nameB, StringComparison.OrdinalIgnoreCase));
-    static bool Red(uint v) => (v >> 24) == 0xFF && (v >> 16 & 0xFF) > 0xB0 && (v >> 8 & 0xFF) < 0x60 && (v & 0xFF) < 0x60;
-    static bool Yellow(uint v) => (v >> 24) == 0xFF && (v >> 16 & 0xFF) > 0xE0 && (v >> 8 & 0xFF) > 0xB0 && (v & 0xFF) < 0xA0;
-    var seen = new HashSet<ulong>();
-    var queue = new Queue<(ulong A, ulong B, string Path, int Depth)>();
-    queue.Enqueue((a.Address, b.Address, "nation", 0));
-    int nodes = 0, hits = 0;
-    while (queue.Count > 0 && nodes < 200000 && hits < 40)
-    {
-        var (pa, pb, path, d) = queue.Dequeue();
-        var da = new byte[0x400]; var db = new byte[0x400];
-        if (!mem.TryRead(pa, da) || !mem.TryRead(pb, db)) continue;
-        nodes++;
-        for (int o = 0; o + 4 <= 0x400; o += 4)
-            if (Red(BitConverter.ToUInt32(da, o)) && Yellow(BitConverter.ToUInt32(db, o)))
-            { Console.WriteLine($"  {path}+0x{o:X}  A={BitConverter.ToUInt32(da, o):X8} B={BitConverter.ToUInt32(db, o):X8}  node A=0x{pa:X}"); hits++; }
-        if (d >= 3) continue;
-        for (int k = 0; k + 8 <= 0x400; k += 8)
-        {
-            ulong ca = BitConverter.ToUInt64(da, k), cb = BitConverter.ToUInt64(db, k);
-            if (ca < 0x10000000000 || cb < 0x10000000000 || ca > 0x7FF000000000 || cb > 0x7FF000000000 || ca == cb || !seen.Add(ca)) continue;
-            queue.Enqueue((ca, cb, $"{path}[+0x{k:X}]", d + 1));
-        }
-    }
-    Console.WriteLine($"{nodes} node pairs, {hits} hits");
-    return 0;
-}
 
 // nationfind <nation> <depth> <target nation>...: RE (read only), walks the pointer graph from the nation (first 0x400 bytes of each
 // node) and prints where an 8-byte value equals one of the target nations' addresses.
@@ -2543,7 +3356,7 @@ int NationTeamsCommand(string query)
 {
     using var session = Attach(writable: false);
     foreach (var n in session.Nations.LoadAll().Where(n => query.Length == 0 || (n.Name ?? "").Contains(query, StringComparison.OrdinalIgnoreCase)).Take(20))
-        Console.WriteLine($"{n.Name,-24} " + string.Join(" ", session.NationTeams.Read(n.Address).Select(t => $"[{t.Index}] {t.Reputation}")));
+        Console.WriteLine($"{n.Name,-24} " + string.Join(" ", session.NationTeams.Read(n.Address).Select(t => $"[0x{t.Address:X} {t.Index}] {t.Reputation}")));
     return 0;
 }
 
@@ -2576,6 +3389,184 @@ int AwardsCommand(string query)
 }
 
 // comps <name>: competitions from the active build's game-wide list.
+// compinfo <id>: read one competition's editable fields (reputation, substitution rules, colours, winter ball dates).
+int CompInfoCommand(int id)
+{
+    using var session = Attach(writable: false);
+    var competition = session.Competitions.LoadAll().SingleOrDefault(c => c.Id == id)
+        ?? throw new InvalidOperationException($"no competition with id {id}");
+    Console.WriteLine($"{competition.DisplayName} id {competition.Id} index {competition.Index} 0x{competition.Address:X}");
+    Console.WriteLine($"  reputation {competition.Reputation}, substitution rules 0x{competition.SubstitutionRules:X2}");
+    Console.WriteLine($"  foreground #{competition.Foreground:X8} background #{competition.Background:X8} trim #{competition.Trim:X8} winter ball #{competition.WinterBallColour:X8}");
+    Console.WriteLine($"  winter ball {competition.WinterBallStart?.ToString("yyyy-MM-dd") ?? "none"} .. {competition.WinterBallEnd?.ToString("yyyy-MM-dd") ?? "none"}");
+    return 0;
+}
+
+// compprize <id> [PerWin|PerDraw|PerDefeat <value> | Position <number> <value>] --write
+int CompVarCommand(string[] args)
+{
+    bool write = args.Contains("--write");
+    using var session = Attach(writable: write);
+    var competition = session.Competitions.LoadAll().Single(c => c.Id == int.Parse(args[0]));
+    var snapshot = session.CompetitionVar.Read(competition) ?? throw new InvalidOperationException("VAR unavailable");
+    Console.WriteLine($"{competition.DisplayName}: type {snapshot.Type} TV {snapshot.TvOnly} enabled {snapshot.Enabled} from {snapshot.FromDate?.ToString("yyyy-MM-dd") ?? "none"}");
+    if (write)
+    {
+        if (args.Length < 4) throw new ArgumentException("compvar <id> <Type|TvOnly|Enabled> <value> --write");
+        if (args[1].Equals("FromDate", StringComparison.OrdinalIgnoreCase))
+            session.CompetitionVar.SetFromDate(snapshot, args[2].Equals("none", StringComparison.OrdinalIgnoreCase) ? null : DateOnly.ParseExact(args[2], "yyyy-MM-dd"));
+        else session.CompetitionVar.Set(snapshot, Enum.Parse<CompetitionVarField>(args[1], true), byte.Parse(args[2]));
+        var after = session.CompetitionVar.Read(competition)!;
+        Console.WriteLine($"read back: type {after.Type} TV {after.TvOnly} enabled {after.Enabled} from {after.FromDate?.ToString("yyyy-MM-dd") ?? "none"}");
+    }
+    return 0;
+}
+
+int CompStandingsCommand(string[] args)
+{
+    int id = int.Parse(args[0]);
+    bool write = args.Contains("--write");
+    using var session = Attach(writable: write);
+    var competition = session.Competitions.LoadAll().Single(c => c.Id == id);
+    var rows = session.CompetitionStandings.Read(competition) ?? throw new InvalidOperationException("Standings unavailable");
+    var clubs = session.LoadClubs(session.Players.LoadAll()).ToDictionary(c => c.Address);
+    foreach (var row in rows)
+        Console.WriteLine($"{row.Position,2} {clubs.GetValueOrDefault(row.Club)?.DisplayName ?? row.ClubId.ToString(),-25} ID {row.ClubId} P {row.Played} W {row.Won} D {row.Drawn} L {row.Lost} GF {row.GoalsFor & 0xFF} GA {row.GoalsAgainst & 0xFF} Pts {row.Points}");
+    if (write)
+    {
+        if (args.Length < 4) throw new ArgumentException("compstandings <competition-id> <club-id> [field] <value> --write");
+        var target = rows.Single(row => row.ClubId == int.Parse(args[1]));
+        var field = args.Length >= 5 ? Enum.Parse<CompetitionStandingField>(args[2], true) : CompetitionStandingField.Points;
+        int value = int.Parse(args[args.Length >= 5 ? 3 : 2]);
+        session.CompetitionStandings.Set(competition, target, field, value);
+        var updated = session.CompetitionStandings.Read(competition)?.Single(row => row.ClubId == target.ClubId);
+        Console.WriteLine($"read back: {(updated is null ? "unavailable" : CompetitionStandingsAccess.Value(updated, field).ToString())}");
+    }
+    return 0;
+}
+
+int CompRulesCommand(string[] args)
+{
+    int id = int.Parse(args[0]);
+    bool write = args.Contains("--write");
+    using var session = Attach(writable: write);
+    var competitions = session.Competitions.LoadAll();
+    var competition = competitions.Single(c => c.Id == id);
+    var access = session.CompetitionSquadRules;
+    if (args.Length > 2 && args[1].Equals("code", StringComparison.OrdinalIgnoreCase))
+    {
+        int code = Convert.ToInt32(args[2], 16);
+        Action<string>? trace = args.Contains("--trace") ? Console.WriteLine : null;
+        var snapshot = access.ReadRule(competition, code, trace, competitions) ?? throw new InvalidOperationException("Rule unavailable or ambiguous");
+        Console.WriteLine($"{id} {competition.DisplayName}: rule 0x{code:X} = {snapshot.MaximumSquadSize}");
+        if (snapshot.AlsoAppliesTo.Count > 0)
+            Console.WriteLine($"also applies to: {string.Join(", ", snapshot.AlsoAppliesTo)}");
+        if (write)
+        {
+            if (args.Length < 5) throw new ArgumentException("comprules <id> code <hex-code> <value> --write");
+            access.SetMaximumSquadSize(snapshot, int.Parse(args[3]));
+            Console.WriteLine($"read back: {access.ReadRule(competition, code)?.MaximumSquadSize.ToString() ?? "unavailable"}");
+        }
+        return 0;
+    }
+    if (args.Length > 1 && (args[1].Equals("homegrown", StringComparison.OrdinalIgnoreCase) || args[1].Equals("homegrownclub", StringComparison.OrdinalIgnoreCase)))
+    {
+        bool club = args[1].Equals("homegrownclub", StringComparison.OrdinalIgnoreCase);
+        CompetitionSquadRules? Read() => club ? access.ReadHomegrownClub(competition) : access.ReadHomegrown(competition);
+        var homegrown = Read() ?? throw new InvalidOperationException("Homegrown rule is unavailable");
+        Console.WriteLine($"{id} {competition.DisplayName}: Homegrown {(club ? "At Club" : "in Nation")} {homegrown.MaximumSquadSize}");
+        if (write)
+        {
+            if (args.Length < 4) throw new ArgumentException("comprules <id> homegrown <value> --write");
+            access.SetMaximumSquadSize(homegrown, int.Parse(args[2]));
+            Console.WriteLine($"read back: {Read()?.MaximumSquadSize.ToString() ?? "unavailable"}");
+        }
+        return 0;
+    }
+    var rules = access.Read(competition) ?? throw new InvalidOperationException("Squad rules are unavailable or ambiguous");
+    Console.WriteLine($"{id} {competition.DisplayName}: Maximum squad size {rules.MaximumSquadSize}");
+    if (!write) return 0;
+    if (args.Length < 3) throw new ArgumentException("comprules <id> <maximum> --write");
+    access.SetMaximumSquadSize(rules, int.Parse(args[1]));
+    Console.WriteLine($"read back: {access.Read(competition)?.MaximumSquadSize.ToString() ?? "unavailable"}");
+    return 0;
+}
+
+int CompPrizeCommand(string[] args)
+{    int id = int.Parse(args[0]);
+    bool write = args.Contains("--write");
+    using var session = Attach(writable: write);
+    var competition = session.Competitions.LoadAll().Single(c => c.Id == id);
+    var access = session.CompetitionPrizeMoney;
+    var prize = access.Read(competition) ?? throw new InvalidOperationException("Prize Money is unavailable for this competition or build");
+    Console.WriteLine($"{id} {competition.DisplayName}: win {prize.PerWin}, draw {prize.PerDraw}, defeat {prize.PerDefeat}");
+    var classification = access.ReadClassification(prize);
+    if (classification is not null)
+        Console.WriteLine($"classification: {string.Join(", ", classification.Amounts.Select((v, i) => $"{i + 1}={v}"))}");
+    if (!write) return 0;
+    if (args.Length < 3) throw new ArgumentException("compprize <id> <field> <value> --write");
+    if (args[1].Equals("Enabled", StringComparison.OrdinalIgnoreCase))
+    {
+        if (classification is null || args.Length < 4 || !bool.TryParse(args[2], out bool enabled))
+            throw new ArgumentException("compprize <id> Enabled <true|false> --write");
+        session.SetCompetitionClassificationEnabled(classification, enabled);
+        var result = access.ReadClassification(prize) ?? throw new StaleObjectException("Classification prizes are no longer readable");
+        Console.WriteLine($"read back: enabled {result.Amounts.Count > 0}, positions {result.Amounts.Count}");
+        return 0;
+    }
+    if (args[1].Equals("Position", StringComparison.OrdinalIgnoreCase))
+    {
+        if (args.Length < 5 || classification is null) throw new ArgumentException("compprize <id> Position <number> <value> --write");
+        int position = int.Parse(args[2]);
+        access.SetClassification(classification, position, int.Parse(args[3]));
+        var positions = access.ReadClassification(prize) ?? throw new StaleObjectException("Classification prizes are no longer readable");
+        Console.WriteLine($"read back: position {position} = {positions.Amounts[position - 1]}");
+        return 0;
+    }
+    var field = Enum.Parse<CompetitionPrizeField>(args[1], true);
+    access.Set(prize, field, int.Parse(args[2]));
+    var after = access.Read(competition) ?? throw new StaleObjectException("Prize group is no longer readable");
+    Console.WriteLine($"read back: win {after.PerWin}, draw {after.PerDraw}, defeat {after.PerDefeat}");
+    return 0;
+}
+
+// compset <id> <subs|fg|bg|trim|wb|wbstart|wbend|rep> <value>  (colour = #AARRGGBB, date = yyyy-MM-dd or none)
+int CompSetCommand(string[] args)
+{
+    int id = int.Parse(args[0]);
+    string field = args[1].ToLowerInvariant();
+    string value = args[2];
+    using var session = Attach(writable: true);
+    var competition = session.Competitions.LoadAll().SingleOrDefault(c => c.Id == id)
+        ?? throw new InvalidOperationException($"no competition with id {id}");
+    var writer = session.CompetitionWriter;
+    switch (field)
+    {
+        case "subs":
+            writer.SetSubstitutionRules(competition, value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                ? Convert.ToByte(value[2..], 16) : byte.Parse(value));
+            break;
+        case "fg": case "bg": case "trim": case "wb":
+            var colour = (CompetitionColour)Array.IndexOf(new[] { "fg", "bg", "trim", "wb" }, field);
+            writer.SetColour(competition, colour, Convert.ToUInt32(value.TrimStart('#'), 16));
+            break;
+        case "wbstart": case "wbend":
+            writer.SetWinterBallDate(competition, field == "wbstart", value.Equals("none", StringComparison.OrdinalIgnoreCase)
+                ? null : DateOnly.ParseExact(value, "yyyy-MM-dd"));
+            break;
+        case "rep":
+            writer.SetReputation(competition, short.Parse(value));
+            break;
+        default:
+            throw new ArgumentException("field must be subs, fg, bg, trim, wb, wbstart, wbend or rep");
+    }
+    var after = session.Competitions.Reload(competition.Address) ?? throw new StaleObjectException("Competition is no longer readable");
+    Console.WriteLine($"{after.DisplayName} id {after.Id}: reputation {after.Reputation}, subs 0x{after.SubstitutionRules:X2}, " +
+        $"fg #{after.Foreground:X8} bg #{after.Background:X8} trim #{after.Trim:X8} wb #{after.WinterBallColour:X8}, " +
+        $"{after.WinterBallStart?.ToString("yyyy-MM-dd") ?? "none"} .. {after.WinterBallEnd?.ToString("yyyy-MM-dd") ?? "none"}");
+    return 0;
+}
+
 int CompsCommand(string query)
 {
     using var session = Attach(writable: false);
@@ -2735,6 +3726,460 @@ int ClubRelCommand(int clubId, string[]? set)
     return 0;
 }
 
+
+// addclubrel <clubId> <rivalClubId> [value]: appends a Rival row into the vector's spare capacity (write)
+int ClubRelAddCommand(int clubId, int rivalId, int value)
+{
+    using var session = Attach(writable: true);
+    var clubs = session.LoadClubs(session.Players.LoadAll());
+    var club = clubs.SingleOrDefault(c => c.Id == clubId) ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == clubId);
+    var rival = clubs.SingleOrDefault(c => c.Id == rivalId) ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == rivalId);
+    if (club is null || rival is null) { Console.Error.WriteLine("both clubs must exist"); return 2; }
+    var added = new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).AddRival(club.Address, rival.Address, value, 2, (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null);
+    Console.WriteLine($"{club.Name} += rival {rival.Name}: {(added is null ? "not added" : $"0x{added.Address:X} value {added.Value}")}");
+    foreach (var r in session.ReadClubRelationships(club.Address)) Console.WriteLine($"  {r.Kind,-15} {r.Name,-28} value {r.Value,3} reason {r.Reason}");
+    return added is null ? 1 : 0;
+}
+
+// delclubrel <clubId> <row>: removes one row and shifts the rest left (write)
+int ClubRelDeleteCommand(int clubId, int row)
+{
+    using var session = Attach(writable: true);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId)
+        ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var rows = session.ReadClubRelationships(club.Address);
+    if (row < 0 || row >= rows.Count) { Console.Error.WriteLine($"club has {rows.Count} rows"); return 2; }
+    new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, rows[row]);
+    Console.WriteLine($"{club.Name}: removed row {row}");
+    foreach (var r in session.ReadClubRelationships(club.Address)) Console.WriteLine($"  {r.Kind,-15} {r.Name,-28} value {r.Value,3} reason {r.Reason}");
+    return 0;
+}
+
+
+// addclubvis <clubId> <row>: adds a vision row by copying that row into a new culture object (write)
+int ClubVisAddCommand(int clubId, int row)
+{
+    using var session = Attach(writable: true);
+    var clubs = session.LoadClubs(session.Players.LoadAll());
+    var club = clubs.SingleOrDefault(c => c.Id == clubId) ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == clubId);
+    var team = club?.FirstTeam ?? throw new InvalidOperationException($"No first team for club {clubId}");
+    var rows = session.ReadClubVision(team.Address, clubs);
+    if (row < 0 || row >= rows.Count) { Console.Error.WriteLine($"club has {rows.Count} vision rows"); return 2; }
+    var added = new Fm27Editor.Core.Clubs.ClubVisionWriter(session.Memory, session.Profile, session.Game.ModuleBase)
+        .Duplicate(team.Address, rows[row], (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null);
+    Console.WriteLine($"{club.Name}: duplicated row {row} -> {(added is null ? "not added" : $"0x{added.Address:X} type {added.TypeCode} importance {added.Importance}")}");
+    foreach (var r in session.ReadClubVision(team.Address, clubs)) Console.WriteLine($"  {r.Address:X} type {r.TypeCode,3} importance {r.Importance,3} {r.StartDate}..{r.EndDate} club {r.ClubItem?.Name}");
+    return added is null ? 1 : 0;
+}
+
+// delclubvis <clubId> <row>: removes one vision row (write)
+int ClubVisDeleteCommand(int clubId, int row)
+{
+    using var session = Attach(writable: true);
+    var clubs = session.LoadClubs(session.Players.LoadAll());
+    var club = clubs.SingleOrDefault(c => c.Id == clubId) ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == clubId);
+    var team = club?.FirstTeam ?? throw new InvalidOperationException($"No first team for club {clubId}");
+    var rows = session.ReadClubVision(team.Address, clubs);
+    if (row < 0 || row >= rows.Count) { Console.Error.WriteLine($"club has {rows.Count} vision rows"); return 2; }
+    new Fm27Editor.Core.Clubs.ClubVisionWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(team.Address, rows[row]);
+    Console.WriteLine($"{club.Name}: removed row {row}");
+    foreach (var r in session.ReadClubVision(team.Address, clubs)) Console.WriteLine($"  {r.Address:X} type {r.TypeCode,3} importance {r.Importance,3} club {r.ClubItem?.Name}");
+    return 0;
+}
+
+
+// addclubaff <clubId> <row>: adds a link by copying that affiliation record into a new object (write)
+int ClubAffAddCommand(int clubId, int row)
+{
+    using var session = Attach(writable: true);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId)
+        ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var rows = session.ReadAffiliations(club.Address);
+    if (row < 0 || row >= rows.Count) { Console.Error.WriteLine($"club has {rows.Count} affiliations"); return 2; }
+    var added = new Fm27Editor.Core.Clubs.ClubAffiliationWriter(session.Memory, session.Profile, session.Game.ModuleBase)
+        .Duplicate(club.Address, rows[row], (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null);
+    Console.WriteLine($"{club.Name}: duplicated affiliation {row} -> {(added is null ? "not added" : $"0x{added.Address:X} type {added.TypeCode}")}");
+    foreach (var r in session.ReadAffiliations(club.Address)) Console.WriteLine($"  {r.Address:X} {r.ParentClub?.Name} <- {r.FeederClub?.Name} type {r.TypeCode} fee {r.AnnualFee}");
+    return added is null ? 1 : 0;
+}
+
+// delclubaff <clubId> <row>: removes one affiliation pointer (write)
+int ClubAffDeleteCommand(int clubId, int row)
+{
+    using var session = Attach(writable: true);
+    var club = session.LoadClubs(session.Players.LoadAll()).SingleOrDefault(c => c.Id == clubId)
+        ?? session.ScanAllClubs().SingleOrDefault(c => c.Id == clubId);
+    if (club is null) { Console.Error.WriteLine($"no club with id {clubId}"); return 2; }
+    var rows = session.ReadAffiliations(club.Address);
+    if (row < 0 || row >= rows.Count) { Console.Error.WriteLine($"club has {rows.Count} affiliations"); return 2; }
+    new Fm27Editor.Core.Clubs.ClubAffiliationWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, rows[row]);
+    Console.WriteLine($"{club.Name}: removed affiliation {row}");
+    foreach (var r in session.ReadAffiliations(club.Address)) Console.WriteLine($"  {r.Address:X} {r.ParentClub?.Name} <- {r.FeederClub?.Name} type {r.TypeCode}");
+    return 0;
+}
+
+
+// nationcont <nation>: continent rows of the nation's transfer preferences (read only)
+// setnationcont <nation> <row> <rating> <minAge> <maxAge> <knowledge>: guarded write of one row
+int NationContCommand(string query, string[]? set)
+{
+    using var session = Attach(writable: set is not null);
+    var name = query.Trim();
+    var nations = session.Nations.LoadAll();
+    var nation = nations.FirstOrDefault(n => n.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{name}'");
+    var continents = session.NationLinks.Continents(nations);
+    var rows = session.NationPreferences.ReadContinents(nation, continents);
+    Console.WriteLine($"{nation.DisplayName} id {nation.Id} 0x{nation.Address:X}: {rows.Count} continent rows");
+    for (int i = 0; i < rows.Count; i++)
+        Console.WriteLine($"  {i,2} 0x{rows[i].Address:X} {rows[i].Target,-16} rating {rows[i].Rating,3} scouting {rows[i].Knowledge,3} min {rows[i].MinAge,3} max {rows[i].MaxAge,3}");
+    if (set is not { } values) return 0;
+    int row = int.Parse(values[0]);
+    if (row < 0 || row >= rows.Count) { Console.Error.WriteLine($"nation has {rows.Count} continent rows"); return 2; }
+    session.NationPreferences.SetContinent(rows[row], int.Parse(values[1]), int.Parse(values[2]), int.Parse(values[3]), int.Parse(values[4]));
+    var after = session.NationPreferences.ReadContinents(nation, continents).FirstOrDefault(r => r.Address == rows[row].Address);
+    Console.WriteLine(after is null ? "read back failed" : $"read back: rating {after.Rating} scouting {after.Knowledge} min {after.MinAge} max {after.MaxAge}");
+    return 0;
+}
+
+
+// nationcoeff <nation>: FMRTE's EuroCoefficients rows (read only)
+int NationCoeffCommand(string query)
+{
+    using var session = Attach(writable: false);
+    var name = query.Trim();
+    var nation = session.Nations.LoadAll().FirstOrDefault(n => n.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{name}'");
+    var values = session.NationEuroCoefficients.Read(nation.Address);
+    int season = session.ReadGameDate()?.Year ?? 0;
+    var labels = Fm27Editor.Core.Nations.NationEuroCoefficients.Labels(season, values.Count);
+    Console.WriteLine($"{nation.DisplayName} id {nation.Id}: {values.Count} coefficients");
+    for (int i = 0; i < values.Count; i++) Console.WriteLine($"  {labels[i],-18} {values[i]:0.###}");
+    return 0;
+}
+
+
+// nationagr <nation> [eu|nf]                       list FMRTE's Agreements rows (read only)
+// addnationagr <nation> <eu|nf> <row>              duplicate one row like FMRTE's + (write)
+// delnationagr <nation> <eu|nf> <row>              remove one row (write)
+int NationAgrCommand(string[] args, string[]? unused)
+{
+    bool setRegion = args.Length == 5 && args[2].Equals("region", StringComparison.OrdinalIgnoreCase);
+    bool editList = args.Length >= 3 && args[0] is "add" or "del";
+    bool write = editList || setRegion;
+    var words = editList ? args[1..] : args;
+    bool add = write && args[0] == "add";
+    using var session = Attach(writable: write);
+    var nations = session.Nations.LoadAll();
+    var nation = nations.FirstOrDefault(n => n.DisplayName.Equals(words[0], StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{words[0]}'");
+    int vector = words.Length > 1 && words[1].Equals("nf", StringComparison.OrdinalIgnoreCase)
+        ? Fm27Editor.Core.Nations.NationAgreements.NonForeignVector
+        : Fm27Editor.Core.Nations.NationAgreements.EuVector;
+    var continents = session.NationLinks.Continents(nations);
+    var rows = session.NationAgreements.Read(nation.Address, vector, continents, nations);
+    if (write)
+    {
+        int index = setRegion ? int.Parse(words[3]) : words.Length > 2 ? int.Parse(words[2]) : 0;
+        if (index < 0 || index >= rows.Count) { Console.Error.WriteLine($"nation has {rows.Count} rows in that list"); return 2; }
+        if (setRegion)
+        {
+            int id = int.Parse(words[4]);
+            var region = session.NationAgreements.Regions().FirstOrDefault(r => r.Id == id)
+                ?? throw new InvalidOperationException($"no region with ID {id}");
+            session.NationAgreements.SetTarget(nation.Address, rows[index], Fm27Editor.Core.Nations.AgreementKind.Region, region.Address);
+        }
+        else if (add)
+            session.NationAgreements.Duplicate(nation.Address, rows[index], (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null, continents);
+        else
+            session.NationAgreements.Remove(nation.Address, rows[index]);
+        rows = session.NationAgreements.Read(nation.Address, vector, continents, nations);
+    }
+    Console.WriteLine($"{nation.DisplayName} id {nation.Id} {(vector == Fm27Editor.Core.Nations.NationAgreements.EuVector ? "EU" : "Non-Foreign")}: {rows.Count} rows");
+    for (int i = 0; i < rows.Count; i++)
+        Console.WriteLine($"  {i,2} 0x{rows[i].Address:X} {rows[i].Kind,-9} {rows[i].TargetName,-38} {rows[i].From:yyyy-MM-dd}..{rows[i].Until:yyyy-MM-dd}");
+    return 0;
+}
+
+int NationRegionsCommand()
+{
+    using var session = Attach(writable: false);
+    var regions = session.NationAgreements.Regions();
+    foreach (var region in regions) Console.WriteLine($"{region.Id,3} {region.Name}");
+    Console.WriteLine($"{regions.Count} regions");
+    return 0;
+}
+
+// nationagrempty <nation> <template nation> <target nation>
+// nationagrempty <nation> eu <template nation> <agreement name>
+int NationAgrEmptyCommand(string[] args)
+{
+    bool eu = args.Length == 4 && args[1].Equals("eu", StringComparison.OrdinalIgnoreCase);
+    if (!eu && args.Length != 3) throw new ArgumentException("usage: nationagrempty <nation> <template nation> <target nation> | <nation> eu <template nation> <agreement name>");
+    using var session = Attach(writable: true);
+    var nations = session.Nations.LoadAll();
+    NationRecord Find(string name) => nations.FirstOrDefault(n => n.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{name}'");
+    var nation = Find(args[0]);
+    var templateNation = Find(eu ? args[2] : args[1]);
+    var target = eu ? null : Find(args[2]);
+    int vector = eu ? NationAgreements.EuVector : NationAgreements.NonForeignVector;
+    var continents = session.NationLinks.Continents(nations);
+    var template = session.NationAgreements.Read(templateNation.Address, vector, continents, nations)
+        .FirstOrDefault(row => eu ? row.Kind == AgreementKind.Agreement && string.Equals(row.TargetName, args[3], StringComparison.OrdinalIgnoreCase) : row.Kind == AgreementKind.Nation)
+        ?? throw new InvalidOperationException("template nation has no matching agreement row");
+    var expectedHeader = session.Memory.Read(nation.Address + (ulong)vector, 24);
+    var added = session.NationAgreements.AddToEmpty(nation.Address, expectedHeader, templateNation.Address, template,
+        (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null, continents)
+        ?? throw new InvalidOperationException("could not read the new agreement");
+    if (target is not null && added.Target != target.Address)
+    {
+        session.NationAgreements.SetTarget(nation.Address, added, AgreementKind.Nation, target.Address);
+    }
+    foreach (var row in session.NationAgreements.Read(nation.Address, vector, continents, nations))
+        Console.WriteLine($"{row.Kind} {row.TargetName} 0x{row.Address:X}");
+    return 0;
+}
+
+
+// nationkits <nation> [on|off]: FMRTE's Allow Licensed Kits flag of the senior national team (write when on/off given)
+int NationKitsCommand(string line)
+{
+    var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    bool? set = parts.Length > 1 ? parts[1].Equals("on", StringComparison.OrdinalIgnoreCase) : null;
+    if (parts.Length > 1 && set is null) throw new ArgumentException("usage: nationkits <nation> [on|off]");
+    using var session = Attach(writable: set is not null);
+    var nation = session.Nations.LoadAll().FirstOrDefault(n => n.DisplayName.Equals(parts[0], StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{parts[0]}'");
+    var teams = session.NationTeams.Read(nation.Address);
+    if (teams.Count == 0) { Console.Error.WriteLine($"{nation.DisplayName} has no national teams"); return 2; }
+    var senior = teams[0];
+    var access = session.NationTeams;
+    Console.WriteLine($"{nation.DisplayName} senior team 0x{senior.Address:X}: Allow Licensed Kits = {access.AllowLicensedKits(senior.Address)}");
+    if (set is not { } value) return 0;
+    access.SetAllowLicensedKits(senior, value);
+    Console.WriteLine($"  now {access.AllowLicensedKits(senior.Address)}");
+    return 0;
+}
+
+
+// nationcolours <nation>                       read FMRTE's Background / Foreground Colour of the national team
+// nationcolours <nation> bg|fg <#RRGGBB>       guarded write of one colour
+int NationColoursCommand(string[] args)
+{
+    if (args.Length < 1) throw new ArgumentException("usage: nationcolours <nation> [bg|fg <#RRGGBB>]");
+    bool write = args.Length >= 3;
+    using var session = Attach(writable: write);
+    var name = args[0];
+    var nation = session.Nations.LoadAll().FirstOrDefault(n => n.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{name}'");
+    var access = session.NationColours;
+    var colours = access.Read(nation.Address) ?? throw new StaleObjectException("Nation colours are not readable");
+    Console.WriteLine($"{nation.DisplayName}: background {Fm27Editor.Core.Nations.NationColours.Format(colours.Background)} foreground {Fm27Editor.Core.Nations.NationColours.Format(colours.Foreground)}");
+    if (!write) return 0;
+    bool background = args[1].Equals("bg", StringComparison.OrdinalIgnoreCase);
+    if (!background && !args[1].Equals("fg", StringComparison.OrdinalIgnoreCase))
+        throw new ArgumentException("pick bg or fg");
+    if (!Fm27Editor.Core.Nations.NationColours.TryParse(args[2], out uint bgra)) throw new ArgumentException("colour must be #RRGGBB");
+    access.Set(nation.Address, colours, background, bgra);
+    var after = access.Read(nation.Address) ?? throw new StaleObjectException("Nation colours are no longer readable");
+    Console.WriteLine($"  now background {Fm27Editor.Core.Nations.NationColours.Format(after.Background)} foreground {Fm27Editor.Core.Nations.NationColours.Format(after.Foreground)}");
+    return 0;
+}
+
+
+// natpref <nation> [cont]                                  list rows (nations, or continents with "cont")
+// natpref <nation> [cont] set <row> <target>               change the target of one row
+// natpref <nation> [cont] add <target> [rating min max scouting]
+// natpref <nation> [cont] del <row>
+int NatPrefCommand(string[] args)
+{
+    if (args.Length < 1) throw new ArgumentException("usage: natpref <nation> [cont] [set <row> <target> | add <target> ... | del <row>]");
+    var nationName = args[0];
+    bool continents = args.Length > 1 && args[1].Equals("cont", StringComparison.OrdinalIgnoreCase);
+    var rest = continents ? args[2..] : args[1..];
+    bool write = rest.Length > 0;
+    using var session = Attach(writable: write);
+    var nations = session.Nations.LoadAll();
+    var nation = nations.FirstOrDefault(n => n.DisplayName.Equals(nationName, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{nationName}'");
+    if (session.Profile.Nation?.Preferences is not { } l) throw new InvalidOperationException("Profile has no preference offsets");
+    int vector = continents ? Fm27Editor.Core.Nations.NationPreferences.ContinentsVector : l.Vector;
+    var allContinents = session.NationLinks.Continents(nations);
+    IReadOnlyList<Fm27Editor.Core.Nations.NationPreference> rows = continents
+        ? session.NationPreferences.ReadContinents(nation, allContinents)
+        : session.NationPreferences.Read(nation, nations);
+    ulong ResolveTarget(string name)
+    {
+        if (continents)
+        {
+            var c = allContinents.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"no continent named '{name}'");
+            return c.Address;
+        }
+        var other = nations.FirstOrDefault(n => n.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"no nation named '{name}'");
+        ulong target = session.Memory.ReadUInt64(other.Address + (ulong)l.Team);
+        if (target == 0 || session.Memory.ReadUInt64(target) != session.Game.ModuleBase + l.TeamVtable)
+            throw new InvalidOperationException($"{other.DisplayName} has no preference team");
+        return target;
+    }
+    void Reload() => rows = continents ? session.NationPreferences.ReadContinents(nation, allContinents)
+                                      : session.NationPreferences.Read(nation, nations);
+    if (write)
+    {
+        var verb = rest[0].ToLowerInvariant();
+        if (verb == "set")
+        {
+            int index = int.Parse(rest[1]);
+            if (index < 0 || index >= rows.Count) { Console.Error.WriteLine($"nation has {rows.Count} rows"); return 2; }
+            session.NationPreferences.SetTarget(rows[index], vector, ResolveTarget(rest[2]));
+            Reload();
+        }
+        else if (verb == "del")
+        {
+            int index = int.Parse(rest[1]);
+            if (index < 0 || index >= rows.Count) { Console.Error.WriteLine($"nation has {rows.Count} rows"); return 2; }
+            session.NationPreferences.Remove(rows[index], vector);
+            Reload();
+        }
+        else if (verb == "add")
+        {
+            ulong target = ResolveTarget(rest[1]);
+            int rating = rest.Length > 2 ? int.Parse(rest[2]) : -1;
+            byte minAge = rest.Length > 4 ? byte.Parse(rest[4]) : (byte)14;
+            byte maxAge = rest.Length > 5 ? byte.Parse(rest[5]) : (byte)45;
+            byte scouting = rest.Length > 6 ? byte.Parse(rest[6]) : (byte)0;
+            session.NationPreferences.Add(rows.Count > 0 ? rows[0].Team : throw new InvalidOperationException("Nation has no preference team"),
+                vector, target, (sbyte)rating, minAge, maxAge, scouting,
+                (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null);
+            Reload();
+        }
+        else throw new ArgumentException("verb must be set, add or del");
+    }
+    Console.WriteLine($"{nation.DisplayName} {(continents ? "continents" : "nations")}: {rows.Count} rows");
+    for (int i = 0; i < rows.Count; i++)
+        Console.WriteLine($"  {i,2} 0x{rows[i].Address:X} {(rows[i].Target ?? $"0x{rows[i].TargetTeam:X}"),-28} rating {rows[i].Rating,3} scouting {rows[i].Knowledge,3} min {rows[i].MinAge,3} max {rows[i].MaxAge,3}");
+    return 0;
+}
+
+
+// nationkitsvendor <nation>                                 list the national team's kit items (Home/Away/Third, types)
+// nationkitsvendor <nation> <kit> <type> <index> <#RRGGBB>  write one colour slot
+int NationKitItemCommand(string[] args)
+{
+    if (args.Length < 1) throw new ArgumentException("usage: nationkititem <nation> [kit type index colour]");
+    bool write = args.Length >= 5;
+    using var session = Attach(writable: write);
+    var nation = session.Nations.LoadAll().FirstOrDefault(n => n.DisplayName.Equals(args[0], StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{args[0]}'");
+    var kits = session.NationKits;
+    var items = kits.Read(nation.Address);
+    if (write)
+    {
+        byte kit = byte.Parse(args[1]);
+        byte type = byte.Parse(args[2]);
+        int index = int.Parse(args[3]);
+        var item = items.FirstOrDefault(x => x.Kit == kit && x.Type == type)
+            ?? throw new InvalidOperationException($"no kit item kit={kit} type={type}");
+        if (!Fm27Editor.Core.Nations.NationColours.TryParse(args[4], out uint bgra)) throw new ArgumentException("colour must be #RRGGBB");
+        kits.SetColour(item, index, bgra);
+        items = kits.Read(nation.Address);
+    }
+    Console.WriteLine($"{nation.DisplayName}: {items.Count} kit items");
+    foreach (var item in items)
+        Console.WriteLine($"  kit {item.Kit} type 0x{item.Type:X2} style {item.Style,3} flags 0x{item.Flags:X}  " +
+            string.Join(" ", Enumerable.Range(0, 4).Select(i => Fm27Editor.Core.Nations.NationColours.Format(item.Colour(i)))));
+    return 0;
+}
+
+
+// nationstaff <nation>: national staff, read only.
+int NationStaffCommand(string name)
+{
+    using var session = Attach(writable: false);
+    var nation = session.Nations.LoadAll().FirstOrDefault(n => n.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{name}'");
+    var staff = session.NationStaff.ReadDetails(nation.Address);
+    var gameDate = session.ReadGameDate();
+    Console.WriteLine($"{nation.DisplayName}: {staff.Count} staff");
+    foreach (var row in staff)
+    {
+        var s = row.Staff;
+        string team = row.Team is null ? "?" : row.TeamType is 0 or 10 or 18 or 11 or 12 ? nation.DisplayName + row.TeamSuffix : $"{nation.DisplayName} (team {row.Team.Index})";
+        string age = gameDate is { } today && s.DateOfBirth is { } birth && birth <= today
+            ? (today.Year - birth.Year - (today.Month < birth.Month || (today.Month == birth.Month && today.Day < birth.Day) ? 1 : 0)).ToString() : "?";
+        string expiry = row.HasFullContract ? row.Expires?.ToString("yyyy-MM-dd") ?? "No limit" : "-";
+        Console.WriteLine($"  {s.Id,9} {s.DisplayName,-24} {row.JobName,-22} {team,-22} {s.Nationality?.DisplayName,-20} age {age,3} CA {s.CurrentAbility,3} PA {s.PotentialAbility,3} expires {expiry}");
+    }
+    return 0;
+}
+
+// nationsquad <nation> [teamIndex]: list a nation's national teams and their squads (read only)
+int NationSquadCommand(string line)
+{
+    var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    using var session = Attach(writable: false);
+    var nation = session.Nations.LoadAll().FirstOrDefault(n => n.DisplayName.Equals(parts[0], StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no nation named '{parts[0]}'");
+    var teams = session.NationSquads.ReadNation(nation.Address);
+    int only = parts.Length > 1 ? int.Parse(parts[1]) : -1;
+    Console.WriteLine($"{nation.DisplayName}: {teams.Count} national teams");
+    for (int i = 0; i < teams.Count; i++)
+    {
+        if (only >= 0 && i != only) continue;
+        var (team, squad) = teams[i];
+        Console.WriteLine($"  [{i}] team 0x{team.Address:X} reputation {team.Reputation}: {squad.Count} players");
+        var fields = session.PlayerFields;
+        var gameDate = session.ReadGameDate();
+        foreach (var p in squad)
+        {
+            string age = gameDate is { } date ? p.AgeOn(date)?.ToString() ?? "?" : "?";
+            Console.WriteLine($"      {p.Id,9} {p.DisplayName,-26} {p.Club?.DisplayName,-22} {p.Nationality?.DisplayName,-15} age {age,3} CA {p.CurrentAbility,4} PA {p.PotentialAbility,4} condition {fields.Read(p, PlayerField.Condition)?.ToString() ?? "?"} asking {fields.Read(p, PlayerField.AskingPrice)?.ToString() ?? "?"}");
+        }
+    }
+    return 0;
+}
+
+
+// fam <player>            show tactical familiarity fields (FM Studio "Tactical Effectiveness" layout)
+// fam <player> <0..100>   set the tactical familiarity value
+// fam club <clubId> <0..100>  set the value for every player in the club's squads
+int FamiliarityCommand(string[] args)
+{
+    if (args.Length < 1) throw new ArgumentException("usage: fam <player> [value] | fam club <clubId> <value>");
+    bool clubMode = args[0].Equals("club", StringComparison.OrdinalIgnoreCase);
+    bool write = clubMode ? args.Length >= 3 : args.Length >= 2;
+    using var session = Attach(writable: write);
+    var access = session.PlayerFamiliarity;
+    if (clubMode)
+    {
+        int clubId = int.Parse(args[1]);
+        int value = write ? int.Parse(args[2]) : -1;
+        var all = session.Players.LoadAll();
+        var club = session.LoadClubs(all).FirstOrDefault(x => x.Id == clubId) ?? throw new InvalidOperationException($"no club {clubId}");
+        var players = club.Teams.SelectMany(team => session.ReadSquad(team.Address)).DistinctBy(p => p.Address).ToArray();
+        int changed = 0;
+        foreach (var player in players)
+        {
+            var fam = access.Read(player.Address);
+            if (fam is null) continue;
+            if (value >= 0) { access.SetTactical(fam, value); changed++; }
+        }
+        Console.WriteLine($"{club.DisplayName}: {players.Length} players, {changed} updated");
+        return 0;
+    }
+    var target = session.Players.LoadAll().FirstOrDefault(p => p.DisplayName.Contains(args[0], StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no player named '{args[0]}'");
+    var snapshot = access.Read(target.Address) ?? throw new InvalidOperationException("player familiarity is not readable");
+    if (args.Length >= 2) access.SetTactical(snapshot, int.Parse(args[1]));
+    var after = access.Read(target.Address)!;
+    Console.WriteLine($"{target.DisplayName}: tactical {after.Tactical}/100 roles [{string.Join(",", after.Roles)}] condition {after.Condition}/10000 morale {after.Morale}/20 extra {after.Extra}/20");
+    return 0;
+}
+
 int ClubFieldsCommand(int clubId)
 {
     using var session = Attach(writable: false);
@@ -2821,6 +4266,20 @@ int SellOnsWithFee()
 
 // contract <name>                      show wage, expiry, playing time
 // contract <name> Wage|Expires|PlayingTime <value>
+// contractrm <name> <term index>   remove one bonus/clause term (cleanup for UI tests)
+int ContractRemove(string name, int index)
+{
+    using var session = Attach(writable: true);
+    var matches = session.Players.LoadAll().Where(p => p.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (matches.Count != 1) { Console.Error.WriteLine($"{matches.Count} players named '{name}'"); return 2; }
+    var player = matches[0];
+    var details = session.Contracts.Read(player) ?? throw new InvalidOperationException("no contract");
+    Console.WriteLine($"removing term {index} (type {details.Terms[index].Type} value {details.Terms[index].Value}): {details.Terms.Count} terms");
+    session.Contracts.RemoveTerm(player, details, index);
+    var after = session.Contracts.Read(session.Players.Reload(player.Address)!)!;
+    Console.WriteLine($"after: {after.Terms.Count} terms -> {string.Join(", ", after.Terms.Select(t => $"type {t.Type} value {t.Value}"))}");
+    return 0;
+}
 int ContractCommand(string name, string? field, string? text)
 {
     using var session = Attach(writable: field is not null);

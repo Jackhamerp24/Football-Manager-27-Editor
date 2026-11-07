@@ -55,6 +55,7 @@ public sealed record CityFieldOffsets(int Latitude, int Longitude, int Altitude,
 /// </summary>
 public sealed record CityRecord(ulong Address, int Id, string Name, ulong Nation,
     float Latitude = 0, float Longitude = 0, short Altitude = 0, byte Inhabitants = 0, byte Attraction = 0);
+public sealed record PlayerBirthCitySearchResult(IReadOnlyList<PlayerRecord> Matches, IReadOnlyList<PlayerRecord> Unavailable);
 
 public sealed class CityRepository(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
@@ -77,6 +78,31 @@ public sealed class CityRepository(IProcessMemory memory, OffsetProfile profile,
 
     /// <summary>The player's City Of Birth, or null when it is unset or not a city.</summary>
     public CityRecord? CityOf(PlayerRecord player) => Read(CityPointer(player));
+
+    /// <summary>Find players born in a specific city ID. A shared city object is decoded only once per search.</summary>
+    public IReadOnlyList<PlayerRecord> FindPlayersBornInCity(IEnumerable<PlayerRecord> players, int cityId, CancellationToken cancellationToken = default)
+        => FindPlayersBornInCityDetailed(players, cityId, cancellationToken).Matches;
+
+    /// <summary>Reports absent or unreadable city pointers separately instead of asserting they do not match.</summary>
+    public PlayerBirthCitySearchResult FindPlayersBornInCityDetailed(IEnumerable<PlayerRecord> players, int cityId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+        if (profile.Cities is null) throw new InvalidOperationException("Profile has no city offsets");
+        if (cityId <= 0) throw new ArgumentOutOfRangeException(nameof(cityId));
+        var cityIds = new Dictionary<ulong, int?>();
+        var matches = new List<PlayerRecord>();
+        var unavailable = new List<PlayerRecord>();
+        foreach (var player in players)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ulong address = CityPointer(player);
+            if (address == 0) { unavailable.Add(player); continue; }
+            if (!cityIds.TryGetValue(address, out int? id)) cityIds[address] = id = Read(address)?.Id;
+            if (id is null) unavailable.Add(player);
+            else if (id == cityId) matches.Add(player);
+        }
+        return new(matches, unavailable);
+    }
 
     /// <summary>The raw City Of Birth pointer (0 when unset or unreadable): the snapshot for <see cref="PlayerOriginWriter.SetCity"/>.</summary>
     public ulong CityPointer(PlayerRecord player) =>

@@ -42,9 +42,7 @@ public sealed partial class MainWindow
                 boxes[r].IsCheckedChanged += (_, _) => Changed();
             }
             fields.Add((injury, minimum, extra, boxes));
-            panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1),
-                Child = new StackPanel { Children = { new Border { Background = Brush("#1D1F2D"), Padding = new Thickness(12, 6),
-                    Child = new TextBlock { Text = injury.Name, FontSize = 13 } }, grid } } });
+            panel.Children.Add(UiKit.Card(injury.Name ?? "Injury", grid));
         }
         if (fields.Count == 0) return panel;
         save.Click += (_, _) =>

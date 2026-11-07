@@ -53,6 +53,9 @@ public sealed class GameSession : IDisposable
 
     public Clubs.TransferClauseWriter TransferClauses => new(_memory, Profile, Game.ModuleBase);
 
+    /// <summary>Finances → Income Statement: the club's monthly statement blocks.</summary>
+    public Clubs.ClubFinancialStatements FinancialStatements => new(_memory, Profile);
+
     /// <summary>Player values beyond attributes (condition, sharpness, morale, asking price, caps...), profile player.fields.</summary>
     public PlayerFieldAccess PlayerFields => new(_memory, Profile, Game.ModuleBase);
 
@@ -193,6 +196,12 @@ public sealed class GameSession : IDisposable
     public Nations.NationTeamReader NationTeams => new(_memory, Profile, Game.ModuleBase);
     public Awards.AwardWriter AwardWriter => new(_memory, Profile, Game.ModuleBase);
     public Competitions.CompetitionWriter CompetitionWriter => new(_memory, Profile, Game.ModuleBase);
+    public Competitions.CompetitionPrizeMoneyAccess CompetitionPrizeMoney => new(_memory, Profile, Game.ModuleBase);
+    public void SetCompetitionClassificationEnabled(Competitions.CompetitionClassificationPrizes snapshot, bool enabled) =>
+        CompetitionPrizeMoney.SetClassificationEnabled(snapshot, enabled, _memory.Allocate);
+    public Competitions.CompetitionStandingsAccess CompetitionStandings => new(_memory, Profile, Game.ModuleBase);
+    public Competitions.CompetitionVarAccess CompetitionVar => new(_memory, Profile, Game.ModuleBase);
+    public Competitions.CompetitionSquadRulesAccess CompetitionSquadRules => new(_memory, Profile, Game.ModuleBase);
     public Stadiums.StadiumWriter StadiumWriter => new(_memory, Profile, Game.ModuleBase);
 
     /// <summary>Every nation, and its mapped nation / national-team fields.</summary>
@@ -200,6 +209,13 @@ public sealed class GameSession : IDisposable
     public Nations.NationFieldAccess NationFields => new(_memory, Profile, Game.ModuleBase);
     public Nations.NationRivalries NationRivalries => new(_memory, Profile, Game.ModuleBase);
     public Nations.NationPreferences NationPreferences => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationEuroCoefficients NationEuroCoefficients => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationAgreements NationAgreements => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationColourAccess NationColours => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationKits NationKits => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationSquads NationSquads => new(_memory, Profile, Game.ModuleBase);
+    public Nations.NationStaff NationStaff => new(_memory, Profile, Game.ModuleBase);
+    public Players.PlayerFamiliarityAccess PlayerFamiliarity => new(_memory, Profile, Game.ModuleBase);
 
     /// <summary>Non-player staff, from the game's person vector (~23 thousand on the test save).</summary>
     public Staff.StaffRepository Staff => new(_memory, Profile, Game.ModuleBase);
@@ -234,8 +250,18 @@ public sealed class GameSession : IDisposable
     /// <summary>Inspire, as the user defined it: Morale to 20.</summary>
     public void Inspire(PlayerRecord player) => new PlayerInspirer(_memory, Profile, Game.ModuleBase).Inspire(player);
 
-    /// <summary>Destroy, as the user defined it: Morale 1, Condition and Sharpness 5000, Jadedness 1000 (FM26 IGE limits).</summary>
-    public void Destroy(PlayerRecord player) => new PlayerDestroyer(_memory, Profile, Game.ModuleBase).Destroy(player);
+    /// <summary>Applies the user's Destroy values through the guarded player, contract and cohesion writers.</summary>
+    public void Destroy(PlayerRecord player)
+    {
+        new PlayerDestroyer(_memory, Profile, Game.ModuleBase).Destroy(player);
+        if (Contracts.Read(player) is { Happiness: { } happiness } contract && happiness != 0)
+            Contracts.SetHappiness(player, contract, 0);
+        if (Contracts.Read(player) is { PlayingTimeHappiness: { } playing } refreshed && playing != 0)
+            Contracts.SetPlayingTimeHappiness(player, refreshed, 0);
+        if (PlayerFamiliarity.Read(player.Address) is { } familiarity && familiarity.Tactical != 0)
+            PlayerFamiliarity.SetTactical(familiarity, 0);
+        if (player.Club is not null) SetTeamCohesion(player, TeamCohesionWriter.Destroy);
+    }
 
     /// <summary>Make it Expire: the contract expires on the current in-game date.</summary>
     public void ExpireContract(PlayerRecord player) =>
@@ -257,6 +283,9 @@ public sealed class GameSession : IDisposable
     // Public names and parameter names are the list-provider contract agreed with lane B (STATUS [B 21:40]).
     public IReadOnlyList<Clubs.ClubVisionEntry> ReadClubVision(ulong teamAddress, IReadOnlyList<Clubs.ClubEntry>? clubs = null) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadClubVision(teamAddress, clubs);
+    public Clubs.ClubVisionWriter ClubVisionWriter => new(_memory, Profile, Game.ModuleBase);
+    public Clubs.ClubKits ClubKits => new(_memory, Profile, Game.ModuleBase);
+
     public void SetClubVisionImportance(ulong teamAddress, Clubs.ClubVisionEntry entry, int importance) =>
         new Clubs.ClubVisionWriter(_memory, Profile, ModuleBase).SetImportance(teamAddress, entry, importance);
     public IReadOnlyList<Clubs.ClubAffiliationEntry> ReadAffiliations(ulong clubAddress) =>
@@ -283,12 +312,24 @@ public sealed class GameSession : IDisposable
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadRegionalDivisions(clubAddress);
     public IReadOnlyList<Clubs.ClubSponsorEntry> ReadSponsors(ulong clubAddress) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadSponsors(clubAddress);
+    public Clubs.ClubSponsorWriter SponsorWriter => new(_memory, Profile, ModuleBase, _memory.Allocate);
+    public void SetSponsorTotal(ulong clubAddress, Clubs.ClubSponsorEntry entry, int value) =>
+        SponsorWriter.SetTotal(clubAddress, entry, value);
+    public void SetSponsorDates(ulong clubAddress, Clubs.ClubSponsorEntry entry, DateOnly start, DateOnly end) =>
+        SponsorWriter.SetDates(clubAddress, entry, start, end);
+    public void SetSponsorIncomeType(ulong clubAddress, Clubs.ClubSponsorEntry entry, byte value) =>
+        SponsorWriter.SetIncomeType(clubAddress, entry, value);
+    public void SetSponsorFlags(ulong clubAddress, Clubs.ClubSponsorEntry entry, bool renewIncome, bool fixedValue) =>
+        SponsorWriter.SetFlags(clubAddress, entry, renewIncome, fixedValue);
     public IReadOnlyList<Clubs.ClubDebtEntry> ReadDebts(ulong clubAddress) =>
         new Clubs.ClubListReader(_memory, Profile, ModuleBase).ReadDebts(clubAddress);
     public void SetDebtPayments(ulong clubAddress, Clubs.ClubDebtEntry entry, int repayment, int interest) =>
         new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetPayments(clubAddress, entry, repayment, interest);
     public void SetDebtInterestOnly(ulong clubAddress, Clubs.ClubDebtEntry entry, bool value) =>
         new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetInterestOnly(clubAddress, entry, value);
+    /// <summary>Drops every debt of the club (Finances → Debt and Loans).</summary>
+    public void RemoveAllDebts(ulong clubAddress) =>
+        new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).RemoveAll(clubAddress);
     public void SetDebtSource(ulong clubAddress, Clubs.ClubDebtEntry entry, byte value) =>
         new Clubs.ClubDebtWriter(_memory, Profile, ModuleBase).SetSource(clubAddress, entry, value);
     public void SetOriginalDebt(ulong clubAddress, Clubs.ClubDebtEntry entry, int value) =>

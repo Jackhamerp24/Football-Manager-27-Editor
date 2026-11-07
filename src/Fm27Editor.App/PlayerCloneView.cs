@@ -77,6 +77,8 @@ public sealed partial class MainWindow
                 : $"Cloned onto {done}, {failed.Count} failed ({string.Join(", ", failed.Take(2))}).";
         };
 
+        list.Margin = new Thickness(12, 10);
+        what.Margin = new Thickness(12, 10);
         return new StackPanel
         {
             Spacing = 8,
@@ -84,8 +86,8 @@ public sealed partial class MainWindow
             {
                 new Grid
                 {
-                    ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8,
-                    Children = { Card(new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "Players to Replace", FontWeight = Avalonia.Media.FontWeight.SemiBold }, list } }), WhatToCopy(what) },
+                    ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10,
+                    Children = { UiKit.Card("Players to Replace", list), WhatToCopy(what) },
                 },
                 clone,
             },
@@ -94,7 +96,8 @@ public sealed partial class MainWindow
 
     static Control WhatToCopy(Control what)
     {
-        var card = Card(new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "What to copy", FontWeight = Avalonia.Media.FontWeight.SemiBold }, what } });
+        var card = UiKit.Card("What to Copy", what);
+        card.Width = 220;
         Grid.SetColumn(card, 1);
         return card;
     }

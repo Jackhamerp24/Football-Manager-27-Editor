@@ -1,4 +1,4 @@
-﻿{
+{
   "build": "27.0.0+2493426 Game Pass",
   "module": "game_plugin.dll",
   "buildStringRva": "0x4AA1513",
@@ -367,14 +367,30 @@
     "coachingStaff": "0x78",
     "scoutingStaff": "0x90",
     "gender": "0xB9",
-    "staffAllocationClasses": [144, 160, 192, 224, 256, 288, 320, 384, 448, 512],
+    "staffAllocationClasses": [
+      144,
+      160,
+      192,
+      224,
+      256,
+      288,
+      320,
+      384,
+      448,
+      512
+    ],
     "lists": {
       "teams": "0x18",
       "teamDetails": "0xA0",
       "vision": "0xC8",
-      "visionVector": "0x78", "visionImportanceEditable": true,
+      "visionVector": "0x78",
+      "visionImportanceEditable": true,
+      "visionTarget": "0x28",
+      "visionStatus": "0x38",
       "visionHolderVtable": "0x4D6AEE8",
+      "visionHolderVtables": ["0x4D6AEE8", "0x4D6AF68", "0x4DBCC98"],
       "cultureVtable": "0x4ACE098",
+      "cultureVtables": ["0x4ACE098", "0x4D79198", "0x4B0E5C8"],
       "cultureSize": "0x50",
       "visionType": "0x2C",
       "importance": "0x2D",
@@ -431,12 +447,46 @@
       "debtEnd": "0x10",
       "debtStart": "0x14",
       "debtSource": "0x18",
+      "statements": {
+        "financePointer": "0x150",
+        "base": "0x278",
+        "stride": "0x118",
+        "periods": 5,
+        "incomeBase": "0x9C",
+        "income": {
+          "gateReceipts": "0x0",
+          "other": "0x4",
+          "seasonTickets": "0x8",
+          "interest": "0xC",
+          "investments": "0x10",
+          "merchandising": "0x14",
+          "playersSold": "0x18",
+          "sponsorship": "0x1C",
+          "matchDayIncome": "0x20",
+          "grants": "0x2C"
+        },
+        "expenditure": {
+          "other": "0x0",
+          "loanRepayment": "0x4",
+          "leagueFines": "0x8",
+          "groundMaintenance": "0xC",
+          "playerWages": "0x10",
+          "staffWages": "0x14",
+          "bonuses": "0x1C",
+          "loyaltyBonuses": "0x20",
+          "transferExpenditure": "0x24",
+          "vat": "0x38",
+          "niEmployerTax": "0x3C"
+        }
+      },
       "monthlyRepayment": "0x4",
       "monthlyInterestRepayment": "0x8",
       "debtInterestOnly": "0x1A",
       "debtSourceEditable": true,
       "debtOriginalEditable": true,
-      "debtDatesEditable": true
+      "debtDatesEditable": true,
+      "sponsorRenew": "0x15",
+      "sponsorFixed": "0x16"
     },
     "vtable": "0x4C89B68",
     "name": "0xC0",
@@ -457,6 +507,16 @@
       "playersSold": "0x32C"
     },
     "fields": {
+      "ForegroundColour": {
+        "root": "club",
+        "path": "0xB0->0xA0",
+        "type": "colour"
+      },
+      "BackgroundColour": {
+        "root": "club",
+        "path": "0xB0->0xA8",
+        "type": "colour"
+      },
       "EmbargoStart": {
         "root": "club",
         "path": "0x150->0x24",
@@ -908,6 +968,20 @@
     }
   },
   "competition": {
+    "squadRulesContainerVtable": "0x4C9B0E8",
+    "prizeMoney": {
+      "holder": "0xB0",
+      "stages": "0x1C0",
+      "stageOwner": "0x70",
+      "stagePrize": "0xF0",
+      "perWin": "0x14C",
+      "perDraw": "0x150",
+      "perDefeat": "0x154",
+      "classification": "0x1E0",
+      "holderVtable": "0x4C91958",
+      "stageVtable": "0x4D7C7B8",
+      "prizeVtable": "0x4D7EA18"
+    },
     "teamCompetition": "0x50",
     "vtable": "0x4C8F438",
     "name": "0x40",
@@ -922,6 +996,7 @@
     "background": "0x134",
     "trim": "0x138",
     "winterBallColour": "0x15C",
+    "substitutionRules": "0xFD",
     "winterBallStart": "0x150",
     "winterBallEnd": "0x154"
   },
@@ -1044,7 +1119,7 @@
   },
   "stadium": {
     "listRootRva": "0x56743C8",
-    "listOffset": "0x780",
+    "listOffset": "0x540",
     "vtable": "0x4D970D8",
     "id": "0xC",
     "name": "0x40",

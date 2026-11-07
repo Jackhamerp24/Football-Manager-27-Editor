@@ -1,4 +1,5 @@
 using Fm27Editor.Core.Players;
+using Fm27Editor.Core.Nations;
 
 namespace Fm27Editor.Core.Tests;
 
@@ -72,6 +73,20 @@ public class RelationshipTests
     }
 
     [Fact]
+    public void SearchRelationshipUsesTargetAndValueAndReportsUnreadableTarget()
+    {
+        var player = Player();
+        ulong ethan = BitConverter.ToUInt64(_w.Bytes(Records, 8));
+        var search = new PlayerRelationSearch(new PlayerStatusReader(_w.Memory, _w.Profile, TestWorld.ModuleBase));
+        Assert.Equal(new[] { player.Address }, search.Find([player], new(Relationship: RelationshipKind.LikesPerson, RelationshipTarget: ethan, MinimumValue: 100)).Matches.Select(p => p.Address));
+        Assert.Empty(search.Find([player], new(Relationship: RelationshipKind.DislikesPerson, RelationshipTarget: ethan)).Matches);
+        Assert.True(_w.Memory.TryWrite(ethan, new byte[8]));
+        var unknown = search.Find([player], new(Relationship: RelationshipKind.LikesPerson, RelationshipTarget: ethan));
+        Assert.Empty(unknown.Matches);
+        Assert.Equal(new[] { player.Address }, unknown.Unavailable.Select(p => p.Address));
+    }
+
+    [Fact]
     public void Value_writes_one_byte_and_refuses_stale_rows()
     {
         var writer = new RelationshipWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase);
@@ -99,6 +114,34 @@ public class RelationshipTests
     RelationshipWriter Writer() => new(_w.Memory, _w.Profile, TestWorld.ModuleBase);
     PlayerStatuses Statuses() => new PlayerStatusReader(_w.Memory, _w.Profile, TestWorld.ModuleBase).Read(Player());
     byte[] Row(ulong target, string tail) => [.. BitConverter.GetBytes(target), .. Convert.FromHexString(tail)];
+
+    [Fact]
+    public void NationalitySearchIncludesObservedOtherNationalityAndReportsInvalidTargets()
+    {
+        const ulong portugal = 0x7200_0000, france = 0x7200_0100;
+        TestWorld.Set64(_w.Memory.Map(portugal, 0x30), 0, TestWorld.ModuleBase + 0x4CDF658);
+        Assert.True(_w.Memory.TryWrite(Records + 5 * 16, Row(portugal, "00000809645000FF")));
+        var original = Player();
+        var player = new PlayerRecord { Address = original.Address, VtableRva = original.VtableRva,
+            CurrentAbility = original.CurrentAbility, PotentialAbility = original.PotentialAbility,
+            HomeReputation = original.HomeReputation, CurrentReputation = original.CurrentReputation,
+            WorldReputation = original.WorldReputation, Height = original.Height,
+            RawAttributes = original.RawAttributes, AttributeScale = original.AttributeScale,
+            Positions = original.Positions, Personality = original.Personality,
+            Nationality = new NationInfo(france, "France", "France") };
+        var search = new PlayerNationalitySearch(new PlayerStatusReader(_w.Memory, _w.Profile, TestWorld.ModuleBase));
+        var pt = new NationRecord(portugal, 788, "Portugal", null);
+        var fr = new NationRecord(france, 769, "France", null);
+
+        Assert.Single(search.Find([player], pt, true).Matches);
+        Assert.Empty(search.Find([player], pt, false).Matches);
+        Assert.Single(search.Find([player], fr, false).Matches);
+        Assert.Empty(search.Find([player], new NationRecord(0x72000200, 765, "England", null), true).Unavailable);
+        Assert.True(_w.Memory.TryWrite(portugal, new byte[8]));
+        var invalid = search.Find([player], pt, true);
+        Assert.Empty(invalid.Matches);
+        Assert.Single(invalid.Unavailable);
+    }
 
     [Fact]
     public void Add_other_nationality_for_a_player_writes_the_observed_record()

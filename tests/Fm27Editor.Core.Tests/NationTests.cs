@@ -52,6 +52,22 @@ public class NationTests
     NationFieldAccess Fields() => new(_w.Memory, _w.Profile, TestWorld.ModuleBase);
 
     [Fact]
+    public void Finds_nations_when_the_database_holder_moves_to_a_neighbouring_slot()
+    {
+        // In the Game Pass session the old slot was invalid and the nation vector moved to holder +0x180.
+        Assert.True(_w.Memory.TryWrite(TestWorld.ModuleBase + 0x56F5078, new byte[8]));
+        const ulong movedHolder = 0x7100_0000, movedVector = 0x7100_1000;
+        TestWorld.Set64(_w.Memory.Map(TestWorld.ModuleBase + 0x56F5070, 8), 0, movedHolder);
+        var holder = _w.Memory.Map(movedHolder, 0x810);
+        TestWorld.Set64(holder, 0x180, movedVector);
+        TestWorld.Set64(holder, 0x188, movedVector + 8);
+        TestWorld.Set64(holder, 0x190, movedVector + 8);
+        TestWorld.Set64(_w.Memory.Map(movedVector, 8), 0, Vietnam);
+        var nation = Assert.Single(new NationRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).LoadAll());
+        Assert.Equal(145, nation.Id);
+    }
+
+    [Fact]
     public void Lists_nations_and_reads_Vietnam_as_FMRTE_shows_it()
     {
         var nation = Assert.Single(new NationRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).LoadAll());

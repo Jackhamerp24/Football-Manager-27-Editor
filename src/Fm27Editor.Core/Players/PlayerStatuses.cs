@@ -54,7 +54,10 @@ public enum RelationshipKind { LikesPerson, DislikesPerson, LikesTeam, RetiredFr
 /// <see cref="Flags"/> is 0 when FMRTE leaves Permanent unticked (Neymar) and 0x4F when ticked (Ethan Mbappé).
 /// </summary>
 public sealed record PlayerRelationship(ulong Address, RelationshipKind Kind, string? Name, int Value, int Reason, int Flags,
-    string Snapshot, ulong Holder, ulong Begin, ulong End);
+    string Snapshot, ulong Holder, ulong Begin, ulong End)
+{
+    public ulong TargetAddress { get; init; }
+}
 
 public sealed record PlayerStatuses(
     IReadOnlyList<PlayerRegistration> Registrations,
@@ -69,6 +72,10 @@ public sealed record PlayerStatuses(
     public ulong End { get; init; }
     public ulong Capacity { get; init; }
     public string RecordSnapshot { get; init; } = "";
+    /// <summary>True only when the relation vector and every other-nationality target were read successfully.</summary>
+    public bool NationalitiesComplete { get; init; }
+    public bool TrainingComplete { get; init; }
+    public bool RelationshipsComplete { get; init; }
     /// <summary>The type-0xA record behind "Retired From Int. Foot.", or null when the box is unticked.</summary>
     public PlayerRelationship? InternationalRetirement { get; init; }
 }
@@ -95,29 +102,35 @@ public sealed class PlayerStatusReader(IProcessMemory memory, OffsetProfile prof
         var clubs = new List<PlayerTrainedAtClub>();
         var nations = new List<PlayerTrainedAtNation>();
         var relationships = new List<PlayerRelationship>();
+        bool nationalitiesComplete = true, trainingComplete = true, relationshipsComplete = true;
         PlayerRelationship? retirement = null;
         for (int i = 0; i < bytes.Length; i += o.RecordSize)
         {
             ulong target = BitConverter.ToUInt64(bytes, i + o.Target);
             byte type = bytes[i + o.Type], code = bytes[i + o.Code];
             if (type == o.RegistrationType && TeamClub(target) is { } club) registrations.Add(new(club, code));
-            else if (type == o.TrainedAtClubType && Club(target) is { } c) clubs.Add(new(c, code));
-            else if (type == o.TrainedAtNationType && Nation(target) is { } n) nations.Add(new(n, code));
+            else if (type == o.TrainedAtClubType) { if (Club(target) is { } c) clubs.Add(new(c, code)); else trainingComplete = false; }
+            else if (type == o.TrainedAtNationType) { if (Nation(target) is { } n) nations.Add(new(n, code)); else trainingComplete = false; }
             else if ((type == o.LikesPersonType || type == o.DislikesPersonType || type == o.LikesTeamType)
                      && (type == o.LikesTeamType ? Club(target)?.DisplayName : PersonName(target, o)) is { } name)
             {
                 var kind = type == o.LikesPersonType ? RelationshipKind.LikesPerson : type == o.DislikesPersonType ? RelationshipKind.DislikesPerson : RelationshipKind.LikesTeam;
                 relationships.Add(new(begin + (ulong)i, kind, name, code, bytes[i + o.Reason], bytes[i + o.Flags],
-                    Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end));
+                    Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end) { TargetAddress = target });
             }
-            else if (type == o.OtherNationalityType && Nation(target) is { } other)
-                relationships.Add(new(begin + (ulong)i, RelationshipKind.OtherNationality, other.DisplayName, code, bytes[i + o.Reason], bytes[i + o.Flags],
-                    Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end));
+            else if (type == o.LikesPersonType || type == o.DislikesPersonType || type == o.LikesTeamType) relationshipsComplete = false;
+            else if (type == o.OtherNationalityType)
+            {
+                if (Nation(target) is { } other)
+                    relationships.Add(new PlayerRelationship(begin + (ulong)i, RelationshipKind.OtherNationality, other.DisplayName, code, bytes[i + o.Reason], bytes[i + o.Flags],
+                        Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end) { TargetAddress = target });
+                else nationalitiesComplete = false;
+            }
             else if (type == o.RetiredInternationalType && retirement is null)
                 retirement = new(begin + (ulong)i, RelationshipKind.RetiredFromInternationalFootball, null, code, bytes[i + o.Reason], bytes[i + o.Flags],
                     Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end);
         }
-        return new(registrations, clubs, nations) { Relationships = relationships, Holder = holder, Begin = begin, End = end, Capacity = cap, RecordSnapshot = Convert.ToHexString(bytes), InternationalRetirement = retirement };
+        return new(registrations, clubs, nations) { Relationships = relationships, Holder = holder, Begin = begin, End = end, Capacity = cap, RecordSnapshot = Convert.ToHexString(bytes), InternationalRetirement = retirement, NationalitiesComplete = nationalitiesComplete, TrainingComplete = trainingComplete, RelationshipsComplete = relationshipsComplete };
     }
 
     /// <summary>Common name, else first + last, else full name: persons not in play keep only the name entries (+0x40 is null).</summary>
@@ -387,6 +400,44 @@ public sealed class RelationshipWriter(IProcessMemory memory, OffsetProfile prof
         if (next < relationship.End) Write(relationship.Address, memory.Read(next, (int)(relationship.End - next)));
         Write(relationship.Holder + 8, BitConverter.GetBytes(relationship.End - (ulong)o.RecordSize));
     }
+
+    /// <summary>
+    /// Removes one trained-at row (record type <paramref name="type"/>) whose target is <paramref name="target"/>; the rows
+    /// after it shift left and the vector's end shrinks by one record, everything else stays byte-for-byte. Returns false
+    /// when there is no such row. The Trained at club / Trained at nation presets only add rows, so this is the way back.
+    /// </summary>
+    public bool RemoveTrainedRow(PersonOwner player, ulong target, byte type, byte? period = null)
+    {
+        var o = profile.Relations ?? throw new InvalidOperationException("Profile has no relation offsets");
+        if (!player.IsValid(memory, moduleBase)) throw new StaleObjectException($"{player.Name} changed since it was read");
+        ulong holder = memory.ReadUInt64(player.At(o.Pointer));
+        if (holder == 0) return false;
+        ulong begin = memory.ReadUInt64(holder), end = memory.ReadUInt64(holder + 8);
+        if (begin == 0 || end <= begin || (end - begin) % (ulong)o.RecordSize != 0 || (end - begin) / (ulong)o.RecordSize > 512) return false;
+        var snapshot = memory.Read(begin, (int)(end - begin));
+        int found = -1;
+        for (int i = 0; i < snapshot.Length; i += o.RecordSize)
+            if (snapshot[i + o.Type] == type && BitConverter.ToUInt64(snapshot, i + o.Target) == target
+                && (period is not { } wanted || snapshot[i + o.Code] == wanted)) { found = i; break; }
+        if (found < 0) return false;
+        if (!memory.Read(begin, snapshot.Length).AsSpan().SequenceEqual(snapshot) || memory.ReadUInt64(holder + 8) != end)
+            throw new StaleObjectException("The relations changed while removing a row");
+        var tail = snapshot[(found + o.RecordSize)..];
+        if (tail.Length > 0 && (!memory.TryWrite(begin + (ulong)found, tail) || !memory.Read(begin + (ulong)found, tail.Length).AsSpan().SequenceEqual(tail)))
+            throw new MemoryAccessException($"Write at 0x{begin + (ulong)found:X} failed");
+        var newEnd = BitConverter.GetBytes(end - (ulong)o.RecordSize);
+        if (!memory.TryWrite(holder + 8, newEnd) || !memory.Read(holder + 8, 8).AsSpan().SequenceEqual(newEnd))
+            throw new MemoryAccessException($"Write at 0x{holder + 8:X} failed");
+        return true;
+    }
+
+    /// <summary>Removes the "trained at club" row for <paramref name="club"/> (undoes the Trained at club preset).</summary>
+    public bool RemoveTrainedAtClub(PlayerRecord player, ulong club) =>
+        RemoveTrainedRow(PersonOwner.Of(player, profile), club, (byte)(profile.Relations?.TrainedAtClubType ?? throw new InvalidOperationException("Profile has no relation offsets")));
+
+    /// <summary>Removes the "trained at nation" row for <paramref name="nation"/> (undoes the Trained at nation preset).</summary>
+    public bool RemoveTrainedAtNation(PlayerRecord player, ulong nation) =>
+        RemoveTrainedRow(PersonOwner.Of(player, profile), nation, (byte)(profile.Relations?.TrainedAtNationType ?? throw new InvalidOperationException("Profile has no relation offsets")));
 
     void RequirePlayer(PersonOwner player, RelationOffsets o, ulong holder)
     {

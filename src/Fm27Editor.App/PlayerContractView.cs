@@ -103,7 +103,7 @@ public sealed partial class MainWindow
             if (control is null) return;
             int row = rowOf[column]++;
             while (grid.RowDefinitions.Count <= row) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var name = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
+            var name = new TextBlock { Text = label, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
             Grid.SetRow(name, row); Grid.SetColumn(name, column == 0 ? 0 : 3); grid.Children.Add(name);
             // Let the value cell shrink with the editor pane instead of overflowing it.
             control.MaxWidth = control.Width;
@@ -135,33 +135,12 @@ public sealed partial class MainWindow
         Row(1, "Happiness", s.Happiness is { } h ? Text("Happiness", h.ToString(Inv), 64) : null);
         Row(1, "Playing Time Happiness", s.PlayingTimeHappiness is { } ph ? Text("Playing Time Happiness", ph.ToString(Inv), 64) : null);
 
-        panel.Children.Add(new Border
-        {
-            Background = Brush("#161822"),
-            BorderBrush = Brush("#242636"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-            Padding = new Thickness(14, 12),
-            Child = grid
-        });
+        grid.Margin = new Thickness(12, 10);
+        panel.Children.Add(UiKit.Card("Contract Details", grid));
 
         if (backend.Session.Profile.Contract?.Clauses is not null)
         {
             var clauseStack = new StackPanel { Spacing = 0 };
-            clauseStack.Children.Add(new Border
-            {
-                Background = Brush("#1D1F2D"),
-                BorderBrush = Brush("#6D28D9"),
-                BorderThickness = new Thickness(0, 0, 0, 2),
-                Padding = new Thickness(12, 6),
-                Child = new TextBlock
-                {
-                    Text = "BONUSES & CLAUSES",
-                    FontSize = 11,
-                    FontWeight = FontWeight.Bold,
-                    Foreground = Brush("#E2E8F0")
-                }
-            });
 
             var terms = new Grid { ColumnDefinitions = new ColumnDefinitions("300,60,80,50,130,*"), RowSpacing = 6, Margin = new Thickness(12, 10, 12, 8) };
             foreach (var term in s.Terms)
@@ -171,7 +150,7 @@ public sealed partial class MainWindow
                 var remove = new Button { Content = "Remove" };
                 remove.Click += (_, _) => ChangeTerms(player, draft, () => writer.RemoveTerm(draft.Player, draft.Snapshot, term.Index), $"Removed {ContractLabels.Term(term.Type)}", future);
                 Cell(remove, 5);
-                Cell(new TextBlock { Text = ContractLabels.Term(term.Type), FontSize = 12.5, Foreground = Brush("#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }, 0);
+                Cell(new TextBlock { Text = ContractLabels.Term(term.Type), FontSize = 11.5, Foreground = Brush("#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }, 0);
                 if (ContractLabels.TermParameter(term.Type) is { } unit)
                 {
                     Cell(new TextBlock { Text = unit, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, 1);
@@ -213,7 +192,7 @@ public sealed partial class MainWindow
             };
             var addBar = new Border
             {
-                BorderBrush = Brush("#222432"),
+                BorderBrush = UiKit.BorderSubtle,
                 BorderThickness = new Thickness(0, s.Terms.Count > 0 ? 1 : 0, 0, 0),
                 Padding = new Thickness(12, 10),
                 Child = new StackPanel
@@ -225,15 +204,7 @@ public sealed partial class MainWindow
             };
             clauseStack.Children.Add(addBar);
 
-            panel.Children.Add(new Border
-            {
-                Background = Brush("#161822"),
-                BorderBrush = Brush("#242636"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                ClipToBounds = true,
-                Child = clauseStack
-            });
+            panel.Children.Add(UiKit.Card("Bonuses & Clauses", clauseStack));
         }
 
         if (future == 0 && TransferClausesPanel(player, draft, (k, original, width) => Text(k, original, width)) is { } transferClauses) panel.Children.Add(transferClauses);
@@ -258,7 +229,7 @@ public sealed partial class MainWindow
         var competitions = competitionCache ??= backend.Session.LoadCompetitions(Players());
         var clauses = draft.TransferClauses ??= backend.Session.ReadTransferClauses(club.Address, competitions).Where(c => c.PlayerId == id).ToList();
 
-        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
         WrapPanel Line(params Control[] items) { var p = new WrapPanel { Orientation = Orientation.Horizontal }; foreach (var i in items) { i.Margin = new Thickness(0, 0, 6, 0); p.Children.Add(i); } return p; }
 
         var list = new Grid { ColumnDefinitions = new ColumnDefinitions("130,100,110,*,Auto"), RowSpacing = 6, ColumnSpacing = 12, Margin = new Thickness(12, 10, 12, 8) };
@@ -308,37 +279,16 @@ public sealed partial class MainWindow
         };
         var addBar = new Border
         {
-            BorderBrush = Brush("#222432"),
+            BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, clauses.Count > 0 ? 1 : 0, 0, 0),
             Padding = new Thickness(12, 10),
             Child = Line(Label("Sell-On", "#F1F5F9"), addClub, addPercent, Label("%"), add)
         };
 
-        var stack = new StackPanel
-        {
-            Children =
-            {
-                new Border
-                {
-                    Background = Brush("#1D1F2D"),
-                    BorderBrush = Brush("#6D28D9"),
-                    BorderThickness = new Thickness(0, 0, 0, 2),
-                    Padding = new Thickness(12, 6),
-                    Child = new TextBlock { Text = "TRANSFER CLAUSES", FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Brush("#E2E8F0") }
-                }
-            }
-        };
+        var stack = new StackPanel { Spacing = 0 };
         if (clauses.Count > 0) stack.Children.Add(list);
         stack.Children.Add(addBar);
-        return new Border
-        {
-            Background = Brush("#161822"),
-            BorderBrush = Brush("#242636"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-            ClipToBounds = true,
-            Child = stack
-        };
+        return UiKit.Card("Transfer Clauses", stack);
     }
 
     /// <summary>Active unhappiness motives (as FMRTE lists them), each removable, plus Remove All. Null when there are none.</summary>
@@ -348,7 +298,7 @@ public sealed partial class MainWindow
         var motives = backend.Session.ReadUnhappiness(player).Where(m => m.IsActive(today)).ToList();
         if (motives.Count == 0) return null;
 
-        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
+        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
         void Remove(Func<PlayerUnhappiness, bool>? which, string done)
         {
             try
@@ -375,28 +325,9 @@ public sealed partial class MainWindow
             remove.Click += (_, _) => Remove(x => x.Index == index, "Unhappiness removed");
             Cell(remove, 4);
         }
-        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), FontSize = 11 };
+        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), MinHeight = 20, Height = 20, FontSize = 10.5 };
         removeAll.Click += (_, _) => Remove(null, "Unhappiness removed");
-        var title = new DockPanel();
-        DockPanel.SetDock(removeAll, Dock.Right);
-        title.Children.Add(removeAll);
-        title.Children.Add(new TextBlock { Text = "UNHAPPINESS", FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Brush("#E2E8F0"), VerticalAlignment = VerticalAlignment.Center });
-        return new Border
-        {
-            Background = Brush("#161822"),
-            BorderBrush = Brush("#242636"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-            ClipToBounds = true,
-            Child = new StackPanel
-            {
-                Children =
-                {
-                    new Border { Background = Brush("#1D1F2D"), BorderBrush = Brush("#6D28D9"), BorderThickness = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 4), Child = title },
-                    list
-                }
-            }
-        };
+        return UiKit.Card("Unhappiness", list, rightHeader: removeAll);
     }
 
     static string ClauseKey(TransferClause c, string part) => $"xfer {c.Address:X} {part}";
@@ -499,40 +430,48 @@ public sealed partial class MainWindow
 
     Control MovePanel(PlayerRecord player)
     {
-        var panel = new StackPanel { Spacing = 10, Margin = new Thickness(0, 6), MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Left };
-        var from = new TextBlock { Text = player.Club?.DisplayName is { } club ? $"From  {club}" : "Free agent", FontSize = 12.5, Foreground = Brush("#94A3B8") };
-        var searchClub = new TextBox { Watermark = "Club or ID", Width = 340, HorizontalAlignment = HorizontalAlignment.Left };
+        var from = new DockPanel { LastChildFill = true };
+        var fromLabel = new TextBlock { Text = "Current Club", Width = 78, FontSize = 11.5, Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(fromLabel, Dock.Left);
+        from.Children.Add(fromLabel);
+        from.Children.Add(new TextBlock
+        {
+            Text = player.Club?.DisplayName ?? "Free agent",
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = UiKit.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var searchClub = new TextBox { Watermark = "Search destination club or ID…", HorizontalAlignment = HorizontalAlignment.Stretch };
         var clubs = new ListBox
         {
-            Width = 340,
-            Height = 190,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Background = Brush("#13151E"),
-            BorderBrush = Brush("#262837"),
+            Height = 200,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = UiKit.SurfaceInput,
+            BorderBrush = UiKit.BorderControl,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3)
         };
-        var teams = new ComboBox { Width = 280 };
-        var fee = new NumericUpDown { Minimum = 0, Maximum = int.MaxValue, Value = 0, Increment = 100_000, FormatString = "N0", Width = 200, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var teams = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        var fee = new NumericUpDown { Minimum = 0, Maximum = int.MaxValue, Value = 0, Increment = 100_000, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
         // Sell-on owed by the buyer to the seller on the next sale; 0 = none.
-        var sellOn = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Increment = 5, FormatString = "0'%'", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var preview = new Grid { ColumnDefinitions = new ColumnDefinitions("190,260,260"), RowSpacing = 6, ColumnSpacing = 16 };
-        var previewBox = new Border
-        {
-            Background = Brush("#161822"),
-            BorderBrush = Brush("#242636"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-            Padding = new Thickness(14, 10),
-            IsVisible = false,
-            Child = preview
-        };
-        var warning = new TextBlock { Foreground = Brush("#F59E0B"), FontSize = 12.5, TextWrapping = TextWrapping.Wrap };
-        var apply = new Button { Content = "Confirm transfer", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Left, Classes = { "accent" } };
+        var sellOn = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Increment = 5, FormatString = "0'%'", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var preview = new Grid { ColumnDefinitions = new ColumnDefinitions("114,*,*"), RowSpacing = 6, ColumnSpacing = 12 };
+        var warning = new TextBlock { Foreground = Brush("#F59E0B"), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+        var apply = new Button { Content = "Confirm transfer", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Height = 28, Classes = { "accent" }, Margin = new Thickness(0, 4, 0, 0) };
         TransferPlan? plan = null;
         IReadOnlyList<ClubEntry> all = clubCache ?? [];
 
-        void Invalidate() { plan = null; apply.IsEnabled = false; preview.Children.Clear(); preview.RowDefinitions.Clear(); previewBox.IsVisible = false; warning.Text = ""; }
+        void Invalidate()
+        {
+            plan = null;
+            apply.IsEnabled = false;
+            preview.Children.Clear();
+            preview.RowDefinitions.Clear();
+            warning.Text = "";
+            warning.IsVisible = false;
+        }
         void Preview()
         {
             Invalidate();
@@ -546,9 +485,10 @@ public sealed partial class MainWindow
                     var tb = new TextBlock
                     {
                         Text = text,
-                        FontSize = 12.5,
+                        FontSize = head ? 11.5 : 11,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
                         HorizontalAlignment = col == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right,
-                        Foreground = col == 0 && !head ? Brush("#94A3B8") : Brush("#F1F5F9"),
+                        Foreground = col == 0 && !head ? UiKit.TextMuted : UiKit.TextPrimary,
                         FontWeight = head ? FontWeight.SemiBold : FontWeight.Normal
                     };
                     Grid.SetRow(tb, row); Grid.SetColumn(tb, col); preview.Children.Add(tb);
@@ -563,11 +503,11 @@ public sealed partial class MainWindow
                     int r = Row();
                     Cell(char.ToUpperInvariant(name[0]) + name[1..], r, 0);
                     foreach (var (side, col) in new[] { ("seller", 1), ("buyer", 2) })
-                        if (money.FirstOrDefault(w => w.What == $"{side} {name}") is { } w) Cell($"{Money(w.Expected)}  →  {Money(w.Value)}", r, col);
+                        if (money.FirstOrDefault(w => w.What == $"{side} {name}") is { } w) Cell($"{Money(w.Expected)} → {Money(w.Value)}", r, col);
                 }
                 int squad = Row();
                 Cell("Squad", squad, 0);
-                Cell($"{plan.ToTeam.SquadCount}  →  {plan.ToTeam.SquadCount + 1}", squad, 2);
+                Cell($"{plan.ToTeam.SquadCount} → {plan.ToTeam.SquadCount + 1}", squad, 2);
                 int percent = (int)(sellOn.Value ?? 0);
                 if (percent > 0)
                 {
@@ -576,14 +516,17 @@ public sealed partial class MainWindow
                     string signed = plan.Fee > 0 ? $", signed for {plan.Fee.ToString("N0", Inv)}" : "";
                     Cell($"{percent}% owed{signed}", s, 2); Cell($"{percent}% due", s, 1);
                 }
-                previewBox.IsVisible = true;
                 var risks = new List<string>();
                 if (plan.NeedsAllocation) risks.Add("The squad is full, so a new squad list");
                 if (percent > 0) risks.Add("The sell-on record");
-                if (risks.Count > 0) warning.Text = $"{string.Join(" and ", risks)} will be allocated outside the game's allocator; keep a backup of the save.";
+                if (risks.Count > 0)
+                {
+                    warning.Text = $"{string.Join(" and ", risks)} will be allocated outside the game's allocator; keep a backup of the save.";
+                    warning.IsVisible = true;
+                }
                 apply.IsEnabled = true;
             }
-            catch (Exception ex) { Invalidate(); warning.Text = UserMessage.For(ex); }
+            catch (Exception ex) { Invalidate(); warning.Text = UserMessage.For(ex); warning.IsVisible = true; }
         }
         void FilterClubs()
         {
@@ -619,7 +562,7 @@ public sealed partial class MainWindow
             catch (Exception ex) { Invalidate(); status.Text = $"Transfer stopped: {UserMessage.For(ex)}"; return; }
             clubCache = null; contractDrafts.Remove(player.Address);
             selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
-            editorTab = 3; RenderEditor();
+            pendingSection = "Contract"; RenderEditor();
             status.Text = $"Moved to {plan.Buyer.DisplayName}. Set the new contract terms; club finances show after Continue in FM.";
             if (percent > 0)
             {
@@ -639,40 +582,54 @@ public sealed partial class MainWindow
             var session = backend.Session;
             _ = Task.Run(() => session.LoadClubs(players)).ContinueWith(task => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (task.IsFaulted) { warning.Text = UserMessage.For(task.Exception!.InnerException!); return; }
+                if (task.IsFaulted) { warning.Text = UserMessage.For(task.Exception!.InnerException!); warning.IsVisible = true; return; }
                 clubCache = all = task.Result; FilterClubs();
             }));
         }
         else FilterClubs();
 
-        var formStack = new StackPanel { Spacing = 8 };
+        var formStack = new StackPanel { Spacing = 8, Margin = new Thickness(12, 10) };
         formStack.Children.Add(from);
         formStack.Children.Add(searchClub);
         formStack.Children.Add(clubs);
         formStack.Children.Add(Labeled("Team", teams));
         formStack.Children.Add(Labeled("Fee", fee));
         formStack.Children.Add(Labeled("Sell-On", sellOn));
+        formStack.Children.Add(apply);
 
-        panel.Children.Add(new Border
+        var impactBody = new StackPanel { Spacing = 10, Margin = new Thickness(12, 10), MinHeight = 80 };
+        impactBody.Children.Add(preview);
+        impactBody.Children.Add(warning);
+
+        var leftCard = UiKit.Card("Transfer Destination", formStack);
+        leftCard.VerticalAlignment = VerticalAlignment.Top;
+        var rightCard = UiKit.Card("Financial & Squad Impact", impactBody);
+        rightCard.VerticalAlignment = VerticalAlignment.Top;
+
+        var layout = new Grid
         {
-            Background = Brush("#161822"),
-            BorderBrush = Brush("#242636"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-            Padding = new Thickness(14, 12),
-            Child = formStack
-        });
-        panel.Children.Add(previewBox);
-        panel.Children.Add(warning);
-        panel.Children.Add(apply);
-        return panel;
+            ColumnDefinitions = new ColumnDefinitions("356,*"),
+            ColumnSpacing = 12,
+            Margin = new Thickness(0, 4, 0, 8),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        Grid.SetColumn(leftCard, 0);
+        Grid.SetColumn(rightCard, 1);
+        layout.Children.Add(leftCard);
+        layout.Children.Add(rightCard);
+        return layout;
     }
 
-    static Control Labeled(string label, Control control) => new StackPanel
+    static Control Labeled(string label, Control control)
     {
-        Orientation = Orientation.Horizontal, Spacing = 10,
-        Children = { new TextBlock { Text = label, Width = 54, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") }, control },
-    };
+        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("78,*"), ColumnSpacing = 8 };
+        var lbl = new TextBlock { Text = label, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+        Grid.SetColumn(lbl, 0);
+        Grid.SetColumn(control, 1);
+        g.Children.Add(lbl);
+        g.Children.Add(control);
+        return g;
+    }
 
     sealed record EnumOption<T>(T Value, string Label) { public override string ToString() => Label; }
     sealed record TermOption(short Type, string Label) { public override string ToString() => Label; }

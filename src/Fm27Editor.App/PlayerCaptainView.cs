@@ -49,6 +49,7 @@ public sealed partial class MainWindow
                 status.Text = $"{player.DisplayName} is now {TeamCaptainService.Label(role)}. Continue in FM to see updates.";
                 running = false;
                 window.Close();
+                RenderEditor();
             }
             catch (Exception ex) { problem.Text = UserMessage.For(ex); }
             finally { running = busy = false; confirm.IsEnabled = cancel.IsEnabled = true; }
@@ -71,6 +72,7 @@ public sealed partial class MainWindow
             await Task.Run(() => backend.Edits.Execute(() => CaptainWriter(session).Undo(plan)));
             captainUndo.Pop();
             status.Text = $"Restored {TeamCaptainService.Label(plan.Role)} for {plan.Player.DisplayName}. Continue in FM to see updates.";
+            RenderEditor();
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }
         finally { busy = false; }

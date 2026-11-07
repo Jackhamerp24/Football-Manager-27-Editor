@@ -72,9 +72,7 @@ public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize
             do
             {
                 if (string.Equals(entry.ExeFile, "fm.exe", StringComparison.OrdinalIgnoreCase))
-                {
                     found.Add((int)entry.ProcessId);
-                }
             } while (Process32Next(snapshot, ref entry));
             return found.ToArray();
         }

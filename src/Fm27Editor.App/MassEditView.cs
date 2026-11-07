@@ -29,32 +29,43 @@ public sealed partial class MainWindow
     {
         if (grid.CollectionView is not { } view || module is not PlayersModule) return;
         var targets = view.OfType<PlayerRecord>().ToArray();
-        var window = new Window { Title = "Mass Edit", Width = 640, Height = 600, MinHeight = 350, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var window = new Window { Title = "Mass Edit", Width = 660, Height = 600, MinHeight = 350, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var fields = Enum.GetValues<PlayerAttribute>().Select(a => new MassField(a.ToString(), a, null))
             .Concat(PlayerScalarMassEdit.Fields.Where(backend.Session.PlayerFields.IsMapped).Select(f => new MassField(f.ToString(), null, f)))
             .Concat(Enum.GetValues<PlayerQuality>().Select(f => new MassField(f.ToString(), null, null, f)))
             .Concat(Enum.GetValues<PlayerPosition>().Select(p => new PlayerRatingField(Position: p)).Select(f => new MassField(f.ToString(), null, null, Rating: f)))
             .Concat(Enum.GetValues<PersonalityAttribute>().Select(p => new PlayerRatingField(Personality: p)).Select(f => new MassField(f.ToString(), null, null, Rating: f)))
             .Concat(backend.Session.Profile.Contract is null ? [] : [new MassField("Wage", null, null, Wage: true)]).ToArray();
-        var attribute = new ComboBox { ItemsSource = fields, SelectedIndex = 0, Width = 170 };
-        var mode = new ComboBox { ItemsSource = Enum.GetValues<MassEditMode>(), SelectedIndex = 0, Width = 100 };
-        var value = new NumericUpDown { Minimum = int.MinValue, Maximum = int.MaxValue, Value = 10, Width = 90 };
+        var attribute = new ComboBox { ItemsSource = fields, SelectedIndex = 0, Width = 176 };
+        var mode = new ComboBox { ItemsSource = Enum.GetValues<MassEditMode>(), SelectedIndex = 0, Width = 104 };
+        var value = new NumericUpDown { Minimum = int.MinValue, Maximum = int.MaxValue, Value = 10, Width = 92, ShowButtonSpinner = false, HorizontalContentAlignment = HorizontalAlignment.Right };
         var add = new Button { Content = "Add" };
         var remove = new Button { Content = "Remove" };
         var preview = new Button { Content = "Preview" };
         var operations = new List<MassOperation>();
-        var operationsList = new ListBox { MaxHeight = 100, MinHeight = 42 };
+        var operationsList = new ListBox { MaxHeight = 100, MinHeight = 42, Margin = new Thickness(0, 8, 0, 0) };
         var apply = new Button { Content = "Apply", IsEnabled = false, Classes = { "accent" } };
         var undo = new Button { Content = "Undo last batch", IsEnabled = massUndo.Count > 0 };
+        var close = new Button { Content = "Close" };
+        close.Click += (_, _) => window.Close();
         var message = new TextBlock { Text = $"{targets.Length:N0} players", Margin = new Thickness(0, 8, 0, 8) };
         var table = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = false, RowHeight = 27 };
-        table.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding("Player.Id"), Width = new DataGridLength(100) });
+        var idCol = new DataGridTextColumn { Header = "ID", Binding = new Binding("Player.Id"), Width = new DataGridLength(96) };
+        idCol.CellStyleClasses.Add("numeric");
+        table.Columns.Add(idCol);
         table.Columns.Add(new DataGridTextColumn { Header = "Player", Binding = new Binding("Player.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding("Field"), Width = new DataGridLength(125) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Before", Binding = new Binding("Before"), Width = new DataGridLength(80) });
-        table.Columns.Add(new DataGridTextColumn { Header = "After", Binding = new Binding("After"), Width = new DataGridLength(80) });
+        table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding("Field"), Width = new DataGridLength(130) });
+        var beforeCol = new DataGridTextColumn { Header = "Before", Binding = new Binding("Before"), Width = new DataGridLength(86) };
+        beforeCol.CellStyleClasses.Add("numeric");
+        table.Columns.Add(beforeCol);
+        var afterCol = new DataGridTextColumn { Header = "After", Binding = new Binding("After"), Width = new DataGridLength(86) };
+        afterCol.CellStyleClasses.Add("numeric");
+        table.Columns.Add(afterCol);
         var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { attribute, mode, value, add, remove, preview } };
-        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0), Children = { apply, undo } };
+        var footer = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = false };
+        DockPanel.SetDock(close, Dock.Right);
+        footer.Children.Add(close);
+        footer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } });
         var top = new StackPanel { Children = { controls, operationsList, message } };
         var root = new DockPanel { Margin = new Thickness(12) };
         DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);

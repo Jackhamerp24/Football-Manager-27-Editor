@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Players;
 
@@ -10,6 +11,70 @@ public sealed partial class MainWindow
 {
     IReadOnlyList<NationRecord>? nationCatalogue;
     IReadOnlyList<CityRecord>? cityCatalogue;
+    readonly Dictionary<ulong, bool> goalkeeperColumn = [];
+
+    /// <summary>FMRTE's Information page: personal details, then Technical, Mental, Physical and Hidden columns on one screen.</summary>
+    Control InformationSection(PlayerRecord player)
+    {
+        var personal = InformationPanel(player);
+        personal.Width = 295;
+        personal.HorizontalAlignment = HorizontalAlignment.Left;
+
+        var host = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,1*,1*,1*"),
+            ColumnSpacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+
+        Grid.SetColumn(personal, 0);
+        host.Children.Add(personal);
+
+        // FMRTE keeps the stat columns equal width and right-aligns the numbers.
+        Control Column(string group, Control? header = null)
+        {
+            var control = GroupControl(group, player, header);
+            if (control is Border border)
+            {
+                border.HorizontalAlignment = HorizontalAlignment.Stretch;
+                border.Margin = new Thickness(0);
+            }
+            return control;
+        }
+
+        var groups = new[] { "Technical", "Mental", "Physical" };
+        for (int i = 0; i < groups.Length; i++)
+        {
+            var column = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
+            if (groups[i] == "Technical")
+            {
+                var picker = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
+                var technical = new Button { Content = "Tec.", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 10.5 };
+                var goalkeeping = new Button { Content = "GK", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 10.5 };
+                var selectedColumn = new ContentControl { HorizontalAlignment = HorizontalAlignment.Stretch };
+                void Select(bool keeper)
+                {
+                    goalkeeperColumn[player.Address] = keeper;
+                    technical.Classes.Set("accent", !keeper);
+                    goalkeeping.Classes.Set("accent", keeper);
+                    if (picker.Parent is Panel oldParent) oldParent.Children.Remove(picker);
+                    selectedColumn.Content = Column(keeper ? "Goalkeeping" : "Technical", picker);
+                }
+                technical.Click += (_, _) => Select(false);
+                goalkeeping.Click += (_, _) => Select(true);
+                picker.Children.Add(technical); picker.Children.Add(goalkeeping);
+                column.Children.Add(selectedColumn);
+                Select(goalkeeperColumn.GetValueOrDefault(player.Address, player.Position(PlayerPosition.Goalkeeper) >= 15));
+            }
+            else column.Children.Add(Column(groups[i]));
+            if (groups[i] == "Mental") column.Children.Add(Column("Personality"));
+            if (groups[i] == "Physical") column.Children.Add(Column("Hidden"));
+            Grid.SetColumn(column, i + 1);
+            host.Children.Add(column);
+        }
+        return host;
+    }
 
     /// <summary>FMRTE 27's Information tab fields that are not in the strip above the tabs; one Save writes the changed ones.</summary>
     Control InformationPanel(PlayerRecord player)
@@ -26,19 +91,62 @@ public sealed partial class MainWindow
         nationCatalogue ??= session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
         var nations = nationCatalogue;
 
-        var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 24, RowSpacing = 4, Margin = new Thickness(12, 8) };
+        var rowsStack = new StackPanel { Spacing = 0 };
+        Grid.SetIsSharedSizeScope(rowsStack, true);
+        int rowIdx = 0;
         var checks = new List<Func<bool>>();
-        void Refresh() => save.IsEnabled = discard.IsEnabled = checks.Any(changed => changed());
+        void Refresh() => UpdateScalarDraftState(player);
         void Row(string label, Control value)
         {
-            int r = grid.RowDefinitions.Count;
-            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
-            value.HorizontalAlignment = HorizontalAlignment.Left;
-            Grid.SetRow(text, r); Grid.SetRow(value, r); Grid.SetColumn(value, 1);
-            grid.Children.Add(text); grid.Children.Add(value);
+            var text = new TextBlock
+            {
+                Text = label,
+                FontSize = 11.5,
+                Foreground = UiKit.TextSecondary,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.NoWrap,
+                Margin = new Thickness(0, 0, 5, 0),
+            };
+            Control inner;
+            if (value is CheckBox or NumericUpDown || label is "Planned Retirement" or "Days in Country")
+            {
+                if (value is NumericUpDown || label == "Days in Country")
+                {
+                    value.Width = 96;
+                    value.HorizontalAlignment = HorizontalAlignment.Right;
+                    value.MinHeight = 24;
+                }
+                var flagRow = new DockPanel { LastChildFill = true, MinHeight = 24 };
+                DockPanel.SetDock(value, Dock.Right);
+                flagRow.Children.Add(value);
+                flagRow.Children.Add(text);
+                inner = flagRow;
+            }
+            else
+            {
+                value.HorizontalAlignment = HorizontalAlignment.Stretch;
+                value.MinHeight = 24;
+                var line = new Grid
+                {
+                    MinHeight = 24,
+                    ColumnDefinitions =
+                    {
+                        new ColumnDefinition(GridLength.Auto) { SharedSizeGroup = "InfoLbl" },
+                        new ColumnDefinition(GridLength.Star),
+                    },
+                };
+                Grid.SetColumn(text, 0);
+                Grid.SetColumn(value, 1);
+                line.Children.Add(text);
+                line.Children.Add(value);
+                inner = line;
+            }
+            rowsStack.Children.Add(new Border
+            {
+                Background = rowIdx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                Padding = new Thickness(5, 2, 5, 2),
+                Child = inner,
+            });
         }
 
         // A dropdown over one of FMRTE's lists; an unknown stored code stays selectable as "Code n" so Save keeps it.
@@ -47,7 +155,7 @@ public sealed partial class MainWindow
             if (!values.TryGetValue(field, out long raw)) return () => null;
             int current = (int)raw;
             var items = list.Any(x => x.Code == current) ? list : [.. list, (current, $"Code {current}")];
-            var box = new ComboBox { Width = 300, ItemsSource = items.Select(x => x.Name).ToArray(), SelectedIndex = items.ToList().FindIndex(x => x.Code == current) };
+            var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = items.Select(x => x.Name).ToArray(), SelectedIndex = items.ToList().FindIndex(x => x.Code == current) };
             box.SelectionChanged += (_, _) => Refresh();
             Row(label, box);
             int? Code() => box.SelectedIndex >= 0 ? items[box.SelectedIndex].Code : null;
@@ -65,8 +173,33 @@ public sealed partial class MainWindow
             return () => box.IsChecked;
         }
 
+        foreach (var id in new[] { "Born", "Height", "HomeReputation", "CurrentReputation", "WorldReputation" })
+        {
+            var field = PlayerFields.All.Single(f => f.Id == id);
+            var label = id switch { "HomeReputation" => "Home Reputation", "CurrentReputation" => "Current Reputation", "WorldReputation" => "World Reputation", _ => field.Label };
+            Row(label, FieldControl(field, player, labelOverride: ""));
+        }
+
+        foreach (var descriptor in SquadScalarDefinitions.Descriptors.Where(d => d.Field is PlayerField.Morale or PlayerField.AskingPrice or PlayerField.Caps or PlayerField.InternationalGoals or PlayerField.SubCaps or PlayerField.SubGoals))
+        {
+            if (!values.TryGetValue(descriptor.Field, out long original)) continue;
+            long current = playerScalarDrafts.GetValueOrDefault(player.Address)?.TryGetValue(descriptor.Field, out var staged) == true ? staged.Value : original;
+            var input = new NumericUpDown
+            {
+                Minimum = descriptor.Min,
+                Maximum = descriptor.Max,
+                Value = current,
+                FormatString = descriptor.Field == PlayerField.AskingPrice ? "N0" : "0",
+                ShowButtonSpinner = false,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Right,
+            };
+            input.ValueChanged += (_, e) => { if (!updating && e.NewValue is { } value) StageScalarChange(player, descriptor.Field, original, (long)value); };
+            Row(descriptor.Label, input);
+        }
+
         // Nationality
-        var nationBox = new ComboBox { Width = 300, ItemsSource = nations.Select(n => n.DisplayName).ToArray() };
+        var nationBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = nations.Select(n => n.DisplayName).ToArray() };
         int nationIndex = nations.ToList().FindIndex(n => n.Address == player.Nationality?.Address);
         nationBox.SelectedIndex = nationIndex;
         nationBox.SelectionChanged += (_, _) => Refresh();
@@ -77,8 +210,8 @@ public sealed partial class MainWindow
         // City Of Birth: type to search the game's cities, then pick one.
         var nationNames = nations.ToDictionary(n => n.Address, n => n.DisplayName);
         string CityLabel(CityRecord c) => nationNames.TryGetValue(c.Nation, out var n) ? $"{c.Name} ({n})" : c.Name;
-        var citySearch = new TextBox { Width = 160, Text = city?.Name ?? "" };
-        var cityPick = new ComboBox { Width = 300 };
+        var citySearch = new TextBox { HorizontalAlignment = HorizontalAlignment.Stretch, Text = city?.Name ?? "" };
+        var cityPick = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         if (city is not null) { cityPick.ItemsSource = new[] { new RelationTarget(CityLabel(city), city.Address) }; cityPick.SelectedIndex = 0; }
         citySearch.TextChanged += (_, _) =>
         {
@@ -91,7 +224,7 @@ public sealed partial class MainWindow
         cityPick.SelectionChanged += (_, _) => Refresh();
         checks.Add(() => cityPick.SelectedItem is RelationTarget t && t.Address != cityBefore);
         if (session.Profile.Cities is not null)
-            Row("City Of Birth", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { citySearch, cityPick } });
+            Row("City Of Birth", new StackPanel { Orientation = Orientation.Vertical, Spacing = 3, HorizontalAlignment = HorizontalAlignment.Stretch, Children = { citySearch, cityPick } });
 
         var bodyType = Choice("Body Type", PlayerField.BodyType, InformationLabels.BodyTypes);
         var hairColour = Choice("Hair Colour", PlayerField.HairColour, InformationLabels.HairColours);
@@ -107,7 +240,7 @@ public sealed partial class MainWindow
         {
             var arrived = new DateOnly((int)(arrivedRaw / 10000), (int)(arrivedRaw / 100 % 100), (int)(arrivedRaw % 100));
             daysBefore = now.DayNumber - arrived.DayNumber;
-            days = new TextBox { Width = 110, Text = daysBefore.Value.ToString(Inv), HorizontalContentAlignment = HorizontalAlignment.Right };
+            days = new TextBox { HorizontalAlignment = HorizontalAlignment.Stretch, Text = daysBefore.Value.ToString(Inv), HorizontalContentAlignment = HorizontalAlignment.Right };
             days.TextChanged += (_, _) => Refresh();
             checks.Add(() => days.Text != daysBefore.Value.ToString(Inv));
             Row("Days in Country", days);
@@ -134,13 +267,13 @@ public sealed partial class MainWindow
             Row("Planned Retirement", new TextBlock { Text = retirementDate, VerticalAlignment = VerticalAlignment.Center });
         }
 
-        panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Child = grid });
-        save.Click += (_, _) =>
+        panel.Children.Add(UiKit.Card("Personal Details", rowsStack));
+        bool SaveInformation()
         {
             int? newDays = null;
             if (days is not null && days.Text != daysBefore!.Value.ToString(Inv))
             {
-                if (!int.TryParse(days.Text, out var d) || d < 0 || d > 36500) { status.Text = "Days in Country: enter 0–36500"; return; }
+                if (!int.TryParse(days.Text, out var d) || d < 0 || d > 36500) { status.Text = "Days in Country: enter 0–36500"; return false; }
                 newDays = d;
             }
             var writes = new List<Action>();
@@ -177,12 +310,12 @@ public sealed partial class MainWindow
                 status.Text = "Saved information. Continue in FM to see updates.";
                 // The nationality lives on the player record; reload it so the next write checks against the new nation.
                 if (nationBox.SelectedIndex != nationIndex && backend.Players.Reload(player.Address) is { } fresh) { fresh.GameDate = backend.GameDate; selected = fresh; ReplaceRow(fresh); }
-                RenderEditor();
+                return true;
             }
-            catch (Exception ex) { status.Text = ex.Message; }
-        };
-        discard.Click += (_, _) => RenderEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+            catch (Exception ex) { status.Text = $"Some information changes may have been saved. {ex.Message}"; return false; }
+        }
+        informationDirty = () => checks.Any(changed => changed());
+        saveInformation = SaveInformation;
         return panel;
     }
 }

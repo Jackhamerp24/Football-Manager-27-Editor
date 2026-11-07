@@ -221,7 +221,18 @@ public sealed class CompetitionOffsets
     public int? WinterBallColour { get; init; }
     public int? WinterBallStart { get; init; }
     public int? WinterBallEnd { get; init; }
+    /// <summary>Byte FMRTE's Substitution Rules dropdown edits. Measured 5/11/2026 on build 2493426: 0xFF is
+    /// "Do Not Override Sub Rules" (Premier League and Championship both held FF) and 0x11 is "5 from 9"
+    /// (Premier League after FMRTE wrote it). Values for the other options are not mapped.</summary>
+    public int? SubstitutionRules { get; init; }
+    /// <summary>Prize Money path and vtables verified against FMRTE on this build.</summary>
+    public CompetitionPrizeOffsets? PrizeMoney { get; init; }
+    public uint? SquadRulesContainerVtableRva { get; init; }
 }
+
+public sealed record CompetitionPrizeOffsets(int Holder, int Stages, int StageOwner, int StagePrize,
+    int PerWin, int PerDraw, int PerDefeat, int Classification,
+    uint HolderVtableRva, uint StageVtableRva, uint PrizeVtableRva);
 
 /// <summary>
 /// Award object (FMRTE 27's Award page): game-wide pointer vector at [module + ListRootRva] + ListOffset (263 on 3/11/2026).

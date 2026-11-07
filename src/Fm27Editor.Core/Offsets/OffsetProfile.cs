@@ -240,6 +240,12 @@ public sealed class OffsetProfile
                 WinterBallColour = OptHex(comp, "winterBallColour"),
                 WinterBallStart = OptHex(comp, "winterBallStart"),
                 WinterBallEnd = OptHex(comp, "winterBallEnd"),
+                SubstitutionRules = OptHex(comp, "substitutionRules"),
+                SquadRulesContainerVtableRva = (uint?)OptHex(comp, "squadRulesContainerVtable"),
+                PrizeMoney = comp.TryGetProperty("prizeMoney", out var prizeOffsets) ? new CompetitionPrizeOffsets(
+                    Hex(prizeOffsets, "holder"), Hex(prizeOffsets, "stages"), Hex(prizeOffsets, "stageOwner"), Hex(prizeOffsets, "stagePrize"),
+                    Hex(prizeOffsets, "perWin"), Hex(prizeOffsets, "perDraw"), Hex(prizeOffsets, "perDefeat"), Hex(prizeOffsets, "classification"),
+                    (uint)Hex(prizeOffsets, "holderVtable"), (uint)Hex(prizeOffsets, "stageVtable"), (uint)Hex(prizeOffsets, "prizeVtable")) : null,
             } : null,
             Award = root.TryGetProperty("award", out var aw) ? new AwardOffsets
             {
@@ -522,9 +528,18 @@ public sealed class OffsetProfile
                     ("listRootRva", comp.ListRootRva), ("listOffset", comp.ListOffset), ("reputation", comp.Reputation),
                     ("reputationMirror", comp.ReputationMirror), ("foreground", comp.Foreground), ("background", comp.Background),
                     ("trim", comp.Trim), ("winterBallColour", comp.WinterBallColour), ("winterBallStart", comp.WinterBallStart),
-                    ("winterBallEnd", comp.WinterBallEnd),
+                    ("winterBallEnd", comp.WinterBallEnd), ("substitutionRules", comp.SubstitutionRules),
                 })
                     if (value is { } v) H(key, v);
+                if (comp.PrizeMoney is { } prize)
+                {
+                    w.WriteStartObject("prizeMoney");
+                    H("holder", prize.Holder); H("stages", prize.Stages); H("stageOwner", prize.StageOwner); H("stagePrize", prize.StagePrize);
+                    H("perWin", prize.PerWin); H("perDraw", prize.PerDraw); H("perDefeat", prize.PerDefeat); H("classification", prize.Classification);
+                    H("holderVtable", prize.HolderVtableRva); H("stageVtable", prize.StageVtableRva); H("prizeVtable", prize.PrizeVtableRva);
+                    w.WriteEndObject();
+                }
+                if (comp.SquadRulesContainerVtableRva is { } squadRulesVtable) H("squadRulesContainerVtable", squadRulesVtable);
                 w.WriteEndObject();
             }
             if (Award is { } aw)

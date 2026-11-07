@@ -14,7 +14,7 @@ public sealed partial class MainWindow
     /// <summary>FMRTE's Languages tab for a player or a staff member (same list on the person).</summary>
     Control LanguagesPanel(PersonOwner player, Action rerender)
     {
-        var panel = new StackPanel { Spacing = 8 };
+        var panel = new StackPanel { Spacing = 8, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left };
         var languages = backend.Session.ReadLanguages(player);
         var fields = new List<(PlayerLanguage Language, TextBox Value)>();
         var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
@@ -61,12 +61,12 @@ public sealed partial class MainWindow
         if (fields.Count > 0) list.Children.Add(grid);
         list.Children.Add(new Border
         {
-            BorderBrush = Brush("#222432"),
+            BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, fields.Count > 0 ? 1 : 0, 0, 0),
             Padding = new Thickness(12, 8),
             Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { addLanguage, addValue, add } },
         });
-        panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Child = list });
+        panel.Children.Add(UiKit.Card("Languages", list));
         save.Click += (_, _) =>
         {
             var changes = new List<(PlayerLanguage Language, int Value)>();

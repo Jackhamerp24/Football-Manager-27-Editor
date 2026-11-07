@@ -1,8 +1,10 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -29,14 +31,10 @@ public sealed partial class MainWindow : Window
     }
 
     readonly EditorBackend backend = new();
+    readonly GraphicsCatalog graphics = new();
     readonly ComboBox modules = new() { Width = 120 };
     readonly Border gameDateBadge = new()
     {
-        Background = Brush("#1B1F2E"),
-        BorderBrush = Brush("#282E42"),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(4),
-        Padding = new Thickness(10, 4),
         Margin = new Thickness(10, 0, 0, 0),
         VerticalAlignment = VerticalAlignment.Center,
         IsVisible = false
@@ -49,9 +47,9 @@ public sealed partial class MainWindow : Window
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    readonly TextBox search = new() { Watermark = "Search player name..." };
-    readonly ComboBox sortCombo = new() { Width = 172 };
-    readonly Button sortDirButton = new() { Content = "↓", Width = 40, HorizontalContentAlignment = HorizontalAlignment.Center };
+    readonly TextBox search = new() { Watermark = "Search player name or ID..." };
+    readonly ComboBox sortCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly Button sortDirButton = new() { Content = "↓", Width = 28, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center };
     readonly Button resetFiltersButton = new() { Content = "Reset" };
     readonly Button exportCsvButton = new() { Content = "CSV", IsEnabled = false };
     readonly Button exportJsonButton = new() { Content = "JSON", IsEnabled = false };
@@ -61,12 +59,15 @@ public sealed partial class MainWindow : Window
     readonly ComboBox clubFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox nationFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
 
-    readonly Button openAttrDialogButton = new() { Content = "Filters & Attributes...", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+    readonly Button openAttrDialogButton = new() { Content = "Scout", MinWidth = 72, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
     readonly ComboBox quickPresetCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly Button clearAttrButton = new() { Content = "Clear", IsVisible = false };
     readonly WrapPanel attrChipsPanel = new() { Orientation = Orientation.Horizontal, IsVisible = false, Margin = new Thickness(0, 4, 0, 0) };
     readonly List<AttributeThreshold> activeAttrThresholds = [];
     readonly List<PlayerPosition> activePositions = [];
+    readonly Dictionary<PlayerPosition, int> activePositionThresholds = [];
+    readonly Dictionary<string, NumericRange> activeNumericRanges = [];
+    ulong activePreferredMoves;
     int activePosMinRating = 15;
     int? activeMinAge, activeMaxAge, activeMinCa, activeMaxCa, activeMinPa, activeMaxPa;
     IReadOnlyList<FilterPreset> savedPresets = [];
@@ -75,7 +76,7 @@ public sealed partial class MainWindow : Window
     bool suppressFilterEvents;
 
     readonly Ellipse connectionDot = new() { Width = 8, Height = 8, Fill = Brush("#64748B"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
-    readonly TextBlock connection = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8"), FontSize = 12.5 };
+    readonly TextBlock connection = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8"), FontSize = 11.5 };
     readonly Button retry = new() { Content = "Retry" };
     readonly DataGrid grid = new()
     {
@@ -90,7 +91,7 @@ public sealed partial class MainWindow : Window
         Background = Brush("#11131C"),
         BorderThickness = new Thickness(0),
     };
-    readonly StackPanel editor = new() { Spacing = 12, Margin = new Thickness(18, 14) };
+    StackPanel editor = new() { Spacing = 12, Margin = new Thickness(18, 14) };
     readonly TextBlock status = new() { Margin = new Thickness(14, 5), Foreground = Brush("#94A3B8"), FontSize = 12 };
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(3) };
     IReadOnlyList<object> rows = [];
@@ -101,110 +102,84 @@ public sealed partial class MainWindow : Window
     bool updating, busy;
     string? lastFreezeError;
     int generation, searchVersion;
-    int editorTab;
+    string? pendingSection;
     PlayerPosition? selectedPosition;
     readonly Dictionary<ulong, PlayerDraft> drafts = [];
     Button? saveButton;
     Button? discardButton;
+    Func<bool>? informationDirty;
+    Func<bool>? saveInformation;
 
     public MainWindow()
     {
         Title = "Football Manager 27 Editor";
-        Width = 1480;
-        Height = 880;
-        MinWidth = 1040;
-        MinHeight = 660;
-        Background = Brush("#0D0F17");
-        FontSize = 13;
-        Foreground = Brush("#F1F5F9");
+        Width = 1100;
+        Height = 820;
+        MinWidth = 900;
+        MinHeight = 600;
+        Background = UiKit.WindowBg;
+        FontSize = 11.5;
+        Foreground = UiKit.TextPrimary;
+
+        _ = graphics.LoadAsync();
+        Opened += async (_, _) => { if (graphics.Folder is null) await ChooseGraphicsAsync(); };
 
         gameDateBadge.Child = gameDateText;
         InitializeFilterControls();
 
         var root = new DockPanel();
 
-        var top = new DockPanel { Margin = new Thickness(14, 8), LastChildFill = false };
-        var brand = new TextBlock
-        {
-            Text = "FM27 EDITOR",
-            FontSize = 13.5,
-            FontWeight = FontWeight.Bold,
-            Foreground = Brush("#F8FAFC"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(2, 0, 16, 0),
-        };
-        DockPanel.SetDock(brand, Dock.Left); top.Children.Add(brand);
-        DockPanel.SetDock(modules, Dock.Left); top.Children.Add(modules);
-        DockPanel.SetDock(gameDateBadge, Dock.Left); top.Children.Add(gameDateBadge);
-        DockPanel.SetDock(retry, Dock.Right); top.Children.Add(retry);
-        var connStatus = new StackPanel
+        var topBar = BuildTopBar();
+        DockPanel.SetDock(topBar, Dock.Top); root.Children.Add(topBar);
+
+        var statusRight = new StackPanel
         {
             Orientation = Orientation.Horizontal,
+            Spacing = 10,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 12, 0),
-            Children = { connectionDot, connection }
+            Children = { gameDateBadge, connectionDot, connection },
         };
-        DockPanel.SetDock(connStatus, Dock.Right); top.Children.Add(connStatus);
-
-        var topBar = new Border
-        {
-            Background = Brush("#131620"),
-            BorderBrush = Brush("#252A3D"),
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Child = top
-        };
-        DockPanel.SetDock(topBar, Dock.Top); root.Children.Add(topBar);
+        var statusDock = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(statusRight, Dock.Right);
+        statusDock.Children.Add(statusRight);
+        statusDock.Children.Add(status);
 
         var statusBar = new Border
         {
-            Background = Brush("#131620"),
-            BorderBrush = Brush("#252A3D"),
+            Background = UiKit.SurfaceAlt,
+            BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, 1, 0, 0),
-            MinHeight = 27,
-            Child = status
+            MinHeight = 26,
+            Child = statusDock
         };
         DockPanel.SetDock(statusBar, Dock.Bottom); root.Children.Add(statusBar);
 
-        var split = new Grid
+        var moduleRow = new Border
         {
-            ColumnDefinitions = new ColumnDefinitions
-            {
-                new ColumnDefinition(new GridLength(650)) { MinWidth = 500 },
-                new ColumnDefinition(new GridLength(6, GridUnitType.Pixel)),
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)) { MinWidth = 460 },
-            }
+            Background = Brush("#11141E"),
+            BorderBrush = UiKit.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(10, 3),
+            Child = moduleBar,
         };
+        DockPanel.SetDock(moduleRow, Dock.Top); root.Children.Add(moduleRow);
 
-        var left = new DockPanel { Background = Brush("#11131C") };
+        var entityRow = BuildEntityRow();
+        DockPanel.SetDock(entityRow, Dock.Top); root.Children.Add(entityRow);
+
         var filterArea = BuildFilterPanel();
+        var playersHost = new DockPanel { Background = UiKit.WindowBg };
         DockPanel.SetDock(filterArea, Dock.Top);
-        left.Children.Add(filterArea);
-        left.Children.Add(grid);
-        Grid.SetColumn(left, 0);
-        split.Children.Add(left);
+        playersHost.Children.Add(filterArea);
+        playersHost.Children.Add(grid);
 
-        var splitter = new GridSplitter
-        {
-            Width = 6,
-            ResizeDirection = GridResizeDirection.Columns,
-            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
-        };
-        Grid.SetColumn(splitter, 1);
-        split.Children.Add(splitter);
-
-        var scroll = new ScrollViewer
-        {
-            Content = editor,
-            Background = Brush("#0D0F17"),
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-        };
-        Grid.SetColumn(scroll, 2);
-        split.Children.Add(scroll);
-        root.Children.Add(split);
-        Content = root;
+        root.Children.Add(bodyHost);
+        var shell = new Grid();
+        shell.Children.Add(root);
+        shell.Children.Add(BuildSearchOverlay());
+        Content = shell;
+        AddModuleTab("Players", playersHost, null);
 
         modules.ItemsSource = Modules.Registered;
         modules.DisplayMemberBinding = new Binding("Title");
@@ -212,18 +187,27 @@ public sealed partial class MainWindow : Window
         {
             module = modules.SelectedItem as IEditorModule;
             ConfigureColumns();
-            if (backend.State.Status == ConnectionStatus.Connected) await LoadAsync();
+            status.Text = "";
+            if (backend.State.Status == ConnectionStatus.Connected && module is not null && rows.Count == 0) await LoadAsync();
         };
         grid.SelectionChanged += (_, _) =>
         {
-            if (!updating)
+            if (!updating) selected = grid.SelectedItem as PlayerRecord;
+        };
+        grid.DoubleTapped += (_, _) =>
+        {
+            if (grid.SelectedItem is PlayerRecord picked) ShowDetailTab(picked);
+        };
+        grid.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && grid.SelectedItem is PlayerRecord picked)
             {
-                selected = grid.SelectedItem as PlayerRecord;
-                RenderEditor();
+                ShowDetailTab(picked);
+                e.Handled = true;
             }
         };
         retry.Click += async (_, _) => await ConnectAsync();
-        Opened += async (_, _) => { modules.SelectedIndex = 0; await ConnectAsync(); timer.Start(); };
+        Opened += (_, _) => { modules.SelectedIndex = 0; timer.Start(); };
         Closed += (_, _) => { timer.Stop(); backend.Dispose(); };
         timer.Tick += async (_, _) => await CheckSelectedAsync();
         timer.Tick += (_, _) =>
@@ -236,13 +220,14 @@ public sealed partial class MainWindow : Window
                 status.Text = $"Freezer stopped: {error}";
             }
         };
-        RegisterClubsView(root, split);
-        RegisterStaffView(split);
-        RegisterNationView(split);
-        RegisterStadiumView(split);
-        RegisterCityView(split);
-        RegisterCompetitionView(split);
-        RegisterAwardView(split);
+        RegisterClubsView();
+        RegisterStaffView();
+        RegisterNationView();
+        RegisterStadiumView();
+        RegisterCityView();
+        RegisterCompetitionView();
+        RegisterAwardView();
+        ShowModule("Players");
     }
 
     void InitializeFilterControls()
@@ -320,6 +305,13 @@ public sealed partial class MainWindow : Window
                 activeMaxPa = preset.MaxPa;
                 activePositions.Clear();
                 if (preset.Positions is not null) activePositions.AddRange(preset.Positions);
+                activePositionThresholds.Clear();
+                if (preset.PositionThresholds is { } thresholds)
+                    foreach (var (position, rating) in thresholds) activePositionThresholds[position] = rating;
+                activeNumericRanges.Clear();
+                if (preset.NumericRanges is { } ranges)
+                    foreach (var (key, range) in ranges) activeNumericRanges[key] = range;
+                activePreferredMoves = preset.RequiredPreferredMoves;
                 activePosMinRating = Math.Clamp(preset.PositionMinRating, 1, 20);
                 activeAttrThresholds.Clear();
                 activeAttrThresholds.AddRange(preset.AttributeThresholds);
@@ -365,6 +357,9 @@ public sealed partial class MainWindow : Window
         activePresetName = null;
         activeMinAge = activeMaxAge = activeMinCa = activeMaxCa = activeMinPa = activeMaxPa = null;
         activePositions.Clear();
+        activePositionThresholds.Clear();
+        activeNumericRanges.Clear();
+        activePreferredMoves = 0;
         activePosMinRating = 15;
         activeAttrThresholds.Clear();
     }
@@ -385,6 +380,11 @@ public sealed partial class MainWindow : Window
             activeMaxPa = dialog.ResultMaxPa;
             activePositions.Clear();
             activePositions.AddRange(dialog.ResultPositions);
+            activePositionThresholds.Clear();
+            foreach (var (position, rating) in dialog.ResultPositionThresholds) activePositionThresholds[position] = rating;
+            activeNumericRanges.Clear();
+            foreach (var (key, range) in dialog.ResultNumericRanges) activeNumericRanges[key] = range;
+            activePreferredMoves = dialog.ResultPreferredMoves;
             activePosMinRating = dialog.ResultPositionMinRating;
             activeAttrThresholds.Clear();
             activeAttrThresholds.AddRange(dialog.ResultThresholds);
@@ -437,14 +437,24 @@ public sealed partial class MainWindow : Window
 
     Control BuildFilterPanel()
     {
-        var stack = new StackPanel { Spacing = 6 };
+        var stack = new StackPanel { Spacing = 5 };
 
-        // Row 1: Name search + Sort selector + Direction + Reset
-        var row1 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 6 };
+        // Row 1: Search + Scout + Preset + Sort + Direction + Actions
+        var row1 = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,160,148,Auto,Auto,Auto,Auto,Auto,Auto"),
+            ColumnSpacing = 5,
+        };
         Grid.SetColumn(search, 0); row1.Children.Add(search);
-        Grid.SetColumn(sortCombo, 1); row1.Children.Add(sortCombo);
-        Grid.SetColumn(sortDirButton, 2); row1.Children.Add(sortDirButton);
-        Grid.SetColumn(resetFiltersButton, 3); row1.Children.Add(resetFiltersButton);
+        Grid.SetColumn(openAttrDialogButton, 1); row1.Children.Add(openAttrDialogButton);
+        Grid.SetColumn(quickPresetCombo, 2); row1.Children.Add(quickPresetCombo);
+        Grid.SetColumn(sortCombo, 3); row1.Children.Add(sortCombo);
+        Grid.SetColumn(sortDirButton, 4); row1.Children.Add(sortDirButton);
+        Grid.SetColumn(clearAttrButton, 5); row1.Children.Add(clearAttrButton);
+        Grid.SetColumn(resetFiltersButton, 6); row1.Children.Add(resetFiltersButton);
+        Grid.SetColumn(massEditButton, 7); row1.Children.Add(massEditButton);
+        Grid.SetColumn(exportCsvButton, 8); row1.Children.Add(exportCsvButton);
+        Grid.SetColumn(exportJsonButton, 9); row1.Children.Add(exportJsonButton);
         stack.Children.Add(row1);
 
         // Row 2: League, Club, Nationality dropdowns
@@ -454,26 +464,17 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(nationFilter, 2); row2.Children.Add(nationFilter);
         stack.Children.Add(row2);
 
-        // Row 3: Filters & Attributes Dialog button + Preset selector + Clear button (Grid with *,*,Auto -> never overflows)
-        var row3 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,Auto,Auto,Auto,Auto"), ColumnSpacing = 6 };
-        Grid.SetColumn(openAttrDialogButton, 0); row3.Children.Add(openAttrDialogButton);
-        Grid.SetColumn(quickPresetCombo, 1); row3.Children.Add(quickPresetCombo);
-        Grid.SetColumn(clearAttrButton, 2); row3.Children.Add(clearAttrButton);
-        Grid.SetColumn(exportCsvButton, 3); row3.Children.Add(exportCsvButton);
-        Grid.SetColumn(exportJsonButton, 4); row3.Children.Add(exportJsonButton);
-        Grid.SetColumn(massEditButton, 5); row3.Children.Add(massEditButton);
         exportCsvButton.Click += async (_, _) => await ExportPlayersAsync(false);
         exportJsonButton.Click += async (_, _) => await ExportPlayersAsync(true);
         massEditButton.Click += async (_, _) => await ShowMassEditAsync();
-        stack.Children.Add(row3);
         stack.Children.Add(attrChipsPanel);
 
         return new Border
         {
-            Background = Brush("#141722"),
-            BorderBrush = Brush("#252A3D"),
+            Background = UiKit.Surface,
+            BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(10, 8),
+            Padding = new Thickness(10, 7),
             Child = stack
         };
     }
@@ -537,10 +538,14 @@ public sealed partial class MainWindow : Window
             AddChip(label, () => { activeMinPa = null; activeMaxPa = null; });
         }
 
+        foreach (var (key, range) in activeNumericRanges.ToArray())
+            AddChip($"{key} {range.Min?.ToString() ?? "…"}–{range.Max?.ToString() ?? "…"}", () => activeNumericRanges.Remove(key));
+        if (activePreferredMoves != 0) AddChip("Preferred Moves", () => activePreferredMoves = 0);
+
         foreach (var pos in activePositions.ToArray())
         {
             var shortPos = PositionLabels.Short(pos);
-            AddChip($"Pos: {shortPos} >= {activePosMinRating}", () => activePositions.Remove(pos));
+            AddChip($"Pos: {shortPos} >= {activePositionThresholds.GetValueOrDefault(pos, activePosMinRating)}", () => { activePositions.Remove(pos); activePositionThresholds.Remove(pos); });
         }
 
         foreach (var threshold in activeAttrThresholds.ToArray())
@@ -553,7 +558,7 @@ public sealed partial class MainWindow : Window
         bool hasAny = count > 0;
         attrChipsPanel.IsVisible = hasAny;
         clearAttrButton.IsVisible = hasAny;
-        openAttrDialogButton.Content = hasAny ? $"Filters & Attributes ({count})" : "Filters & Attributes...";
+        openAttrDialogButton.Content = hasAny ? $"Scout ({count})" : "Scout";
         if (hasAny) openAttrDialogButton.Classes.Add("accent");
         else openAttrDialogButton.Classes.Remove("accent");
     }
@@ -634,7 +639,7 @@ public sealed partial class MainWindow : Window
             UpdateConnectionBadge();
             connection.Text = backend.State.Message;
             if (backend.State.Status == ConnectionStatus.Connected) await LoadAsync();
-            else gameDateBadge.IsVisible = false;
+            else { gameDateBadge.IsVisible = false; status.Text = backend.State.Message; }
             if (backend.FreezeError is { } error) status.Text = $"Freezer unavailable: {error}";
         }
         finally { busy = false; retry.IsEnabled = true; }
@@ -668,6 +673,7 @@ public sealed partial class MainWindow : Window
             PopulateFilterDropdowns();
             Filter();
             UpdateConnectionBadge();
+            status.Text = $"{rows.Count:N0} players";
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }
     }
@@ -681,21 +687,23 @@ public sealed partial class MainWindow : Window
             DataGridLength width = c.Title switch
             {
                 "Name" => new DataGridLength(1, DataGridLengthUnitType.Star),
-                "Age" => new DataGridLength(68),
-                "CA" => new DataGridLength(64),
-                "PA" => new DataGridLength(64),
-                "Club" => new DataGridLength(132),
-                "Nationality" => new DataGridLength(116),
+                "Age" => new DataGridLength(72),
+                "CA" => new DataGridLength(72),
+                "PA" => new DataGridLength(72),
+                "Position" => new DataGridLength(150),
+                "Club" => new DataGridLength(180),
+                "Nationality" => new DataGridLength(155),
+                "Asking Price" => new DataGridLength(145),
                 _ => new DataGridLength(68),
             };
             var col = new DataGridTextColumn
             {
                 Header = c.Title,
-                Binding = new Binding(c.Binding),
+                Binding = c.Title == "Asking Price" ? new Binding(c.Binding) { StringFormat = "N0" } : new Binding(c.Binding),
                 Width = width,
-                MinWidth = c.Title == "Name" ? 135 : 58,
+                MinWidth = c.Title == "Name" ? 135 : 54,
             };
-            if (c.Title is "Age" or "CA" or "PA") col.CellStyleClasses.Add("numeric");
+            if (c.Title is "Age" or "CA" or "PA" or "Asking Price") col.CellStyleClasses.Add("numeric");
             grid.Columns.Add(col);
         }
     }
@@ -718,6 +726,9 @@ public sealed partial class MainWindow : Window
             MinPa = activeMinPa,
             MaxPa = activeMaxPa,
             Positions = activePositions.ToArray(),
+            PositionThresholds = new Dictionary<PlayerPosition, int>(activePositionThresholds),
+            NumericRanges = new Dictionary<string, NumericRange>(activeNumericRanges),
+            RequiredPreferredMoves = activePreferredMoves,
             PositionMinRating = activePosMinRating,
             AttributeThresholds = activeAttrThresholds.ToArray(),
         };
@@ -760,7 +771,6 @@ public sealed partial class MainWindow : Window
         PlayerRecord? nextSelection = null;
         if (prevSelectedAddress is { } addr)
             nextSelection = result.OfType<PlayerRecord>().FirstOrDefault(p => p.Address == addr);
-        nextSelection ??= result.OfType<PlayerRecord>().FirstOrDefault();
         grid.SelectedItem = nextSelection;
         updating = false;
 
@@ -771,7 +781,8 @@ public sealed partial class MainWindow : Window
                 : $"{backend.State.Message} · {result.Count:N0} / {rows.Count:N0}";
         }
 
-        if (!ReferenceEquals(selected, nextSelection))
+        bool viewingPlayerTab = playerTabs.Any(t => ReferenceEquals(t.Root, bodyHost.Content));
+        if (!viewingPlayerTab && !ReferenceEquals(selected, nextSelection))
         {
             selected = nextSelection;
             RenderEditor();
@@ -792,205 +803,238 @@ public sealed partial class MainWindow : Window
 
     static Border MetaBadge(string text, bool highlight = false) => new()
     {
+        Height = 24,
+        VerticalAlignment = VerticalAlignment.Center,
         Background = Brush(highlight ? "#261B47" : "#1D2233"),
         BorderBrush = Brush(highlight ? "#6D28D9" : "#2C334A"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(4),
-        Padding = new Thickness(8, 2),
+        Padding = new Thickness(8, 0),
         Margin = new Thickness(0, 0, 6, 0),
         Child = new TextBlock
         {
             Text = text,
             FontSize = 11.5,
+            VerticalAlignment = VerticalAlignment.Center,
             FontWeight = highlight ? FontWeight.SemiBold : FontWeight.Medium,
             Foreground = Brush(highlight ? "#E9D5FF" : "#CBD5E1")
         }
     };
 
+    static Button MetaLink(string text, bool highlight = false) => new()
+    {
+        Content = text, Padding = new Thickness(8, 2), Margin = new Thickness(0, 0, 6, 0),
+        FontSize = 11.5, MinHeight = 0, Background = Brush(highlight ? "#261B47" : "#1D2233"),
+        BorderBrush = Brush(highlight ? "#6D28D9" : "#2C334A"), BorderThickness = new Thickness(1),
+        Foreground = Brush(highlight ? "#E9D5FF" : "#CBD5E1"),
+    };
+
     void RenderEditor()
     {
         editor.Children.Clear();
+        informationDirty = null;
+        saveInformation = null;
         if (selected is not { } player) return;
         if (!drafts.TryGetValue(player.Address, out var draft)) drafts[player.Address] = draft = new PlayerDraft(player);
-
-        var headerDock = new DockPanel { LastChildFill = true };
 
         var commands = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = 6,
             VerticalAlignment = VerticalAlignment.Center
         };
-        saveButton = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" } };
-        saveButton.Click += (_, _) => SaveDraft();
-        discardButton = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
-        discardButton.Click += (_, _) => { drafts.Remove(player.Address); status.Text = "Changes discarded"; RenderEditor(); };
-        commands.Children.Add(saveButton);
-        commands.Children.Add(discardButton);
-        if (backend.Freezer is not null)
+
+        foreach (var field in PlayerFields.All.Where(f => f.Group == "Ability"))
         {
-            var freeze = new Button { Content = "Freezer" };
-            freeze.Click += async (_, _) => await ShowPlayerFreezerAsync(player);
-            commands.Children.Add(freeze);
+            var ability = new NumericUpDown
+            {
+                Minimum = field.Min, Maximum = field.Max, Value = draft.Value(field),
+                Width = 46, MinHeight = 24, Height = 24, ShowButtonSpinner = false,
+                FontSize = 16, FontWeight = FontWeight.Black,
+                Classes = { "borderless" },
+                HorizontalContentAlignment = HorizontalAlignment.Right,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Foreground = Brush(field.Id == "CurrentAbility" ? "#38BDF8" : "#C084FC"),
+            };
+            ability.ValueChanged += (_, e) =>
+            {
+                if (updating || e.NewValue is null || e.NewValue == e.OldValue) return;
+                draft.Stage(field, (int)e.NewValue.Value);
+                UpdateScalarDraftState(player);
+            };
+            commands.Children.Add(UiKit.StatBox(field.Label, ability));
         }
-        DockPanel.SetDock(commands, Dock.Right);
-        headerDock.Children.Add(commands);
 
-        var identity = new StackPanel { Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        identity.Children.Add(new TextBlock
+        saveButton = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" }, Margin = new Thickness(4, 0, 0, 0) };
+        saveButton.Click += (_, _) => SavePlayerChanges(player);
+        discardButton = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
+        discardButton.Click += (_, _) =>
         {
-            Text = player.DisplayName,
-            FontSize = 20,
-            FontWeight = FontWeight.Bold,
-            Foreground = Brush("#F8FAFC")
-        });
+            drafts.Remove(player.Address);
+            playerScalarDrafts.Remove(player.Address);
+            RenderEditor();
+            status.Text = "Changes discarded";
+        };
 
-        var badges = new WrapPanel { Orientation = Orientation.Horizontal };
-        if (!string.IsNullOrEmpty(player.ClubName))
-            badges.Children.Add(MetaBadge(player.ClubName, highlight: true));
-        if (!string.IsNullOrEmpty(player.DivisionName))
-            badges.Children.Add(MetaBadge(player.DivisionName));
-        if (!string.IsNullOrEmpty(player.NationalityName))
-            badges.Children.Add(MetaBadge(player.NationalityName));
+        var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (player.Id is { } pid)
+            badges.Children.Add(UiKit.MetaText($"ID {pid}"));
+
+        if (player.Club is { } club && !string.IsNullOrEmpty(player.ClubName))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            var link = UiKit.MetaLinkButton(club.Name ?? player.ClubName, highlight: true);
+            link.Click += async (_, _) => await OpenPlayerClubAsync(club.Address);
+            badges.Children.Add(link);
+        }
+
+        if (player.Division is { } division && !string.IsNullOrEmpty(player.DivisionName))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            var link = UiKit.MetaLinkButton(division.Name ?? player.DivisionName);
+            link.Click += (_, _) => OpenPlayerCompetition(division.Address);
+            badges.Children.Add(link);
+        }
+
+        if (player.Nationality is { } nation && !string.IsNullOrEmpty(player.NationalityName))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            nationCatalogue ??= backend.Session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+            int? natId = nationCatalogue.FirstOrDefault(n => n.Address == nation.Address)?.Id
+                ?? nationCatalogue.FirstOrDefault(n => string.Equals(n.Name, player.NationalityName, StringComparison.OrdinalIgnoreCase))?.Id;
+            var flag = graphics.Image("nationflag", natId, 15);
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { flag, new TextBlock { Text = nation.Name ?? player.NationalityName, FontSize = 12, VerticalAlignment = VerticalAlignment.Center } },
+            };
+            var link = UiKit.MetaLinkButton(content);
+            link.Click += async (_, _) => await OpenPlayerNationAsync(nation.Address);
+            badges.Children.Add(link);
+        }
+
         if (player.Age is { } age)
-            badges.Children.Add(MetaBadge($"{age} yrs"));
-
-        identity.Children.Add(badges);
-        headerDock.Children.Add(identity);
-
-        editor.Children.Add(new Border
         {
-            Background = Brush("#151926"),
-            BorderBrush = Brush("#7C3AED"),
-            BorderThickness = new Thickness(3, 1, 1, 1),
-            CornerRadius = new CornerRadius(5),
-            Padding = new Thickness(16, 12),
-            Child = headerDock
-        });
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaText($"{age} yrs"));
+        }
+
+        var portrait = graphics.Image("person", player.Id, 72);
+        var identityHeader = UiKit.EntityBanner(player.DisplayName, badges, commands.Children.Count > 0 ? commands : null, portrait);
+        var playerTab = playerTabs.FirstOrDefault(t => ReferenceEquals(t.Panel, editor));
+        if (playerTab is not null)
+        {
+            playerTab.Player = player;
+            playerTab.Header.Content = identityHeader;
+        }
+        else editor.Children.Add(identityHeader);
 
         status.Text = draft.Count > 0 ? $"{draft.Count} unsaved change(s)" : "";
 
-        var strip = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var field in PlayerFields.All.Where(f => f.Group is "Ability" or "Reputation" or "Body"))
-        {
-            bool isAbility = field.Group == "Ability";
-            var item = new Border
-            {
-                Width = isAbility ? 128 : field.Kind == FieldKind.Date ? 172 : 144,
-                Padding = new Thickness(12, 6),
-                Margin = new Thickness(0, 0, 8, 4),
-                Background = Brush(isAbility ? "#191B2E" : "#151824"),
-                BorderBrush = Brush(isAbility ? "#4C1D95" : "#252A3D"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Child = FieldControl(field, player)
-            };
-            strip.Children.Add(item);
-        }
-        editor.Children.Add(strip);
-
-        var tabs = new TabControl { Padding = new Thickness(0, 8, 0, 0) };
-        var attributes = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var group in new[] { "Technical", "Mental", "Physical", "Goalkeeping" })
-            attributes.Children.Add(GroupControl(group, player));
-
-        var personality = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var group in new[] { "Hidden", "Personality" })
-            personality.Children.Add(GroupControl(group, player));
-
         var pitch = CreatePitch(player, draft);
-        var tabList = new List<TabItem>
+        var sections = new List<SectionHost.Section>
         {
-            new TabItem { Header = "Information", Content = InformationPanel(player) },
-            new TabItem { Header = "Attributes", Content = attributes },
-            new TabItem { Header = "Comparison", Content = ComparisonPanel(player) },
-            new TabItem { Header = "Positions", Content = pitch },
-            new TabItem { Header = "Personality", Content = personality },
-            new TabItem { Header = "Contract", Content = ContractTabs(player) },
-            new TabItem { Header = "Career Plans", Content = CareerPlansPanel(player) },
-            new TabItem { Header = "Clone Center", Content = ClonePanel(player) },
-            new TabItem { Header = "Move to club", Content = MovePanel(player) },
-            new TabItem { Header = "Swap National Call Up", Content = CallUpPanel(player) },
-            new TabItem { Header = "Injury", Content = InjuryPanel(player) },
-            new TabItem { Header = "Unavailability", Content = UnavailabilityPanel(player) },
-            new TabItem { Header = "Transfer Proposals", Content = ProposalsPanel(player) },
-            new TabItem { Header = "Preferred Moves", Content = PreferredMovesPanel(player) },
-            new TabItem { Header = "Relationships", Content = RelationshipsPanel(player) },
-            new TabItem { Header = "Languages", Content = LanguagesPanel(player) }
+            new("Information", "Information", InformationSection(player)),
+            new("Positions", "Positions", pitch),
+            new("Career Plans", "Career Plans", CareerPlansPanel(player)),
+            new("Move to club", "Move to club", MovePanel(player)),
+            new("Work Permit", "Work Permit", EmptySection()),
+            new("Promises", "Promises", EmptySection()),
+            new("Unavailability", "Unavailability", UnavailabilityPanel(player)),
         };
         // Like FMRTE, Future Transfer appears only for players with an agreed future move.
         if (FutureTransferPanel(player) is { } future)
-            tabList.Insert(tabList.FindIndex(t => (string?)t.Header == "Swap National Call Up") + 1, new TabItem { Header = "Future Transfer", Content = future });
-        tabs.ItemsSource = tabList;
-        tabs.SelectedIndex = Math.Min(editorTab, tabList.Count - 1);
-        tabs.SelectionChanged += (_, _) => { if (tabs.SelectedIndex >= 0) editorTab = tabs.SelectedIndex; };
-        editor.Children.Add(tabs);
+            sections.Add(new("Future Transfer", "Future Transfer", future));
+        sections.AddRange(
+        [
+            new("Transfer Proposals", "Transfer Proposals", ProposalsPanel(player)),
+            new("Injury", "Injury", InjuryPanel(player)),
+            new("Contract", "Contract", ContractTabs(player)),
+            new("Preferred Moves", "Preferred Moves", PreferredMovesPanel(player)),
+            new("Relationships", "Relationships", RelationshipsPanel(player)),
+            new("Languages", "Languages", LanguagesPanel(player)),
+            new("Scout Information", "Scout Information", EmptySection()),
+            new("Comparison", "Comparison", ComparisonPanel(player)),
+            new("Clone Center", "Clone Center", ClonePanel(player)),
+            new("Swap National Call Up", "Swap National Call Up", CallUpPanel(player)),
+        ]);
+        var actions = CreatePlayerActionsPanel(
+            player: player,
+            isSquadMode: false,
+            getSquadPlayers: null,
+            onStatus: msg => status.Text = msg);
+        var sectionHost = SectionHost.Build("player", sections, pendingSection,
+            key => actions.IsVisible = key == "Information", playerTab?.Rail);
+        pendingSection = null;
+        var bodyGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        Grid.SetColumn(sectionHost, 0);
+        bodyGrid.Children.Add(sectionHost);
+        actions.Margin = new Thickness(6, 0, 0, 0);
+        Grid.SetColumn(actions, 1);
+        bodyGrid.Children.Add(actions);
+        editor.Children.Add(bodyGrid);
         HookPlayerActions(player);
     }
 
-    Control GroupControl(string group, PlayerRecord player)
+    static Control EmptySection() => new Panel();
+
+    Control GroupControl(string group, PlayerRecord player, Control? customHeader = null)
     {
-        var panel = new StackPanel { Spacing = 0 };
-        panel.Children.Add(new Border
-        {
-            Background = Brush("#1C2032"),
-            BorderBrush = Brush("#7C3AED"),
-            BorderThickness = new Thickness(0, 0, 0, 2),
-            Padding = new Thickness(10, 7),
-            Margin = new Thickness(0, 0, 0, 2),
-            Child = new TextBlock
-            {
-                Text = group.ToUpperInvariant(),
-                FontSize = 11,
-                FontWeight = FontWeight.Bold,
-                Foreground = Brush("#F1F5F9")
-            }
-        });
+        var rowsPanel = new StackPanel { Spacing = 0 };
         int rowIndex = 0;
         foreach (var field in PlayerFields.All.Where(f => f.Group == group))
         {
             var rowControl = FieldControl(field, player);
-            panel.Children.Add(new Border
+            rowsPanel.Children.Add(new Border
             {
-                Background = rowIndex++ % 2 == 1 ? Brush("#121520") : Brushes.Transparent,
-                Padding = new Thickness(10, 1, 8, 1),
+                Background = rowIndex++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                Padding = new Thickness(4, 1, 4, 1),
                 Child = rowControl
             });
         }
-        return new Border
-        {
-            Width = 228,
-            Margin = new Thickness(0, 0, 10, 10),
-            Background = Brush("#151926"),
-            BorderBrush = Brush("#252A3D"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            ClipToBounds = true,
-            Child = panel
-        };
+        return UiKit.Card(group, rowsPanel, customTitle: customHeader);
     }
+
+    static readonly PlayerPosition[] DefensivePositions =
+    [
+        PlayerPosition.Goalkeeper,
+        PlayerPosition.DefenderLeft,
+        PlayerPosition.DefenderCentral,
+        PlayerPosition.DefenderRight,
+        PlayerPosition.WingBackLeft,
+        PlayerPosition.WingBackRight,
+        PlayerPosition.DefensiveMidfielder,
+    ];
+
+    static readonly PlayerPosition[] AttackingPositions =
+    [
+        PlayerPosition.MidfielderLeft,
+        PlayerPosition.MidfielderCentral,
+        PlayerPosition.MidfielderRight,
+        PlayerPosition.AttackingMidLeft,
+        PlayerPosition.AttackingMidCentral,
+        PlayerPosition.AttackingMidRight,
+        PlayerPosition.Striker,
+    ];
 
     Control CreatePitch(PlayerRecord player, PlayerDraft draft)
     {
-        const double width = 460, height = 300, dotSize = 26;
-        var result = new StackPanel { Margin = new Thickness(0, 6), Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
-        var pitch = new Canvas { Width = width, Height = height, Background = Brush("#0F382F"), ClipToBounds = true };
-        var lines = Brush("#4F7E72");
-        void Rectangle(double x, double y, double w, double h)
-        {
-            var shape = new Rectangle { Width = w, Height = h, Stroke = lines, StrokeThickness = 1.5, IsHitTestVisible = false };
-            Canvas.SetLeft(shape, x); Canvas.SetTop(shape, y); pitch.Children.Add(shape);
-        }
-        Rectangle(1, 1, width - 2, height - 2);
-        Rectangle(0, 78, 48, 144); Rectangle(0, 112, 16, 76);
-        Rectangle(width - 48, 78, 48, 144); Rectangle(width - 16, 112, 16, 76);
-        var halfway = new Line { StartPoint = new Point(width / 2, 0), EndPoint = new Point(width / 2, height), Stroke = lines, StrokeThickness = 1.5, IsHitTestVisible = false };
-        pitch.Children.Add(halfway);
-        var circle = new Ellipse { Width = 60, Height = 60, Stroke = lines, StrokeThickness = 1.5, IsHitTestVisible = false };
-        Canvas.SetLeft(circle, width / 2 - 30); Canvas.SetTop(circle, height / 2 - 30); pitch.Children.Add(circle);
+        const double width = 314, height = 428, dotSize = 26;
+        var leftStack = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left };
+        var pitch = PitchSurface.Create(width, height);
 
         var dots = new Dictionary<PlayerPosition, Button>();
-        var selection = new ContentControl { Width = width, HorizontalAlignment = HorizontalAlignment.Left };
+        var rowUpdaters = new Dictionary<PlayerPosition, Action<int>>();
+        var rowBorders = new Dictionary<PlayerPosition, Border>();
+        var selection = new ContentControl { Width = width + 2, HorizontalAlignment = HorizontalAlignment.Left };
+        bool syncingPos = false;
+
         void Select(PitchPosition position)
         {
             selectedPosition = position.Position;
@@ -1000,82 +1044,230 @@ public sealed partial class MainWindow : Window
                 dot.BorderBrush = active ? Brushes.White : Brush("#1A4339");
                 dot.BorderThickness = new Thickness(active ? 2 : 1);
             }
+            foreach (var (key, rb) in rowBorders)
+            {
+                rb.BorderBrush = key == position.Position ? UiKit.Accent : Brushes.Transparent;
+            }
             var field = PlayerFields.All.Single(f => f.Group == "Positions" && f.Id == position.Position.ToString());
-            var panel = new DockPanel { LastChildFill = true };
+            var panel = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
             var ratingControl = FieldControl(field, player, onChanged: value =>
             {
-                dots[position.Position].Background = PositionColor(value);
-                dots[position.Position].Content = value.ToString();
+                if (syncingPos) return;
+                syncingPos = true;
+                PitchSurface.SetRating(dots[position.Position], value);
+                if (rowUpdaters.TryGetValue(position.Position, out var upd)) upd(value);
+                syncingPos = false;
             }, labelOverride: "Rating");
-            ratingControl.Width = 130;
-            DockPanel.SetDock(ratingControl, Dock.Right);
-            panel.Children.Add(ratingControl);
-            panel.Children.Add(new TextBlock
+            ratingControl.Width = 72;
+            var title = new TextBlock
             {
-                Text = position.Label,
-                FontSize = 14,
+                Text = $"{position.Label} ({PositionLabels.Short(position.Position)})",
+                FontSize = 11.5,
                 FontWeight = FontWeight.SemiBold,
+                Foreground = UiKit.TextPrimary,
                 VerticalAlignment = VerticalAlignment.Center
-            });
+            };
+            Grid.SetColumn(title, 0);
+            Grid.SetColumn(ratingControl, 1);
+            panel.Children.Add(title);
+            panel.Children.Add(ratingControl);
             selection.Content = new Border
             {
-                Background = Brush("#151926"),
-                BorderBrush = Brush("#252A3D"),
+                Background = UiKit.Surface,
+                BorderBrush = UiKit.BorderSubtle,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(12, 8),
+                Padding = new Thickness(8, 6),
                 Child = panel
             };
         }
+
         foreach (var position in PitchLayout.Positions)
         {
             var field = PlayerFields.All.Single(f => f.Group == "Positions" && f.Id == position.Position.ToString());
             int val = draft.Value(field);
-            var dot = new Button
-            {
-                Width = dotSize,
-                Height = dotSize,
-                MinWidth = 0,
-                MinHeight = 0,
-                Padding = new Thickness(0),
-                CornerRadius = new CornerRadius(dotSize / 2),
-                Background = PositionColor(val),
-                Foreground = Brush("#0B1311"),
-                FontSize = 11,
-                FontWeight = FontWeight.Bold,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Content = val.ToString()
-            };
-            ToolTip.SetTip(dot, position.Label);
-            Avalonia.Automation.AutomationProperties.SetName(dot, position.Label);
-            Canvas.SetLeft(dot, position.X * width - dotSize / 2); Canvas.SetTop(dot, position.Y * height - dotSize / 2);
-            dot.Click += (_, _) => Select(position); dots[position.Position] = dot; pitch.Children.Add(dot);
+            var dot = PitchSurface.CreateDot(position, val);
+            Canvas.SetLeft(dot, position.X * width - dotSize / 2);
+            Canvas.SetTop(dot, position.Y * height - dotSize / 2);
+            dot.Click += (_, _) => Select(position);
+            dots[position.Position] = dot;
+            pitch.Children.Add(dot);
         }
-        result.Children.Add(new Border
+
+        leftStack.Children.Add(new Border
         {
-            BorderBrush = Brush("#252A3D"),
+            BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
             ClipToBounds = true,
             Child = pitch
         });
-        result.Children.Add(selection);
-        var initial = PitchLayout.Positions.FirstOrDefault(p => p.Position == selectedPosition) ?? PitchLayout.Positions.MaxBy(p => draft.Value(PlayerFields.All.Single(f => f.Group == "Positions" && f.Id == p.Position.ToString())))!;
+        leftStack.Children.Add(selection);
+
+        Border BuildPosCard(string title, IReadOnlyList<PlayerPosition> list)
+        {
+            var stack = new StackPanel { Spacing = 0 };
+            int idx = 0;
+            foreach (var pos in list)
+            {
+                var pitchPos = PitchLayout.Positions.Single(p => p.Position == pos);
+                var field = PlayerFields.All.Single(f => f.Group == "Positions" && f.Id == pos.ToString());
+                int initialVal = draft.Value(field);
+
+                var colorDot = new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = PositionColor(initialVal),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 5, 0),
+                };
+                var codeTag = new TextBlock
+                {
+                    Text = PositionLabels.Short(pos),
+                    Width = 30,
+                    FontSize = 10.5,
+                    FontWeight = FontWeight.Bold,
+                    Foreground = UiKit.TextMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var nameLbl = new TextBlock
+                {
+                    Text = pitchPos.Label,
+                    FontSize = 11.5,
+                    Foreground = UiKit.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.NoWrap,
+                };
+
+                int beforeEdit = initialVal;
+                var box = new TextBox
+                {
+                    Text = initialVal.ToString(Inv),
+                    Width = 28,
+                    MinWidth = 0,
+                    MaxWidth = 28,
+                    Height = 20,
+                    MinHeight = 20,
+                    Padding = new Thickness(2, 0),
+                    FontSize = 11.5,
+                    FontWeight = FontWeight.Bold,
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Background = RatingBg(initialVal),
+                    BorderBrush = RatingBorder(initialVal),
+                    Foreground = RatingColor(initialVal),
+                };
+                void ApplyVisual(int v)
+                {
+                    box.Text = v.ToString(Inv);
+                    box.Foreground = RatingColor(v);
+                    box.Background = RatingBg(v);
+                    box.BorderBrush = RatingBorder(v);
+                    colorDot.Fill = PositionColor(v);
+                }
+                rowUpdaters[pos] = ApplyVisual;
+
+                box.GotFocus += (_, _) => beforeEdit = draft.Value(field);
+                box.LostFocus += (_, _) =>
+                {
+                    if (!int.TryParse(box.Text, out int value) || value < field.Min || value > field.Max)
+                        value = beforeEdit;
+                    ApplyVisual(value);
+                    if (value != draft.Value(field))
+                    {
+                        draft.Stage(field, value);
+                        PitchSurface.SetRating(dots[pos], value);
+                        if (selectedPosition == pos && !syncingPos)
+                        {
+                            syncingPos = true;
+                            Select(pitchPos);
+                            syncingPos = false;
+                        }
+                        if (selected?.Address == player.Address) UpdateScalarDraftState(player);
+                    }
+                };
+                box.KeyDown += (_, e) =>
+                {
+                    if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+                    {
+                        TopLevel.GetTopLevel(box)?.FocusManager?.ClearFocus();
+                        e.Handled = true;
+                    }
+                };
+
+                var rowDock = new DockPanel { LastChildFill = true, MinHeight = 26 };
+                DockPanel.SetDock(box, Dock.Right);
+                rowDock.Children.Add(box);
+                DockPanel.SetDock(colorDot, Dock.Left);
+                rowDock.Children.Add(colorDot);
+                DockPanel.SetDock(codeTag, Dock.Left);
+                rowDock.Children.Add(codeTag);
+                rowDock.Children.Add(nameLbl);
+
+                var rowBorder = new Border
+                {
+                    Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                    BorderThickness = new Thickness(2, 0, 0, 0),
+                    BorderBrush = Brushes.Transparent,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    Child = rowDock,
+                };
+                rowBorder.PointerPressed += (_, e) =>
+                {
+                    if (e.Source is TextBox) return;
+                    Select(pitchPos);
+                };
+                rowBorders[pos] = rowBorder;
+                stack.Children.Add(rowBorder);
+            }
+            return UiKit.Card(title, stack);
+        }
+
+        var rightGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 8,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var defCard = BuildPosCard("Defensive", DefensivePositions);
+        var attCard = BuildPosCard("Midfield & Attack", AttackingPositions);
+        Grid.SetColumn(defCard, 0);
+        Grid.SetColumn(attCard, 1);
+        rightGrid.Children.Add(defCard);
+        rightGrid.Children.Add(attCard);
+
+        var initial = PitchLayout.Positions.FirstOrDefault(p => p.Position == selectedPosition)
+            ?? PitchLayout.Positions.MaxBy(p => draft.Value(PlayerFields.All.Single(f => f.Group == "Positions" && f.Id == p.Position.ToString())))!;
         Select(initial);
-        return result;
+
+        var outer = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            ColumnSpacing = 10,
+            Margin = new Thickness(0, 2, 0, 8),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        Grid.SetColumn(leftStack, 0);
+        Grid.SetColumn(rightGrid, 1);
+        outer.Children.Add(leftStack);
+        outer.Children.Add(rightGrid);
+        return outer;
     }
 
     Control FieldControl(FieldDescriptor<PlayerRecord> field, PlayerRecord player, bool compact = false, Action<int>? onChanged = null, string? labelOverride = null)
     {
-        var line = new DockPanel { Height = 28, LastChildFill = true };
+        var line = new DockPanel { MinHeight = 24, LastChildFill = true };
+        string resolvedLabel = labelOverride ?? (compact ? field.Label.Replace("Defensive Midfielder", "DM").Replace("Attacking Mid", "AM").Replace("Midfielder", "M").Replace("Defender", "D").Replace("Wing Back", "WB").Replace("Goalkeeper", "GK").Replace("Striker", "ST") : field.Label);
         var label = new TextBlock
         {
-            Text = labelOverride ?? (compact ? field.Label.Replace("Defensive Midfielder", "DM").Replace("Attacking Mid", "AM").Replace("Midfielder", "M").Replace("Defender", "D").Replace("Wing Back", "WB").Replace("Goalkeeper", "GK").Replace("Striker", "ST") : field.Label),
-            FontSize = 12.5,
+            Text = resolvedLabel,
+            FontSize = 11.5,
             Foreground = Brush("#CBD5E1"),
             VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextWrapping = TextWrapping.NoWrap,
+            IsVisible = resolvedLabel.Length > 0,
         };
         if (field.Write is null)
         {
@@ -1083,7 +1275,7 @@ public sealed partial class MainWindow : Window
             {
                 Text = field.Read(player).ToString("N0"),
                 Margin = new Thickness(6, 0, 2, 0),
-                FontSize = 12.5,
+                FontSize = 11.5,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = Brush("#F1F5F9"),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -1099,31 +1291,115 @@ public sealed partial class MainWindow : Window
             onChanged?.Invoke(value);
             if (selected?.Address == player.Address)
             {
-                if (saveButton is not null) saveButton.IsEnabled = draft.Count > 0;
-                if (discardButton is not null) discardButton.IsEnabled = draft.Count > 0;
-                status.Text = draft.Count > 0 ? $"{draft.Count} unsaved change(s)" : "";
+                UpdateScalarDraftState(player);
             }
         }
         if (field.Kind == FieldKind.Date)
         {
-            var box = new TextBox
+            static string FormatBorn(int v) => v == 0 ? "" : DateField.FromInt(v).ToString("dd-MM-yyyy", Inv);
+            int stagedDateVal = currentVal;
+            var dateBox = new TextBox
             {
-                Text = currentVal == 0 ? "" : DateField.FromInt(currentVal).ToString("yyyy-MM-dd", Inv),
-                Width = 96,
-                FontSize = 12.5,
-                FontWeight = FontWeight.Bold,
-                HorizontalContentAlignment = HorizontalAlignment.Right,
-                Background = Brush("#0E1018"),
-                BorderBrush = Brush("#282E42"),
-                Foreground = Brush("#F8FAFC")
+                Text = FormatBorn(stagedDateVal),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(6, 0),
             };
-            box.TextChanged += (_, _) =>
+            var cal = new Avalonia.Controls.Calendar
             {
-                bool ok = DateField.TryParse(box.Text, out int value);
-                box.BorderBrush = Brush(ok ? "#282E42" : "#B91C1C");
-                if (!updating && ok && value != draft.Value(field)) Staged(value);
+                DisplayDateStart = new DateTime(1900, 1, 1),
+                DisplayDateEnd = new DateTime(2100, 12, 31),
+                SelectedDate = stagedDateVal == 0 ? null : DateField.FromInt(stagedDateVal).ToDateTime(TimeOnly.MinValue),
+                DisplayDate = stagedDateVal == 0 ? new DateTime(2000, 1, 1) : DateField.FromInt(stagedDateVal).ToDateTime(TimeOnly.MinValue),
             };
-            DockPanel.SetDock(box, Dock.Right); line.Children.Add(box); line.Children.Add(label);
+            var flyout = new Flyout { Content = cal };
+            var calBtn = new Button
+            {
+                Width = 24,
+                MinWidth = 24,
+                Height = 24,
+                Padding = new Thickness(0),
+                Flyout = flyout,
+                Content = new PathIcon
+                {
+                    Width = 12,
+                    Height = 12,
+                    Foreground = Brush("#94A3B8"),
+                    Data = Geometry.Parse("M3,4H5V2H7V4H17V2H19V4H21A1,1 0 0,1 22,5V20A1,1 0 0,1 21,21H3A1,1 0 0,1 2,20V5A1,1 0 0,1 3,4M4,9V19H20V9H4Z"),
+                },
+            };
+            bool syncingCal = false;
+            cal.SelectedDatesChanged += (_, _) =>
+            {
+                if (syncingCal || updating || cal.SelectedDate is not { } dt) return;
+                int next = DateField.ToInt(DateOnly.FromDateTime(dt));
+                stagedDateVal = next;
+                dateBox.Text = FormatBorn(next);
+                Staged(next);
+                flyout.Hide();
+            };
+            dateBox.LostFocus += (_, _) =>
+            {
+                string raw = (dateBox.Text ?? "").Trim();
+                if (DateOnly.TryParseExact(raw, ["dd-MM-yyyy", "d-M-yyyy", "dd/MM/yyyy", "yyyy-MM-dd"], Inv, System.Globalization.DateTimeStyles.None, out var parsed)
+                    && parsed.Year is >= 1900 and <= 2100)
+                {
+                    int next = DateField.ToInt(parsed);
+                    stagedDateVal = next;
+                    dateBox.Text = FormatBorn(next);
+                    syncingCal = true;
+                    cal.SelectedDate = parsed.ToDateTime(TimeOnly.MinValue);
+                    cal.DisplayDate = cal.SelectedDate.Value;
+                    syncingCal = false;
+                    if (next != draft.Value(field)) Staged(next);
+                }
+                else
+                {
+                    dateBox.Text = FormatBorn(stagedDateVal);
+                }
+            };
+            var dateHost = new Grid { ColumnDefinitions = new ColumnDefinitions("*,24"), ColumnSpacing = 3, HorizontalAlignment = HorizontalAlignment.Stretch };
+            Grid.SetColumn(dateBox, 0);
+            Grid.SetColumn(calBtn, 1);
+            dateHost.Children.Add(dateBox);
+            dateHost.Children.Add(calBtn);
+            if (resolvedLabel.Length == 0) return dateHost;
+            dateHost.Width = 148;
+            DockPanel.SetDock(dateHost, Dock.Right); line.Children.Add(dateHost); line.Children.Add(label);
+            return line;
+        }
+        if (field.Kind == FieldKind.Rating20)
+        {
+            int beforeEdit = currentVal;
+            var rating = new TextBox
+            {
+                Text = currentVal.ToString(Inv), Width = 28, MinWidth = 0, MaxWidth = 28, Height = 20, MinHeight = 20,
+                HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(2, 0),
+                FontSize = 11.5, FontWeight = FontWeight.Bold,
+                HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+                Background = RatingBg(currentVal), BorderBrush = RatingBorder(currentVal),
+                Foreground = RatingColor(currentVal),
+            };
+            rating.GotFocus += (_, _) => beforeEdit = draft.Value(field);
+            rating.LostFocus += (_, _) =>
+            {
+                if (!int.TryParse(rating.Text, out int value) || value < field.Min || value > field.Max)
+                    value = beforeEdit;
+                rating.Text = value.ToString(Inv);
+                rating.Foreground = RatingColor(value);
+                rating.Background = RatingBg(value);
+                rating.BorderBrush = RatingBorder(value);
+                if (value != draft.Value(field)) Staged(value);
+            };
+            rating.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+                {
+                    TopLevel.GetTopLevel(rating)?.FocusManager?.ClearFocus();
+                    e.Handled = true;
+                }
+            };
+            DockPanel.SetDock(rating, Dock.Right); line.Children.Add(rating); line.Children.Add(label);
             return line;
         }
         var input = new NumericUpDown
@@ -1133,15 +1409,13 @@ public sealed partial class MainWindow : Window
             Increment = 1,
             Value = currentVal,
             ShowButtonSpinner = false,
-            Width = field.Kind == FieldKind.Rating20 ? 46 : 58,
-            FontSize = 12.5,
-            FontWeight = FontWeight.Bold,
+            Width = resolvedLabel.Length == 0 ? double.NaN : 64,
+            HorizontalAlignment = resolvedLabel.Length == 0 ? HorizontalAlignment.Stretch : HorizontalAlignment.Right,
+            FontSize = 11.5,
+            FontWeight = FontWeight.SemiBold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
-            Background = Brush("#0E1018"),
-            BorderBrush = Brush("#282E42"),
-            Foreground = field.Kind == FieldKind.Rating20 ? RatingColor(currentVal) : Brush("#F8FAFC")
+            Foreground = field.Kind == FieldKind.Rating20 ? RatingColor(currentVal) : UiKit.TextPrimary
         };
-        DockPanel.SetDock(input, Dock.Right); line.Children.Add(input); line.Children.Add(label);
         input.ValueChanged += (_, e) =>
         {
             if (updating || e.NewValue is null || e.OldValue == e.NewValue) return;
@@ -1149,12 +1423,54 @@ public sealed partial class MainWindow : Window
             Staged(value);
             if (field.Kind == FieldKind.Rating20) input.Foreground = RatingColor(value);
         };
+        if (resolvedLabel.Length == 0) return input;
+        DockPanel.SetDock(input, Dock.Right); line.Children.Add(input); line.Children.Add(label);
         return line;
     }
 
-    void SaveDraft()
+    void SavePlayerChanges(PlayerRecord player)
     {
-        if (selected is null || !drafts.TryGetValue(selected.Address, out var draft) || draft.Count == 0) return;
+        bool hadInformationChanges = informationDirty?.Invoke() == true;
+        if (hadInformationChanges && saveInformation?.Invoke() != true) return;
+        if (playerScalarDrafts.TryGetValue(player.Address, out var scalars) && scalars.Count > 0)
+        {
+            foreach (var (field, (expected, value)) in scalars.ToArray())
+            {
+                try
+                {
+                    backend.Edits.Execute(() => backend.Session.PlayerFields.Set(player, field, expected, value));
+                    scalars.Remove(field);
+                }
+                catch (Exception ex)
+                {
+                    if (hadInformationChanges && backend.Players.Reload(player.Address) is { } updated)
+                    {
+                        updated.GameDate = backend.GameDate;
+                        selected = updated;
+                        ReplaceRow(updated);
+                        RenderEditor();
+                    }
+                    else UpdateScalarDraftState(player);
+                    status.Text = $"Some changes may have been saved. Failed to save {field}: {ex.Message}";
+                    return;
+                }
+            }
+            playerScalarDrafts.Remove(player.Address);
+        }
+        if (!SaveDraft()) return;
+        if (backend.Players.Reload(player.Address) is { } fresh)
+        {
+            fresh.GameDate = backend.GameDate;
+            selected = fresh;
+            ReplaceRow(fresh);
+        }
+        RenderEditor();
+        status.Text = "Changes saved. Continue in FM to see updates.";
+    }
+
+    bool SaveDraft()
+    {
+        if (selected is null || !drafts.TryGetValue(selected.Address, out var draft) || draft.Count == 0) return true;
         var address = selected.Address;
         var count = draft.Count;
         try
@@ -1162,8 +1478,9 @@ public sealed partial class MainWindow : Window
             selected = draft.Save(backend.Edits);
             selected.GameDate = backend.GameDate;
             drafts.Remove(address);
-            ReplaceRow(selected); RenderEditor();
+            ReplaceRow(selected);
             status.Text = $"Saved {count} change(s). Continue in FM to see updates.";
+            return true;
         }
         catch (Exception ex)
         {
@@ -1177,6 +1494,7 @@ public sealed partial class MainWindow : Window
                 status.Text = $"{saved} saved. {UserMessage.For(ex)} Review remaining changes.";
             }
             catch (Exception reloadError) { status.Text = $"{saved} saved. {UserMessage.For(reloadError)}"; }
+            return false;
         }
     }
 
@@ -1189,6 +1507,8 @@ public sealed partial class MainWindow : Window
     }
 
     static IBrush RatingColor(int value) => new SolidColorBrush(Color.Parse(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8"));
+    static IBrush RatingBg(int value) => Brush(value <= 5 ? "#0E1119" : value <= 10 ? "#181611" : value <= 15 ? "#0E1B18" : "#0D1A26");
+    static IBrush RatingBorder(int value) => Brush(value <= 5 ? "#23293B" : value <= 10 ? "#3B341B" : value <= 15 ? "#1D3B2F" : "#1C3B57");
     static IBrush PositionColor(int value) => Brush(value <= 5 ? "#334155" : value <= 10 ? "#F59E0B" : value <= 15 ? "#EAB308" : "#84CC16");
     static IBrush Brush(string color) => new SolidColorBrush(Color.Parse(color));
 }

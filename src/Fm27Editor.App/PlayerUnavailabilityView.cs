@@ -73,8 +73,8 @@ public sealed partial class MainWindow
         e.ShowItem();
         e.Scope.SelectionChanged += (_, _) => e.ShowItem();
         var body = new StackPanel { Children = { grid } };
-        if (actions is not null) body.Children.Add(new Border { BorderBrush = Brush("#222432"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(12, 8), Child = actions });
-        panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Child = body });
+        if (actions is not null) body.Children.Add(new Border { BorderBrush = UiKit.BorderSubtle, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(12, 8), Child = actions });
+        panel.Children.Add(UiKit.Card(BanLabels.ScopeName(scope), body));
         return e;
     }
 

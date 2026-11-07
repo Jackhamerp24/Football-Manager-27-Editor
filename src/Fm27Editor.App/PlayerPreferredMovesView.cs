@@ -27,7 +27,7 @@ public sealed partial class MainWindow
             grid.Children.Add(boxes[i]);
             boxes[i].IsCheckedChanged += (_, _) => Changed();
         }
-        panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Child = grid });
+        panel.Children.Add(UiKit.Card("Preferred Moves", grid));
         var all = new Button { Content = "Select All" };
         var clear = new Button { Content = "Clear" };
         all.Click += (_, _) => { foreach (var b in boxes) b.IsChecked = true; };

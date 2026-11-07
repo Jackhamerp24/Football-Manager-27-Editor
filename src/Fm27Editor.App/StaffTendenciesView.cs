@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Fm27Editor.Core.Staff;
 
 namespace Fm27Editor.App;
@@ -16,30 +17,43 @@ public sealed partial class MainWindow
 
     Control StaffTendenciesPanel(StaffRecord staff)
     {
-        var panel = new StackPanel { Spacing = 8, Margin = new Thickness(12, 8) };
+        var outer = new StackPanel { Spacing = 10, MaxWidth = 620, HorizontalAlignment = HorizontalAlignment.Left };
         IReadOnlyList<StaffTendency> rows;
         try { rows = backend.Session.StaffTendencies.Read(staff); }
-        catch (Exception ex) { panel.Children.Add(new TextBlock { Text = ex.Message }); return panel; }
+        catch (Exception ex) { outer.Children.Add(new TextBlock { Text = ex.Message }); return outer; }
+        if (rows.Count == 0) return outer;
+
         var fields = new List<(StaffTendency Row, ComboBox Type, TextBox Box)>();
         var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
         static byte Code(ComboBox box) => ((TendencyChoice)box.SelectedItem!).Code;
         bool Pending() => fields.Any(f => f.Box.Text != f.Row.Level.ToString(Inv) || Code(f.Type) != f.Row.Type);
         void Refresh() => save.IsEnabled = discard.IsEnabled = Pending();
+
+        var list = new StackPanel { Spacing = 0 };
+        int idx = 0;
         foreach (var row in rows)
         {
             var choices = TendencyChoices.ToList();
             if (choices.All(c => c.Code != row.Type)) choices.Insert(0, new(row.Type, StaffTendencies.TypeName(row.Type)));
-            var type = new ComboBox { Width = 420, ItemsSource = choices, SelectedItem = choices.First(c => c.Code == row.Type), MaxDropDownHeight = 400 };
-            var box = new TextBox { Width = 70, Text = row.Level.ToString(Inv), HorizontalContentAlignment = HorizontalAlignment.Right };
-            var line = new DockPanel { LastChildFill = false };
+            var type = new ComboBox { Width = 380, ItemsSource = choices, SelectedItem = choices.First(c => c.Code == row.Type), MaxDropDownHeight = 400 };
+            var box = new TextBox { Width = 68, Text = row.Level.ToString(Inv), HorizontalContentAlignment = HorizontalAlignment.Right };
+            var line = new DockPanel { LastChildFill = false, MinHeight = 26 };
             DockPanel.SetDock(box, Dock.Right); line.Children.Add(box);
             line.Children.Add(type);
             fields.Add((row, type, box));
             box.TextChanged += (_, _) => Refresh();
             type.SelectionChanged += (_, _) => Refresh();
-            panel.Children.Add(line);
+            list.Children.Add(new Border
+            {
+                Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                Padding = new Thickness(12, 3),
+                Child = line,
+            });
         }
+
+        outer.Children.Add(UiKit.Card("Tendencies", list));
+
         save.Click += (_, _) =>
         {
             var changes = new List<(StaffTendency Row, byte Type, int Level)>();
@@ -67,7 +81,7 @@ public sealed partial class MainWindow
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }
         };
         discard.Click += (_, _) => RenderStaffEditor();
-        if (fields.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
-        return panel;
+        outer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        return outer;
     }
 }

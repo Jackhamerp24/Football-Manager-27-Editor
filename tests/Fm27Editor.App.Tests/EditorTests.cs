@@ -8,17 +8,19 @@ namespace Fm27Editor.App.Tests;
 public sealed class EditorTests
 {
     [Fact]
-    public void PitchIncludesEachPositionOnceWithRightAboveLeftAndGoalkeeperAtLeft()
+    public void PitchPlacesGoalkeeperBelowStrikerAndLeftPositionsOnLeft()
     {
         var positions = PitchLayout.Positions;
         Assert.Equal(14, positions.Count);
         Assert.Equal(Enum.GetValues<PlayerPosition>().Order(), positions.Select(p => p.Position).Order());
         var goalkeeper = positions.Single(p => p.Position == PlayerPosition.Goalkeeper);
         var striker = positions.Single(p => p.Position == PlayerPosition.Striker);
-        Assert.True(goalkeeper.X < striker.X);
+        // User requested a vertical pitch with GK below ST and left on the left.
+        Assert.True(goalkeeper.Y > striker.Y);
         foreach (var (right, left) in new[] { (PlayerPosition.DefenderRight, PlayerPosition.DefenderLeft), (PlayerPosition.WingBackRight, PlayerPosition.WingBackLeft), (PlayerPosition.MidfielderRight, PlayerPosition.MidfielderLeft), (PlayerPosition.AttackingMidRight, PlayerPosition.AttackingMidLeft) })
         {
-            Assert.True(positions.Single(p => p.Position == right).Y < positions.Single(p => p.Position == left).Y);
+            Assert.True(positions.Single(p => p.Position == left).X < positions.Single(p => p.Position == right).X);
+            Assert.Equal(positions.Single(p => p.Position == left).Y, positions.Single(p => p.Position == right).Y);
         }
     }
 
@@ -119,14 +121,25 @@ public sealed class EditorTests
     }
 
     [Fact]
-    public void SearchMatchesBothNamesWithoutCaseOrAccents()
+    public void SearchMatchesBothNamesAndUniqueIdWithoutCaseOrAccents()
     {
         var (_, _, _, original) = Setup();
-        var player = new PlayerRecord { Address = original.Address, VtableRva = original.VtableRva, FirstName = "Benjamin", LastName = "Šeško", FullName = "Benjamin Šeško", CommonName = "Striker", CurrentAbility = 153, PotentialAbility = 177, HomeReputation = 0, CurrentReputation = 0, WorldReputation = 0, Height = 0, RawAttributes = original.RawAttributes, AttributeScale = 5, Positions = original.Positions, Personality = original.Personality };
+        var player = new PlayerRecord { Address = original.Address, VtableRva = original.VtableRva, Id = 43124203, FirstName = "Bruno", LastName = "Šeško", FullName = "Bruno Šeško", CommonName = "Striker", CurrentAbility = 153, PotentialAbility = 177, HomeReputation = 0, CurrentReputation = 0, WorldReputation = 0, Height = 0, RawAttributes = original.RawAttributes, AttributeScale = 5, Positions = original.Positions, Personality = original.Personality };
         var module = new PlayersModule();
         Assert.True(module.Matches(player, "sesko"));
         Assert.True(module.Matches(player, "STRIKER"));
+        Assert.True(module.Matches(player, "43124203"));
+        Assert.True(module.Matches(player, "43124"));
+        Assert.False(module.Matches(player, "85139014"));
         Assert.False(module.Matches(player, "Yamal"));
+    }
+
+    [Fact]
+    public void NationRowToStringReturnsNationDisplayNameForComboBoxes()
+    {
+        var nation = new Fm27Editor.Core.Nations.NationRecord(0x2000, 765, "England", "ENG");
+        var row = new MainWindow.NationRow(nation, "England", 765, 4, 155, 19);
+        Assert.Equal("England", row.ToString());
     }
     [Fact]
     public void SearchIndexUpdatesResultsWhenQuerySortOrSourceChanges()
@@ -202,7 +215,8 @@ public sealed class EditorTests
     {
         var mod = Assert.Single(Modules.Registered);
         Assert.Equal("Players", mod.Title);
-        Assert.Equal(new[] { "Name", "Age", "CA", "PA", "Club", "Nationality" }, mod.Columns.Select(c => c.Title));
+        // User requested Position and Asking Price in the Players list.
+        Assert.Equal(new[] { "Name", "Age", "CA", "PA", "Position", "Club", "Nationality", "Asking Price" }, mod.Columns.Select(c => c.Title));
         Assert.Empty(Modules.Actions);
     }
 
@@ -299,6 +313,23 @@ public sealed class EditorTests
             new PlayerFilter { Positions = [PlayerPosition.AttackingMidRight, PlayerPosition.MidfielderCentral], PositionMinRating = 15 },
             new PlayerSortSpec(PlayerSortKey.CurrentAbility, Descending: true));
         Assert.Equal(new[] { "Lamine Yamal", "Kobbie Mainoo" }, wingersOrMidfielders.Select(p => p.DisplayName));
+
+        // Independent thresholds requested by the user: M >= 14 and AM >= 16.
+        mainoo.Positions[(int)PlayerPosition.MidfielderCentral] = 14;
+        mainoo.Positions[(int)PlayerPosition.AttackingMidCentral] = 16;
+        var independent = new PlayerFilter { PositionThresholds = new Dictionary<PlayerPosition, int>
+        {
+            [PlayerPosition.MidfielderCentral] = 14, [PlayerPosition.AttackingMidCentral] = 16,
+        } };
+        Assert.True(module.MatchesFilter(mainoo, independent));
+        mainoo.Positions[(int)PlayerPosition.AttackingMidCentral] = 15;
+        Assert.False(module.MatchesFilter(mainoo, independent));
+        Assert.True(module.MatchesFilter(mainoo, new PlayerFilter { NumericRanges = new Dictionary<string, NumericRange>
+        {
+            ["Height"] = new(180, 185), ["Wages"] = new(100000, 100000)
+        } }));
+        Assert.False(module.MatchesFilter(mainoo, new PlayerFilter { NumericRanges = new Dictionary<string, NumericRange> { ["Height"] = new(181, null) } }));
+        Assert.False(module.MatchesFilter(mainoo, new PlayerFilter { RequiredPreferredMoves = 1 }));
     }
 
     [Fact]

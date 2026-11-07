@@ -69,4 +69,22 @@ public sealed class StaffContractAccess(IProcessMemory memory, OffsetProfile pro
         ulong vt = memory.ReadUInt64(staff.Address);
         return S.Kinds.Any(k => vt == moduleBase + k.PersonVtableRva);
     }
+
+    /// <summary>Renew: moves the expiry <paramref name="years"/> years past the later of today and the current expiry.</summary>
+    public void Renew(StaffRecord staff, OfferContract contract, int years, DateOnly today)
+    {
+        if (years < 1 || years > 10) throw new ArgumentOutOfRangeException(nameof(years), "Years must be 1 to 10");
+        if (contract.Started is not { } started) throw new InvalidOperationException("The staff contract has no start date");
+        // Extend from the current expiry while it is still in the future, otherwise from today (a lapsed deal).
+        var from = contract.Expires is { } expiry && expiry > today ? expiry : today;
+        Set(staff, contract, new OfferContractFields(contract.Wage, (ContractType)contract.Type, false, started, from.AddYears(years)));
+    }
+
+    /// <summary>Expire: ends the contract the day before <paramref name="today"/>, so the game treats it as finished today.</summary>
+    public void Expire(StaffRecord staff, OfferContract contract, DateOnly today)
+    {
+        if (contract.Started is not { } started) throw new InvalidOperationException("The staff contract has no start date");
+        var firstDay = started <= today ? started : today.AddYears(-1);
+        Set(staff, contract, new OfferContractFields(contract.Wage, (ContractType)contract.Type, false, firstDay, today.AddDays(-1)));
+    }
 }

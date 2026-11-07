@@ -114,6 +114,87 @@ public sealed class ClubRelationshipWriter(IProcessMemory memory, OffsetProfile 
             throw new MemoryAccessException($"Could not write {after.Length} bytes at 0x{row.Address:X}");
     }
 
+    /// <summary>Removes one row: the rows after it shift left and the vector's end shrinks by one record.</summary>
+    public void Remove(ulong club, ClubRelationship row)
+    {
+        var o = profile.Club?.Relationships ?? throw new InvalidOperationException("Profile has no club relationship offsets");
+        var before = Convert.FromHexString(row.Snapshot);
+        Require(club, row, o, before);
+        ulong header = club + (ulong)o.Vector;
+        ulong next = row.Address + (ulong)o.RecordSize;
+        if (next < row.End)
+        {
+            var tail = memory.Read(next, (int)(row.End - next));
+            if (!memory.TryWrite(row.Address, tail) || !memory.Read(row.Address, tail.Length).AsSpan().SequenceEqual(tail))
+                throw new MemoryAccessException($"Could not move the rows at 0x{row.Address:X}");
+        }
+        var newEnd = BitConverter.GetBytes(row.End - (ulong)o.RecordSize);
+        if (!memory.TryWrite(header + 8, newEnd) || !memory.Read(header + 8, 8).AsSpan().SequenceEqual(newEnd))
+            throw new MemoryAccessException($"Could not shrink the club relationship vector at 0x{header:X}");
+    }
+
+    /// <summary>
+    /// Appends a Rival row into the vector's spare capacity (no allocation: throws when the vector is full), then grows
+    /// the end and returns the row as read back.
+    /// </summary>
+    public ClubRelationship? AddRival(ulong club, ulong rivalClub, int value = 50, int reason = 2, Func<int, ulong>? allocate = null)
+    {
+        var o = profile.Club?.Relationships ?? throw new InvalidOperationException("Profile has no club relationship offsets");
+        if (value is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(value), "Relationship value is 1-100");
+        if (reason < 0 || reason >= ReasonCount(ClubRelationshipKind.Rival)) throw new ArgumentOutOfRangeException(nameof(reason));
+        if (!IsClubObject(club) || !IsClubObject(rivalClub)) throw new ArgumentException("Both ends must be club objects");
+        ulong header = club + (ulong)o.Vector;
+        if (!Q(header, out ulong begin) || !Q(header + 8, out ulong end) || !Q(header + 16, out ulong cap))
+            throw new StaleObjectException("The club changed since it was read");
+        if (begin == 0 || end < begin || cap < end || (end - begin) % (ulong)o.RecordSize != 0)
+            throw new StaleObjectException("The club relationship list looks invalid");
+        var record = new byte[o.RecordSize];
+        record[o.Type] = (byte)o.RivalType;
+        record[o.Kind] = (byte)o.ClubKind;
+        BitConverter.GetBytes(rivalClub).CopyTo(record, o.Target);
+        record[o.Value] = (byte)value;
+        record[o.Reason] = (byte)reason;
+        record[o.Flags] = 0;
+        if (end + (ulong)o.RecordSize <= cap)
+        {
+            if (!memory.TryWrite(end, record) || !memory.Read(end, record.Length).AsSpan().SequenceEqual(record))
+                throw new MemoryAccessException($"Could not write the new club relationship at 0x{end:X}");
+            var grown = BitConverter.GetBytes(end + (ulong)o.RecordSize);
+            if (!memory.TryWrite(header + 8, grown) || !memory.Read(header + 8, 8).AsSpan().SequenceEqual(grown))
+                throw new MemoryAccessException($"Could not grow the club relationship vector at 0x{header:X}");
+            return new ClubRelationshipReader(memory, profile, moduleBase).Read(club).LastOrDefault(r => r.Address == end);
+        }
+        // Vector full: a buffer outside the game's allocator holds old rows + the new one (same rule as squad vectors).
+        if (allocate is null) throw new StaleObjectException("The club relationship list has no spare room");
+        int oldBytes = (int)(end - begin), newBytes = oldBytes + o.RecordSize * 2;
+        ulong buffer = allocate(newBytes);
+        if (buffer == 0) throw new MemoryAccessException("Could not allocate a club relationship buffer");
+        var copy = memory.Read(begin, oldBytes);
+        if (!memory.TryWrite(buffer, copy) || !memory.Read(buffer, copy.Length).AsSpan().SequenceEqual(copy))
+            throw new MemoryAccessException($"Could not copy the club relationships to 0x{buffer:X}");
+        if (!memory.TryWrite(buffer + (ulong)oldBytes, record)
+            || !memory.Read(buffer + (ulong)oldBytes, record.Length).AsSpan().SequenceEqual(record))
+            throw new MemoryAccessException($"Could not write the new club relationship at 0x{buffer + (ulong)oldBytes:X}");
+        var headerBytes = new byte[24];
+        BitConverter.GetBytes(buffer).CopyTo(headerBytes, 0);
+        BitConverter.GetBytes(buffer + (ulong)oldBytes + (ulong)o.RecordSize).CopyTo(headerBytes, 8);
+        BitConverter.GetBytes(buffer + (ulong)newBytes).CopyTo(headerBytes, 16);
+        if (!memory.TryWrite(header, headerBytes) || !memory.Read(header, headerBytes.Length).AsSpan().SequenceEqual(headerBytes))
+            throw new MemoryAccessException($"Could not point the club relationship vector at 0x{buffer:X}");
+        return new ClubRelationshipReader(memory, profile, moduleBase).Read(club)
+            .LastOrDefault(r => r.Address == buffer + (ulong)oldBytes);
+    }
+
+    bool IsClubObject(ulong address) => profile.Club is { } k && Q(address, out ulong vt) && vt == moduleBase + k.ClubVtableRva;
+
+    bool Q(ulong address, out ulong value)
+    {
+        Span<byte> b = stackalloc byte[8];
+        bool ok = address != 0 && memory.TryRead(address, b);
+        value = ok ? BitConverter.ToUInt64(b) : 0;
+        return ok;
+    }
+
     void Require(ulong club, ClubRelationship row, ClubRelationshipOffsets o, byte[] before)
     {
         if (profile.Club is not { } k || memory.ReadUInt64(club) != moduleBase + k.ClubVtableRva)

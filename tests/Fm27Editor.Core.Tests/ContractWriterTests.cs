@@ -26,6 +26,60 @@ public class ContractWriterTests
     ContractWriter Writer() => new(_w.Memory, _w.Profile, TestWorld.ModuleBase);
 
     [Fact]
+    public void ContractSearchUsesObservedTypeAndPlayingTimeAndReportsStaleContracts()
+    {
+        Assert.True(_w.Memory.TryWrite(Contract + 0xC3, [0]));
+        var player = Player();
+        var search = new ContractSearch(Writer());
+        var match = search.Find([player], new(ContractType.PartTime, PlayingTime.SquadPlayer));
+        Assert.Equal(new[] { player.Address }, match.Matches.Select(p => p.Address));
+        Assert.Empty(match.Unavailable);
+        Assert.Empty(search.Find([player], new(ContractType.Youth, PlayingTime.SquadPlayer)).Matches);
+        Assert.Empty(search.Find([player], new(ContractType.PartTime, PlayingTime.ImpactSub)).Matches);
+        Assert.True(_w.Memory.TryWrite(Contract, BitConverter.GetBytes(TestWorld.ModuleBase + 0x1111110)));
+        var stale = search.Find([player], new(ContractType.PartTime, PlayingTime.SquadPlayer));
+        Assert.Empty(stale.Matches);
+        Assert.Equal(new[] { player.Address }, stale.Unavailable.Select(p => p.Address));
+    }
+
+    [Fact]
+    public void ContractSearchAppliesInclusiveWageAndAskingPriceRanges()
+    {
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x234, BitConverter.GetBytes(1234567)));
+        var player = Player();
+        var search = new ContractSearch(Writer());
+        Assert.Equal(new[] { player.Address }, search.Find([player], new(MinimumWage: 40130, MaximumWage: 40130,
+            MinimumAskingPrice: 1234567, MaximumAskingPrice: 1234567)).Matches.Select(p => p.Address));
+        Assert.Empty(search.Find([player], new(MinimumWage: 40131)).Matches);
+        Assert.Empty(search.Find([player], new(MaximumAskingPrice: 1234566)).Matches);
+        Assert.Throws<ArgumentException>(() => search.Find([player], new(MinimumWage: 5, MaximumWage: 4)));
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x234, BitConverter.GetBytes(-1)));
+        Assert.Equal(new[] { player.Address }, search.Find([Player()], new(MinimumAskingPrice: 0)).Unavailable.Select(p => p.Address));
+    }
+
+    [Fact]
+    public void ContractSearchDistinguishesObservedClauseFromInvalidVector()
+    {
+        // FMRTE recorded Yearly Wage Rise as type 3, value 7, parameter -1.
+        const ulong term = 0x4000_2000;
+        var bytes = _w.Memory.Map(term, 8);
+        BitConverter.GetBytes(7).CopyTo(bytes, 0);
+        TestWorld.Set16(bytes, 4, -1); TestWorld.Set16(bytes, 6, 3);
+        Assert.True(_w.Memory.TryWrite(Contract + 0x68, [.. BitConverter.GetBytes(term), .. BitConverter.GetBytes(term + 8), .. BitConverter.GetBytes(term + 8)]));
+        var player = Player();
+        var search = new ContractSearch(Writer());
+        Assert.Equal(new[] { player.Address }, search.Find([player], new(ClauseType: 3, HasClause: true, MinimumClauseValue: 7, MaximumClauseValue: 7)).Matches.Select(p => p.Address));
+        Assert.Empty(search.Find([player], new(ClauseType: 3, HasClause: false)).Matches);
+        Assert.Empty(search.Find([player], new(ClauseType: 3, MinimumClauseValue: 8)).Matches);
+        Assert.True(_w.Memory.TryWrite(Contract + 0x70, BitConverter.GetBytes(term)));
+        Assert.Single(search.Find([player], new(ClauseType: 3, HasClause: false)).Matches);
+        Assert.True(_w.Memory.TryWrite(Contract + 0x70, BitConverter.GetBytes(term + 9)));
+        var invalid = search.Find([player], new(ClauseType: 3, HasClause: false));
+        Assert.Empty(invalid.Matches);
+        Assert.Equal(new[] { player.Address }, invalid.Unavailable.Select(p => p.Address));
+    }
+
+    [Fact]
     public void Writes_wage_playing_time_and_expiry_only_in_their_fields()
     {
         var before = _w.Bytes(Contract, 0x60);
@@ -162,6 +216,17 @@ public class ContractWriterTests
         for (int i = 0; i < items.Length; i++)
         { BitConverter.GetBytes(items[i].v).CopyTo(t, i * 8); TestWorld.Set16(t, i * 8 + 4, items[i].p); TestWorld.Set16(t, i * 8 + 6, items[i].ty); }
         Assert.True(_w.Memory.TryWrite(Contract + 0x68, [.. BitConverter.GetBytes(TermBuffer), .. BitConverter.GetBytes(TermBuffer + 24), .. BitConverter.GetBytes(TermBuffer + (ulong)capacity * 8)]));
+    }
+
+    [Fact]
+    public void ContractSearchRequiresAllSelectedClauses()
+    {
+        LaceyTerms(capacity: 3); // FMRTE fixture: 32=4771, 39=2982, 38=3181.
+        var player = Player(); var search = new ContractSearch(Writer());
+        var criteria = new ContractSearchCriteria { Clauses = [new(32, true, 4771, 4771), new(39, true, 2982, 2982), new(3, false)] };
+        Assert.Equal(new[] { player.Address }, search.Find([player], criteria).Matches.Select(p => p.Address));
+        Assert.Empty(search.Find([player], criteria with { Clauses = [new(32, true, 4771, 4771), new(39, true, 3000, null)] }).Matches);
+        Assert.Empty(search.Find([player], criteria with { Clauses = [new(32, false), new(39, true)] }).Matches);
     }
 
     [Fact]

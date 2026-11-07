@@ -11,7 +11,8 @@ public sealed record ClubListClub(ulong Address, int? Id, string? Name, string? 
 
 /// <summary>Confirmed culture fields only. Source, Value, ForCompetition and unverified objective records are omitted.</summary>
 public sealed record ClubVisionEntry(ulong Address, byte TypeCode, byte Importance, DateOnly? StartDate,
-    DateOnly? EndDate, short? ItemIndex, ClubListClub? ClubItem, ClubVisionSnapshot? Snapshot = null);
+    DateOnly? EndDate, short? ItemIndex, ClubListClub? ClubItem, ClubVisionSnapshot? Snapshot = null,
+    int? Target = null, byte? Status = null);
 
 public sealed record ClubVisionSnapshot(ulong Team, ulong Detail, ulong Holder, ulong Vector, ulong Begin, ulong End,
     ulong Capacity, ulong Slot, string Bytes);
@@ -28,7 +29,8 @@ public sealed record ClubAffiliationEntry(ulong Address, ClubListClub? ParentClu
 public sealed record ClubRegionalDivisionEntry(ulong Address, byte Level);
 
 /// <summary>Finances → Sponsors and Other. Annual value and the Renew Income / Fixed Value flags are not confirmed and are absent.</summary>
-public sealed record ClubSponsorEntry(ulong Address, byte IncomeTypeCode, int TotalValue, DateOnly? StartDate, DateOnly? EndDate);
+public sealed record ClubSponsorEntry(ulong Address, byte IncomeTypeCode, int TotalValue, DateOnly? StartDate, DateOnly? EndDate,
+    bool? RenewIncome = null, bool? FixedValue = null);
 
 /// <summary>Immutable identity and bytes of a debt record, including its containing vector.</summary>
 public sealed record ClubDebtSnapshot(ulong Club, ulong Holder, ulong Begin, ulong End, ulong Capacity, ulong Slot, string Bytes);
@@ -42,26 +44,37 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
     const int MaxEntries = 512;
     ClubListOffsets? Layout => profile.Club?.Lists;
 
+    /// <summary>
+    /// Club vision rows for one team. Club teams use different class vtables from national teams (measured 6/11/2026:
+    /// club team 0x4C90A78, holder 0x4D6AF68, culture record 0x4D79198), so this walk validates the pointer chain and
+    /// the record layout instead of pinning one vtable per build.
+    /// </summary>
     public IReadOnlyList<ClubVisionEntry> ReadClubVision(ulong teamAddress, IReadOnlyList<ClubEntry>? clubs = null)
     {
         if (Layout is not { } l || profile.Team is not { } t || !Vtable(teamAddress, t.VtableRva)
             || !Fits(l.CultureSize, (0, 8), (l.VisionType, 1), (l.Importance, 1), (l.VisionStart, 4),
                 (l.VisionEnd, 4), (l.ItemIndex, 2), (l.ItemMarker, 2))) return [];
-        ulong detail = PointerAt(teamAddress, l.TeamDetails), holder = PointerAt(detail, l.Vision);
+        ulong detail = PointerAt(teamAddress, l.TeamDetails);
+        if (detail == 0) return [];
+        ulong holder = PointerAt(detail, l.Vision);
+        if (holder == 0 || !l.AcceptsHolderVtable(Rva(Q(holder)))) return [];
         ulong header = PointerAt(holder, l.VisionVector);
-        if (!Vtable(holder, l.VisionHolderVtable) || VectorSnapshot(header) is not { } vector) return [];
+        if (header == 0 || VectorSnapshot(header) is not { } vector) return [];
         var result = new List<ClubVisionEntry>();
         for (int row = 0; row < vector.Pointers.Length; row++)
         {
             ulong address = vector.Pointers[row];
-            if (!Vtable(address, l.CultureVtable) || Bytes(address, l.CultureSize) is not { } b) continue;
+            if (address == 0 || !l.AcceptsCultureVtable(Rva(Q(address)))
+                || Bytes(address, l.CultureSize) is not { } b) continue;
             // 00/03 was observed on all four independently named club-item references; other marker kinds stay unresolved.
             short? index = BitConverter.ToUInt16(b, l.ItemMarker) == 0x0300
                 && BitConverter.ToInt16(b, l.ItemIndex) is >= 0 and var i ? i : null;
             result.Add(new(address, b[l.VisionType], b[l.Importance], Date(b, l.VisionStart), Date(b, l.VisionEnd),
                 index, index is { } idx ? FindClub(idx, clubs) : null,
                 new(teamAddress, detail, holder, header, vector.Begin, vector.End, vector.Capacity,
-                    vector.Begin + (ulong)row * 8, Convert.ToHexString(b))));
+                    vector.Begin + (ulong)row * 8, Convert.ToHexString(b)),
+                l.VisionTarget >= 0 && l.VisionTarget + 4 <= b.Length ? BitConverter.ToInt32(b, l.VisionTarget) : null,
+                l.VisionStatus >= 0 && l.VisionStatus < b.Length ? b[l.VisionStatus] : null));
         }
         return result.AsReadOnly();
     }
@@ -112,7 +125,9 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
         var result = new List<ClubSponsorEntry>();
         foreach (ulong address in pointers)
             if (Bytes(address, f.SponsorSize) is { } b)
-                result.Add(new(address, b[f.SponsorType], BitConverter.ToInt32(b, f.SponsorTotal), Date(b, f.SponsorStart), Date(b, f.SponsorEnd)));
+                result.Add(new(address, b[f.SponsorType], BitConverter.ToInt32(b, f.SponsorTotal), Date(b, f.SponsorStart), Date(b, f.SponsorEnd),
+                    f.SponsorRenew is { } renew && Fits(f.SponsorSize, (renew, 1)) ? b[renew] switch { 0 => false, 1 => true, _ => (bool?)null } : null,
+                    f.SponsorFixed is { } fixedValue && Fits(f.SponsorSize, (fixedValue, 1)) ? b[fixedValue] switch { 0 => false, 1 => true, _ => (bool?)null } : null));
         return result.AsReadOnly();
     }
 
@@ -190,6 +205,8 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
     ulong PointerAt(ulong address, int offset) => Q(Field(address, offset));
     ulong Q(ulong address) => Bytes(address, 8) is { } b && BitConverter.ToUInt64(b) is var p && Address(p) ? p : 0;
     bool Vtable(ulong address, uint rva) => Q(address) == moduleBase + rva;
+    uint Rva(ulong vtable) => (uint)(vtable - moduleBase);
+    bool Vtables(ulong address, IReadOnlyList<uint> rvas) => rvas.Count > 0 && rvas.Any(rva => Vtable(address, rva));
     static DateOnly? Date(byte[] b, int offset)
     {
         int day = BitConverter.ToUInt16(b, offset) & 0x1FF, year = BitConverter.ToInt16(b, offset + 2);

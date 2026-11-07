@@ -122,9 +122,9 @@ public sealed class ClubTests
         Assert.Equal(
             [
                 ClubSection.Information,
+                ClubSection.Squads,
                 ClubSection.Finances,
                 ClubSection.Supporters,
-                ClubSection.TacticalUnderstanding,
                 ClubSection.ClubVision,
                 ClubSection.Affiliations,
                 ClubSection.RegionalDivisions,
@@ -137,9 +137,9 @@ public sealed class ClubTests
         Assert.Equal(
             [
                 "Information",
+                "Squads",
                 "Finances",
                 "Supporters",
-                "Tactical Understanding",
                 "Club Vision",
                 "Affiliations",
                 "Regional Divisions",

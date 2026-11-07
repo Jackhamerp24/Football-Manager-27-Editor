@@ -40,7 +40,8 @@ public sealed partial class MainWindow
         }
         search.TextChanged += (_, _) => Find();
         pick.SelectionChanged += (_, _) => { if (pick.SelectedItem is RelationTarget t) { compareWith = t.Address; RenderEditor(); } };
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { search, pick } });
+        var pickerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(10, 8), Children = { search, pick } };
+        panel.Children.Add(UiKit.Card("Compare Player", pickerRow));
 
         if (others.FirstOrDefault(p => p.Address == compareWith) is not { } other || other.Address == player.Address) return panel;
         var groups = new WrapPanel { Orientation = Orientation.Horizontal };
@@ -100,10 +101,8 @@ public sealed partial class MainWindow
             ];
             for (int c = 0; c < cells.Length; c++) { Grid.SetRow(cells[c], i); Grid.SetColumn(cells[c], c); grid.Children.Add(cells[c]); }
         }
-        return new Border
-        {
-            Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 8, 8),
-            Child = new StackPanel { Children = { new TextBlock { Text = title.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeight.Bold, Margin = new Thickness(10, 6, 10, 0) }, grid } },
-        };
+        var card = UiKit.Card(title, grid);
+        card.Margin = new Thickness(0, 0, 8, 8);
+        return card;
     }
 }

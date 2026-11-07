@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -21,50 +22,76 @@ public sealed partial class MainWindow
 
     readonly AwardNavItem awardNavItem = new();
     readonly Grid awardViewRoot = new() { IsVisible = false };
-    readonly TextBox awardSearch = new() { Watermark = "Search award..." };
+    readonly TextBox awardSearch = new() { Watermark = "Search award or ID..." };
     readonly DataGrid awardGrid = new()
     {
         IsReadOnly = true, AutoGenerateColumns = false, CanUserResizeColumns = true, CanUserSortColumns = true,
         SelectionMode = DataGridSelectionMode.Single, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-        HorizontalGridLinesBrush = Brush("#1D2130"), RowHeight = 29, Background = Brush("#11131C"), BorderThickness = new Thickness(0),
+        HorizontalGridLinesBrush = Brush("#1D2130"), RowHeight = 28, Background = Brush("#11131C"), BorderThickness = new Thickness(0),
     };
-    readonly StackPanel awardEditor = new() { Spacing = 12, Margin = new Thickness(18, 14) };
+    readonly ContentControl awardHeaderHost = new() { Margin = new Thickness(12, 9, 12, 8) };
+    readonly StackPanel awardEditor = new() { Spacing = 12, Margin = new Thickness(12, 0, 12, 12) };
     readonly Dictionary<ulong, Dictionary<AwardField, string>> awardDrafts = [];
     IReadOnlyList<AwardRow> awardRows = [];
     AwardRecord? selectedAward;
+    Button? awardSaveButton;
     bool awardActive;
+    Control awardDetailRoot = new Panel();
 
-    void RegisterAwardView(Grid playersSplit)
+    void OpenSelectedAward()
     {
-        if (playersSplit.Parent is not Grid host) return;
-        host.Children.Add(awardViewRoot);
+        selectedAward = (awardGrid.SelectedItem as AwardRow)?.Award;
+        if (selectedAward is null) return;
+        RenderAwardEditor();
+        OpenKindTab("award", selectedAward.Name ?? selectedAward.Address.ToString("X"), awardDetailRoot);
+    }
+
+    void RegisterAwardView()
+    {
+        AddModuleTab("Awards", awardViewRoot, awardNavItem);
         modules.ItemsSource = (object[])[.. (object[])modules.ItemsSource!, awardNavItem];
 
         awardGrid.Columns.Add(new DataGridTextColumn { Header = "Award", Binding = new Binding(nameof(AwardRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        awardGrid.Columns.Add(new DataGridTextColumn { Header = "Reputation", Binding = new Binding(nameof(AwardRow.Reputation)), Width = new DataGridLength(90) });
-        awardGrid.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(AwardRow.Id)), Width = new DataGridLength(100) });
+        var repCol = new DataGridTextColumn { Header = "Reputation", Binding = new Binding(nameof(AwardRow.Reputation)), Width = new DataGridLength(100) };
+        repCol.CellStyleClasses.Add("numeric");
+        awardGrid.Columns.Add(repCol);
+        var idCol = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(AwardRow.Id)), Width = new DataGridLength(100) };
+        idCol.CellStyleClasses.Add("numeric");
+        awardGrid.Columns.Add(idCol);
+
         awardSearch.TextChanged += (_, _) => FilterAwards();
-        awardGrid.SelectionChanged += (_, _) => { selectedAward = (awardGrid.SelectedItem as AwardRow)?.Award; RenderAwardEditor(); };
+        awardGrid.SelectionChanged += (_, _) => selectedAward = (awardGrid.SelectedItem as AwardRow)?.Award;
+        awardGrid.DoubleTapped += (_, _) => OpenSelectedAward();
+        awardGrid.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { OpenSelectedAward(); e.Handled = true; }
+        };
 
         var left = new DockPanel { Background = Brush("#11131C") };
-        var searchBar = new Border { Background = Brush("#141722"), BorderBrush = Brush("#252A3D"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(10, 8), Child = awardSearch };
+        var searchBar = new Border
+        {
+            Background = UiKit.Surface,
+            BorderBrush = UiKit.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(10, 7),
+            Child = awardSearch,
+        };
         DockPanel.SetDock(searchBar, Dock.Top);
         left.Children.Add(searchBar);
         left.Children.Add(awardGrid);
-        awardViewRoot.ColumnDefinitions = new ColumnDefinitions
-        {
-            new ColumnDefinition(new GridLength(560)) { MinWidth = 360 },
-            new ColumnDefinition(new GridLength(6, GridUnitType.Pixel)),
-            new ColumnDefinition(new GridLength(1, GridUnitType.Star)) { MinWidth = 380 },
-        };
-        Grid.SetColumn(left, 0);
         awardViewRoot.Children.Add(left);
-        var splitter = new GridSplitter { Width = 6, ResizeDirection = GridResizeDirection.Columns, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
-        Grid.SetColumn(splitter, 1);
-        awardViewRoot.Children.Add(splitter);
-        var scroll = new ScrollViewer { Content = awardEditor, Background = Brush("#0D0F17"), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        Grid.SetColumn(scroll, 2);
-        awardViewRoot.Children.Add(scroll);
+
+        var scroll = new ScrollViewer
+        {
+            Content = awardEditor,
+            Background = UiKit.WindowBg,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+        };
+        var detailDock = new DockPanel { Background = UiKit.WindowBg };
+        DockPanel.SetDock(awardHeaderHost, Dock.Top);
+        detailDock.Children.Add(awardHeaderHost);
+        detailDock.Children.Add(scroll);
+        awardDetailRoot = detailDock;
 
         // Registered after Clubs, Staff, Nations, Stadiums, Cities and Competitions: those show the players screen when none is selected.
         modules.SelectionChanged += async (_, _) =>
@@ -72,9 +99,6 @@ public sealed partial class MainWindow
             bool toAwards = ReferenceEquals(modules.SelectedItem, awardNavItem);
             if (toAwards == awardActive) return;
             awardActive = toAwards;
-            awardViewRoot.IsVisible = toAwards;
-            if (toAwards) playersSplit.IsVisible = false;
-            else if (!clubsActive && !staffActive && !nationActive && !stadiumActive && !cityActive && !competitionActive) playersSplit.IsVisible = true;
             if (toAwards && awardRows.Count == 0 && backend.State.Status == ConnectionStatus.Connected) await LoadAwardsAsync();
         };
         backend.StateChanged += (_, _) => Dispatcher.UIThread.Post(async () =>
@@ -82,7 +106,9 @@ public sealed partial class MainWindow
             awardRows = [];
             awardDrafts.Clear();
             selectedAward = null;
+            awardSaveButton = null;
             awardGrid.ItemsSource = null;
+            awardHeaderHost.Content = null;
             awardEditor.Children.Clear();
             if (awardActive && backend.State.Status == ConnectionStatus.Connected) await LoadAwardsAsync();
         });
@@ -105,8 +131,12 @@ public sealed partial class MainWindow
 
     void FilterAwards()
     {
-        string q = Fold(awardSearch.Text ?? "");
-        awardGrid.ItemsSource = q.Length == 0 ? awardRows : awardRows.Where(r => Fold(r.Name).Contains(q, StringComparison.Ordinal)).ToList();
+        string q = Fold((awardSearch.Text ?? "").Trim());
+        awardGrid.ItemsSource = q.Length == 0
+            ? awardRows
+            : awardRows.Where(r =>
+                Fold(r.Name).Contains(q, StringComparison.Ordinal) ||
+                r.Id.ToString(Inv).Contains(q, StringComparison.Ordinal)).ToList();
     }
 
     static string AwardLabel(AwardField f) => f switch
@@ -121,50 +151,90 @@ public sealed partial class MainWindow
 
     void RenderAwardEditor()
     {
+        awardHeaderHost.Content = null;
         awardEditor.Children.Clear();
-        if (selectedAward is not { } a) return;
+        if (selectedAward is not { } a) { awardSaveButton = null; return; }
         if (!awardDrafts.TryGetValue(a.Address, out var draft)) awardDrafts[a.Address] = draft = [];
-        Button? save = null, discard = null;
-        void Changed() { if (save is not null) save.IsEnabled = discard!.IsEnabled = draft.Count > 0; }
+        var save = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" } };
+        var discard = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
+        awardSaveButton = save;
+        void Changed() => save.IsEnabled = discard.IsEnabled = draft.Count > 0;
+        save.Click += (_, _) => SaveAward(a, draft);
+        discard.Click += (_, _) => { awardDrafts.Remove(a.Address); RenderAwardEditor(); };
 
-        TextBlock Label(string t, string color = "#CBD5E1") => new() { Text = t, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
+        TextBlock Label(string t, string color = "#CBD5E1") => new() { Text = t, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
         Control Box(AwardField f)
         {
             string original = AwardValue(a, f);
-            var box = new TextBox { Text = draft.GetValueOrDefault(f, original), Width = 80, MinHeight = 24, Padding = new Thickness(4, 1), HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center };
+            var box = new TextBox { Text = draft.GetValueOrDefault(f, original), Width = 96, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center };
             box.TextChanged += (_, _) => { string t = box.Text ?? ""; if (t == original) draft.Remove(f); else draft[f] = t; Changed(); };
             return box;
         }
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowSpacing = 3, Margin = new Thickness(12, 8) };
-        foreach (var f in Enum.GetValues<AwardField>())
+
+        Border CardRows(string title, IEnumerable<(string Label, Control Value)> items)
         {
-            int r = grid.RowDefinitions.Count; grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var l = Label(AwardLabel(f)); Grid.SetRow(l, r); grid.Children.Add(l);
-            var box = Box(f); Grid.SetRow(box, r); Grid.SetColumn(box, 1); grid.Children.Add(box);
-        }
-        awardEditor.Children.Add(new StackPanel
-        {
-            Spacing = 2,
-            Children = { new TextBlock { Text = a.DisplayName, FontSize = 20, FontWeight = FontWeight.Bold }, Label($"{a.Id.ToString(Inv)}  ·  {a.ShortName}", "#94A3B8") }
-        });
-        awardEditor.Children.Add(new Border
-        {
-            Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
-            Child = new StackPanel
+            var stack = new StackPanel { Spacing = 0 };
+            int idx = 0;
+            foreach (var (label, value) in items)
             {
-                Children =
+                var line = new DockPanel { MinHeight = 26, LastChildFill = true };
+                DockPanel.SetDock(value, Dock.Right);
+                line.Children.Add(value);
+                line.Children.Add(Label(label));
+                stack.Children.Add(new Border
                 {
-                    new Border { Background = Brush("#1D1F2D"), BorderBrush = Brush("#6D28D9"), BorderThickness = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 6),
-                        Child = new TextBlock { Text = "AWARD", FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Brush("#E2E8F0") } },
-                    grid,
-                }
+                    Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                    Padding = new Thickness(12, 3),
+                    Child = line,
+                });
             }
-        });
-        save = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" } };
-        discard = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
-        save.Click += (_, _) => SaveAward(a, draft);
-        discard.Click += (_, _) => { awardDrafts.Remove(a.Address); RenderAwardEditor(); };
-        awardEditor.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+            return UiKit.Card(title, stack);
+        }
+
+        var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        badges.Children.Add(UiKit.MetaText($"ID {a.Id.ToString(Inv)}"));
+        if (!string.IsNullOrEmpty(a.ShortName) && !string.Equals(a.ShortName, a.DisplayName, StringComparison.Ordinal))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaText(a.ShortName, highlight: true));
+        }
+
+        var repText = new TextBlock
+        {
+            Text = a.Reputation.ToString(Inv),
+            FontSize = 16,
+            FontWeight = FontWeight.Bold,
+            Foreground = Brush("#C084FC"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        var headerActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { UiKit.StatBox("REP", repText) },
+        };
+        var awardImg = graphics.Image("award", a.Id, 72);
+        awardHeaderHost.Content = UiKit.EntityBanner(a.DisplayName, badges, headerActions, awardImg);
+
+        var idCard = CardRows("Identification", [
+            ("Unique ID", Label(a.Id.ToString(Inv), "#F1F5F9")),
+            ("Full Name", Label(a.Name ?? a.DisplayName, "#F1F5F9")),
+            ("Short Name", Label(a.ShortName ?? "", "#F1F5F9")),
+        ]);
+        var repCard = CardRows("Reputation", Enum.GetValues<AwardField>().Select(f => (AwardLabel(f), Box(f))));
+
+        var columns = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 12,
+        };
+        Grid.SetColumn(idCard, 0);
+        Grid.SetColumn(repCard, 1);
+        columns.Children.Add(idCard);
+        columns.Children.Add(repCard);
+        awardEditor.Children.Add(columns);
     }
 
     void SaveAward(AwardRecord a, Dictionary<AwardField, string> draft)

@@ -26,6 +26,15 @@ public sealed class AttributeFilterDialog : Window
 
     readonly Dictionary<PlayerAttribute, (int Min, int Max)> staged = [];
     readonly HashSet<PlayerPosition> stagedPositions = [];
+    readonly Dictionary<PlayerPosition, int> positionRatings = [];
+    readonly Dictionary<PlayerPosition, NumericUpDown> positionInputs = [];
+    readonly Dictionary<PlayerPosition, Button> positionDots = [];
+    readonly Dictionary<string, (TextBox Min, TextBox Max)> rangeInputs = [];
+    readonly Dictionary<string, ComboBox> choiceInputs = [];
+    sealed record FilterChoice(long? Value, string Name) { public override string ToString() => Name; }
+    readonly Dictionary<string, NumericRange> initialRanges = [];
+    readonly List<CheckBox> preferredMoveChecks = [];
+    ulong initialPreferredMoves;
     readonly Dictionary<PlayerAttribute, RowControls> rows = [];
     readonly Dictionary<PlayerPosition, Button> positionButtons = [];
     IReadOnlyList<FilterPreset> presets;
@@ -46,7 +55,7 @@ public sealed class AttributeFilterDialog : Window
     {
         Minimum = 1,
         Maximum = 20,
-        Value = 15,
+        Value = 1,
         Increment = 1,
         ShowButtonSpinner = false,
         Width = 48,
@@ -57,7 +66,7 @@ public sealed class AttributeFilterDialog : Window
     {
         Minimum = 1,
         Maximum = 20,
-        Value = 15,
+        Value = 1,
         Increment = 1,
         ShowButtonSpinner = false,
         Width = 48,
@@ -65,7 +74,7 @@ public sealed class AttributeFilterDialog : Window
     };
     readonly TextBlock summaryText = new()
     {
-        FontSize = 12.5,
+        FontSize = 11.5,
         Foreground = Brush("#CBD5E1"),
         VerticalAlignment = VerticalAlignment.Center,
         Margin = new Thickness(12, 0, 0, 0)
@@ -78,6 +87,20 @@ public sealed class AttributeFilterDialog : Window
         staged.OrderBy(kv => kv.Key).Select(kv => new AttributeThreshold(kv.Key, kv.Value.Min, kv.Value.Max)).ToArray();
     public IReadOnlyList<PlayerPosition> ResultPositions =>
         stagedPositions.OrderBy(p => p).ToArray();
+    public IReadOnlyDictionary<PlayerPosition, int> ResultPositionThresholds => new Dictionary<PlayerPosition, int>(positionRatings);
+    public IReadOnlyDictionary<string, NumericRange> ResultNumericRanges
+    {
+        get
+        {
+            var values = rangeInputs.Select(entry => (entry.Key, Min: ParseOptLong(entry.Value.Min.Text), Max: ParseOptLong(entry.Value.Max.Text)))
+                .Where(entry => entry.Min is not null || entry.Max is not null)
+                .ToDictionary(entry => entry.Key, entry => new NumericRange(entry.Min, entry.Max));
+            foreach (var (key, combo) in choiceInputs)
+                if (combo.SelectedItem is FilterChoice { Value: { } value }) values[key] = new NumericRange(value, value);
+            return values;
+        }
+    }
+    public ulong ResultPreferredMoves => preferredMoveChecks.Select((box, bit) => box.IsChecked == true ? 1UL << bit : 0UL).Aggregate(0UL, (a, b) => a | b);
     public int ResultPositionMinRating => Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
     public int? ResultMinAge => ParseOptInt(minAgeBox.Text);
     public int? ResultMaxAge => ParseOptInt(maxAgeBox.Text);
@@ -94,21 +117,26 @@ public sealed class AttributeFilterDialog : Window
         string? activePresetName = null)
     {
         Title = "Player Filter & Presets";
-        Width = 1040;
-        Height = 760;
-        MinWidth = 880;
-        MinHeight = 580;
+        Width = 940;
+        Height = 740;
+        MinWidth = 700;
+        MinHeight = 500;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Brush("#0D0F17");
         Foreground = Brush("#F1F5F9");
-        FontSize = 13;
+        FontSize = 11.5;
 
         presets = currentPresets;
+        foreach (var (key, range) in initialFilter.NumericRanges) initialRanges[key] = range;
+        initialPreferredMoves = initialFilter.RequiredPreferredMoves;
         SelectedPresetName = activePresetName;
         foreach (var t in initialFilter.AttributeThresholds)
             staged[t.Attribute] = (Math.Clamp(t.MinValue, 1, 20), Math.Clamp(t.MaxValue ?? 20, 1, 20));
         foreach (var pos in initialFilter.Positions)
+        {
             stagedPositions.Add(pos);
+            positionRatings[pos] = initialFilter.PositionThresholds.GetValueOrDefault(pos, initialFilter.PositionMinRating);
+        }
 
         minAgeBox.Text = initialFilter.MinAge?.ToString() ?? "";
         maxAgeBox.Text = initialFilter.MaxAge?.ToString() ?? "";
@@ -130,19 +158,20 @@ public sealed class AttributeFilterDialog : Window
         DockPanel.SetDock(bottomBar, Dock.Bottom);
         root.Children.Add(bottomBar);
 
-        // Center content: General + Positions box on top, 4-column attribute board below
+        // Each page stays within the dialog width; long content scrolls vertically.
         var bodyStack = new StackPanel { Spacing = 10 };
         bodyStack.Children.Add(BuildGeneralAndPositionsCard());
-        bodyStack.Children.Add(BuildAttributeBoard());
+        bodyStack.Children.Add(BuildAdditionalRanges());
 
         var boardScroll = new ScrollViewer
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Padding = new Thickness(14, 10),
             Content = bodyStack
         };
-        root.Children.Add(boardScroll);
+        var positionScroll = new ScrollViewer { Padding = new Thickness(14, 10), Content = BuildPositionBoard() };
+        root.Children.Add(new TabControl { ItemsSource = new[] { new TabItem { Header = "General", Content = boardScroll }, new TabItem { Header = "Attributes", Content = BuildAttributeBoard() }, new TabItem { Header = "Positions", Content = positionScroll }, new TabItem { Header = "Preferred Moves", Content = BuildPreferredMoves() } } });
 
         Content = root;
 
@@ -194,7 +223,7 @@ public sealed class AttributeFilterDialog : Window
         });
         right.Children.Add(defaultMinInput);
         DockPanel.SetDock(right, Dock.Right);
-        dock.Children.Add(right);
+        // Attribute ranges start unrestricted; there is no global minimum.
 
         presetCombo.SelectionChanged += (_, _) =>
         {
@@ -216,9 +245,22 @@ public sealed class AttributeFilterDialog : Window
                 updatingControls = false;
 
                 stagedPositions.Clear();
+                positionRatings.Clear();
                 if (chosen.Positions is not null)
-                    foreach (var pos in chosen.Positions) stagedPositions.Add(pos);
+                    foreach (var pos in chosen.Positions) { stagedPositions.Add(pos); positionRatings[pos] = chosen.PositionThresholds?.GetValueOrDefault(pos) ?? chosen.PositionMinRating; }
                 SyncPositionButtons();
+                foreach (var (key, controls) in rangeInputs)
+                {
+                    var selectedRange = chosen.NumericRanges is { } source && source.TryGetValue(key, out var value) ? value : null;
+                    controls.Min.Text = selectedRange?.Min?.ToString() ?? "";
+                    controls.Max.Text = selectedRange?.Max?.ToString() ?? "";
+                }
+                foreach (var (key, combo) in choiceInputs)
+                {
+                    long? selected = chosen.NumericRanges is { } source && source.TryGetValue(key, out var value) ? value.Min : null;
+                    combo.SelectedItem = ((IEnumerable<FilterChoice>)combo.ItemsSource!).FirstOrDefault(option => option.Value == selected);
+                }
+                for (int bit = 0; bit < preferredMoveChecks.Count; bit++) preferredMoveChecks[bit].IsChecked = (chosen.RequiredPreferredMoves & (1UL << bit)) != 0;
 
                 staged.Clear();
                 foreach (var t in chosen.AttributeThresholds)
@@ -251,7 +293,7 @@ public sealed class AttributeFilterDialog : Window
                 ResultMaxCa,
                 ResultMaxPa,
                 ResultPositions,
-                ResultPositionMinRating);
+                ResultPositionMinRating) { PositionThresholds = ResultPositionThresholds, NumericRanges = ResultNumericRanges, RequiredPreferredMoves = ResultPreferredMoves };
             presets = FilterPresetStore.Upsert(presets, preset);
             try { FilterPresetStore.Save(presets); } catch { }
             SelectedPresetName = preset.Name;
@@ -370,7 +412,7 @@ public sealed class AttributeFilterDialog : Window
         ratingStack.Children.Add(posMinRatingInput);
         posRow.Children.Add(ratingStack);
 
-        stack.Children.Add(posRow);
+        // Position filters are edited individually in the Positions tab.
 
         return new Border
         {
@@ -408,6 +450,96 @@ public sealed class AttributeFilterDialog : Window
             if (active) btn.Classes.Add("accent");
             else btn.Classes.Remove("accent");
         }
+        updatingControls = true;
+        foreach (var (pos, input) in positionInputs) input.Value = positionRatings.GetValueOrDefault(pos);
+        foreach (var (pos, dot) in positionDots) PitchSurface.SetRating(dot, positionRatings.GetValueOrDefault(pos));
+        updatingControls = false;
+    }
+
+    Control BuildPositionBoard()
+    {
+        const double width = 340, height = 460, dotSize = 26;
+        var pitch = PitchSurface.Create(width, height);
+        var details = new ContentControl { Width = width };
+        var container = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
+        DockPanel? currentDetails = null;
+        void Select(PitchPosition spot)
+        {
+            foreach (var (position, dot) in positionDots)
+            {
+                bool active = position == spot.Position;
+                dot.BorderBrush = active ? Brushes.White : Brush("#1A4339");
+                dot.BorderThickness = new Thickness(active ? 2 : 1);
+            }
+            currentDetails?.Children.Clear();
+            var panel = new DockPanel { LastChildFill = true };
+            currentDetails = panel;
+            var input = positionInputs[spot.Position];
+            DockPanel.SetDock(input, Dock.Right); panel.Children.Add(input);
+            panel.Children.Add(new TextBlock { Text = spot.Label, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeight.SemiBold });
+            details.Content = new Border { Background = Brush("#151926"), BorderBrush = Brush("#252A3D"), BorderThickness = new Thickness(1), Padding = new Thickness(12, 8), Child = panel };
+        }
+        foreach (var spot in PitchLayout.Positions)
+        {
+            var position = spot.Position;
+            var input = new NumericUpDown { Minimum = 0, Maximum = 20, Value = positionRatings.GetValueOrDefault(position), Width = 68, Increment = 1 };
+            input.ValueChanged += (_, _) =>
+            {
+                if (updatingControls) return;
+                int rating = (int)(input.Value ?? 0);
+                if (rating == 0) { positionRatings.Remove(position); stagedPositions.Remove(position); }
+                else { positionRatings[position] = rating; stagedPositions.Add(position); }
+                PitchSurface.SetRating(positionDots[position], rating);
+                UpdateSummary();
+            };
+            positionInputs[position] = input;
+            input.Height = 28; input.ShowButtonSpinner = false;
+            Avalonia.Automation.AutomationProperties.SetName(input, spot.Label);
+            var dot = PitchSurface.CreateDot(spot, positionRatings.GetValueOrDefault(position));
+            Canvas.SetLeft(dot, spot.X * width - dotSize / 2); Canvas.SetTop(dot, spot.Y * height - dotSize / 2);
+            dot.Click += (_, _) => Select(spot); positionDots[position] = dot; pitch.Children.Add(dot);
+        }
+        container.Children.Add(pitch); container.Children.Add(details);
+        Select(PitchLayout.Positions.First());
+        return container;
+    }
+
+    Control BuildAdditionalRanges()
+    {
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var keys = new[] { "Height", "Caps", "Goals", "Home Reputation", "Current Reputation", "World Reputation", "CA/PA Difference", "Asking Price", "Wages" };
+        foreach (string key in keys)
+        {
+            initialRanges.TryGetValue(key, out var range);
+            var min = new TextBox { Width = 92, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var max = new TextBox { Width = 92, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            rangeInputs[key] = (min, max);
+            string label = key.StartsWith("Personality:", StringComparison.Ordinal) ? key[12..] : key;
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Width = 360, Margin = new Thickness(0, 0, 12, 6), Spacing = 6, Children = { new TextBlock { Text = label, Width = 152, VerticalAlignment = VerticalAlignment.Center }, min, max } });
+        }
+        void AddChoice(string key, IEnumerable<FilterChoice> options)
+        {
+            var choices = options.ToArray();
+            long? selected = initialRanges.TryGetValue(key, out var range) ? range.Min : null;
+            var combo = new ComboBox { ItemsSource = choices, SelectedItem = choices.FirstOrDefault(option => option.Value == selected), Width = 190 };
+            choiceInputs[key] = combo;
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Width = 360, Margin = new Thickness(0, 0, 12, 6), Spacing = 6, Children = { new TextBlock { Text = key, Width = 152, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center }, combo } });
+        }
+        AddChoice("Ethnicity", new[] { new FilterChoice(null, "Unset") }.Concat(InformationLabels.Ethnicities.Select(value => new FilterChoice(value.Code, value.Name))));
+        AddChoice("Treated As Non-EU In Italy", [new(null, "Any"), new(1, "Yes"), new(0, "No")]);
+        return panel;
+    }
+
+    Control BuildPreferredMoves()
+    {
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 10) };
+        for (int bit = 0; bit < PreferredMovesAccess.Count; bit++)
+        {
+            var box = new CheckBox { Content = PreferredMovesLabels.Names[bit], IsChecked = (initialPreferredMoves & (1UL << bit)) != 0, Width = 420, Margin = new Thickness(0, 0, 6, 6) };
+            preferredMoveChecks.Add(box);
+            panel.Children.Add(box);
+        }
+        return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
 
     Control BuildBottomBar()
@@ -428,6 +560,10 @@ public sealed class AttributeFilterDialog : Window
             updatingControls = false;
 
             stagedPositions.Clear();
+            positionRatings.Clear();
+            foreach (var (_, controls) in rangeInputs) { controls.Min.Text = ""; controls.Max.Text = ""; }
+            foreach (var combo in choiceInputs.Values) combo.SelectedIndex = 0;
+            foreach (var box in preferredMoveChecks) box.IsChecked = false;
             SyncPositionButtons();
 
             staged.Clear();
@@ -455,6 +591,13 @@ public sealed class AttributeFilterDialog : Window
         };
         saveBtn.Click += (_, _) =>
         {
+            foreach (var (_, controls) in rangeInputs)
+            {
+                if ((!string.IsNullOrWhiteSpace(controls.Min.Text) && ParseOptLong(controls.Min.Text) is null) ||
+                    (!string.IsNullOrWhiteSpace(controls.Max.Text) && ParseOptLong(controls.Max.Text) is null) ||
+                    (ParseOptLong(controls.Min.Text) is { } min && ParseOptLong(controls.Max.Text) is { } max && min > max))
+                { summaryText.Text = "Invalid range"; return; }
+            }
             Saved = true;
             Close();
         };
@@ -491,47 +634,50 @@ public sealed class AttributeFilterDialog : Window
 
     Control BuildAttributeBoard()
     {
-        var grid = new Grid
+        Control Pair(string first, string second)
         {
-            ColumnDefinitions = new ColumnDefinitions("*,*,*,*"),
-            ColumnSpacing = 10
-        };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8, Margin = new Thickness(8) };
+            var a = BuildGroupCard(first, PlayerFields.All.Where(f => f.Group == first));
+            var b = second == "Personality" ? BuildPersonalityRanges() : BuildGroupCard(second, PlayerFields.All.Where(f => f.Group == second));
+            Grid.SetColumn(a, 0); grid.Children.Add(a); Grid.SetColumn(b, 1); grid.Children.Add(b);
+            return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
+        }
+        return new TabControl { ItemsSource = new[]
+        {
+            new TabItem { Header = "Technical / GK", Content = Pair("Technical", "Goalkeeping") },
+            new TabItem { Header = "Mental", Content = Pair("Mental", "Personality") },
+            new TabItem { Header = "Physical / Hidden", Content = Pair("Physical", "Hidden") },
+        } };
+    }
 
-        var col0 = BuildGroupCard("Technical", PlayerFields.All.Where(f => f.Group == "Technical"));
-        var col1 = BuildGroupCard("Mental", PlayerFields.All.Where(f => f.Group == "Mental"));
-        var col2 = BuildGroupCard("Physical", PlayerFields.All.Where(f => f.Group == "Physical"));
-
-        var col3Stack = new StackPanel { Spacing = 10 };
-        col3Stack.Children.Add(BuildGroupCard("Goalkeeping", PlayerFields.All.Where(f => f.Group == "Goalkeeping")));
-        col3Stack.Children.Add(BuildGroupCard("Hidden", PlayerFields.All.Where(f => f.Group == "Hidden")));
-
-        Grid.SetColumn(col0, 0); grid.Children.Add(col0);
-        Grid.SetColumn(col1, 1); grid.Children.Add(col1);
-        Grid.SetColumn(col2, 2); grid.Children.Add(col2);
-        Grid.SetColumn(col3Stack, 3); grid.Children.Add(col3Stack);
-
-        return grid;
+    Control BuildPersonalityRanges()
+    {
+        var panel = new StackPanel { Spacing = 0 };
+        int idx = 0;
+        foreach (var attribute in Enum.GetValues<PersonalityAttribute>())
+        {
+            string key = $"Personality:{attribute}";
+            initialRanges.TryGetValue(key, out var range);
+            var min = new TextBox { Width = 62, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var max = new TextBox { Width = 62, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right, Margin = new Thickness(4, 0, 0, 0) };
+            rangeInputs[key] = (min, max);
+            var row = new DockPanel { MinHeight = 25 };
+            DockPanel.SetDock(max, Dock.Right); row.Children.Add(max);
+            DockPanel.SetDock(min, Dock.Right); row.Children.Add(min);
+            row.Children.Add(new TextBlock { Text = attribute.ToString(), Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
+            panel.Children.Add(new Border
+            {
+                Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                Padding = new Thickness(10, 2),
+                Child = row,
+            });
+        }
+        return UiKit.Card("Personality", panel);
     }
 
     Control BuildGroupCard(string title, IEnumerable<FieldDescriptor<PlayerRecord>> fields)
     {
         var stack = new StackPanel { Spacing = 0 };
-        stack.Children.Add(new Border
-        {
-            Background = Brush("#1C2032"),
-            BorderBrush = Brush("#7C3AED"),
-            BorderThickness = new Thickness(0, 0, 0, 2),
-            Padding = new Thickness(10, 6),
-            Margin = new Thickness(0, 0, 0, 2),
-            Child = new TextBlock
-            {
-                Text = title.ToUpperInvariant(),
-                FontSize = 11,
-                FontWeight = FontWeight.Bold,
-                Foreground = Brush("#F1F5F9")
-            }
-        });
-
         int idx = 0;
         foreach (var f in fields)
         {
@@ -539,16 +685,7 @@ public sealed class AttributeFilterDialog : Window
             var row = CreateAttributeRow(attr, f.Label, idx++ % 2 == 1);
             stack.Children.Add(row);
         }
-
-        return new Border
-        {
-            Background = Brush("#151926"),
-            BorderBrush = Brush("#252A3D"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            ClipToBounds = true,
-            Child = stack
-        };
+        return UiKit.Card(title, stack);
     }
 
     Control CreateAttributeRow(PlayerAttribute attr, string label, bool odd)
@@ -562,9 +699,9 @@ public sealed class AttributeFilterDialog : Window
         var nameText = new TextBlock
         {
             Text = label,
-            FontSize = 12.5,
+            FontSize = 11.5,
             VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.Wrap,
             Cursor = new Cursor(StandardCursorType.Hand)
         };
         var rangeText = new TextBlock
@@ -580,10 +717,10 @@ public sealed class AttributeFilterDialog : Window
             Minimum = 1,
             Maximum = 20,
             Increment = 1,
-            Value = 15,
+            Value = 1,
             ShowButtonSpinner = false,
             Width = 38,
-            FontSize = 12.5,
+            FontSize = 11.5,
             FontWeight = FontWeight.Bold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
             Background = Brush("#0E1018"),
@@ -592,12 +729,12 @@ public sealed class AttributeFilterDialog : Window
         var maxInput = new NumericUpDown
         {
             Minimum = 1, Maximum = 20, Increment = 1, Value = 20,
-            ShowButtonSpinner = false, Width = 38, FontSize = 12.5, FontWeight = FontWeight.Bold,
+            ShowButtonSpinner = false, Width = 38, FontSize = 11.5, FontWeight = FontWeight.Bold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
             Background = Brush("#0E1018"), BorderBrush = Brush("#282E42")
         };
 
-        var dock = new DockPanel { Height = 28, LastChildFill = true };
+        var dock = new DockPanel { MinHeight = 28, LastChildFill = true };
         DockPanel.SetDock(maxInput, Dock.Right); dock.Children.Add(maxInput);
         DockPanel.SetDock(rangeText, Dock.Right); dock.Children.Add(rangeText);
         DockPanel.SetDock(input, Dock.Right); dock.Children.Add(input);
@@ -628,7 +765,7 @@ public sealed class AttributeFilterDialog : Window
         void SetActive(bool active, int? newMin = null, int? newMax = null)
         {
             if (updatingControls) return;
-            int defaultMin = Math.Clamp((int)(defaultMinInput.Value ?? 15), 1, 20);
+            int defaultMin = Math.Clamp((int)(defaultMinInput.Value ?? 1), 1, 20);
             if (active)
             {
                 var existing = staged.TryGetValue(attr, out var range) ? range : (Min: newMax is null ? defaultMin : 1, Max: 20);
@@ -673,7 +810,7 @@ public sealed class AttributeFilterDialog : Window
     {
         updatingControls = true;
         bool active = staged.TryGetValue(rc.Attribute, out var range);
-        int defaultMin = Math.Clamp((int)(defaultMinInput.Value ?? 15), 1, 20);
+        int defaultMin = Math.Clamp((int)(defaultMinInput.Value ?? 1), 1, 20);
         int shownVal = active ? range.Min : defaultMin;
         int shownMax = active ? range.Max : 20;
 
@@ -729,6 +866,7 @@ public sealed class AttributeFilterDialog : Window
 
     static int? ParseOptInt(string? text) =>
         int.TryParse(text?.Trim(), out int v) ? v : null;
+    static long? ParseOptLong(string? text) => long.TryParse(text?.Trim(), out long value) ? value : null;
 
     static IBrush RatingColor(int value) => new SolidColorBrush(Color.Parse(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8"));
     static IBrush Brush(string color) => new SolidColorBrush(Color.Parse(color));

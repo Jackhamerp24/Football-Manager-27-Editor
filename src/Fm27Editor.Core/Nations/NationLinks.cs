@@ -31,10 +31,47 @@ public sealed class NationLinks(IProcessMemory memory, OffsetProfile profile, ul
         profile.Nation?.Stadium is { } at && IsNation(nation) && profile.Stadium is not null
             ? new Fm27Editor.Core.Stadiums.StadiumRepository(memory, profile, moduleBase).Reload(memory.ReadUInt64(nation + (ulong)at)) : null;
 
-    /// <summary>The distinct continents the given nations point to, by name.</summary>
-    public IReadOnlyList<ContinentRecord> Continents(IEnumerable<NationRecord> nations) =>
-        nations.Select(n => ContinentPointer(n.Address)).Where(p => p != 0).Distinct()
-            .Select(ReadContinent).OfType<ContinentRecord>().OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
+    /// <summary>Continent catalogue, including objects such as World that no nation points to.</summary>
+    public IReadOnlyList<ContinentRecord> Continents(IEnumerable<NationRecord> nations)
+    {
+        var known = nations.Select(n => ContinentPointer(n.Address)).Where(p => p != 0).Distinct()
+            .Select(ReadContinent).OfType<ContinentRecord>().ToList();
+        var catalogue = FindContinentCatalogue(known) ?? known;
+        return catalogue.OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
+    }
+
+    IReadOnlyList<ContinentRecord>? FindContinentCatalogue(IReadOnlyList<ContinentRecord> known)
+    {
+        if (profile.Nation?.ListRootRva is not { } configuredRva || known.Count < 2) return null;
+        var required = known.Select(c => c.Address).ToHashSet();
+        IReadOnlyList<ContinentRecord>? best = null;
+        var holderBytes = new byte[0x810];
+        Span<byte> pointer = stackalloc byte[8];
+        for (long delta = -0x20; delta <= 0x20; delta += 8)
+        {
+            if ((long)configuredRva + delta < 0 || !memory.TryRead(moduleBase + (ulong)((long)configuredRva + delta), pointer)) continue;
+            ulong holder = BitConverter.ToUInt64(pointer);
+            if (holder == 0 || !memory.TryRead(holder, holderBytes)) continue;
+            for (int offset = 0; offset + 24 <= holderBytes.Length; offset += 8)
+            {
+                ulong begin = BitConverter.ToUInt64(holderBytes, offset), end = BitConverter.ToUInt64(holderBytes, offset + 8), capacity = BitConverter.ToUInt64(holderBytes, offset + 16);
+                if (begin == 0 || end <= begin || capacity < end || (end - begin) % 8 != 0) continue;
+                ulong count = (end - begin) / 8;
+                if (count < (ulong)required.Count || count > 64 || (best is not null && count <= (ulong)best.Count)) continue;
+                var bytes = new byte[(int)count * 8];
+                if (!memory.TryRead(begin, bytes)) continue;
+                var rows = new List<ContinentRecord>();
+                for (int i = 0; i < (int)count; i++)
+                {
+                    if (ReadContinent(BitConverter.ToUInt64(bytes, i * 8)) is not { } continent) break;
+                    rows.Add(continent);
+                }
+                if (rows.Count != (int)count || rows.Select(c => c.Address).Distinct().Count() != rows.Count || !required.IsSubsetOf(rows.Select(c => c.Address))) continue;
+                best = rows;
+            }
+        }
+        return best;
+    }
 
     /// <summary>Guarded pointer swap: nation vtable, the pointer still the one read, target still a continent; read back.</summary>
     public void SetContinent(NationRecord nation, ulong expected, ContinentRecord continent)
@@ -108,6 +145,37 @@ public sealed class NationTeamReader(IProcessMemory memory, OffsetProfile profil
         if (!memory.TryRead(address, b) || BitConverter.ToUInt64(b) != moduleBase + t.TeamVtable) return null;
         return new(address, index, BitConverter.ToInt32(b, t.Reputation), snapshot);
     }
+
+    /// <summary>
+    /// FMRTE's "Allow Licensed Kits" checkbox (National Teams → Teams): bit 0x08 of the byte at team+0x2E, cleared when
+    /// the box is ticked. Measured with a Frida write trace on England and Spain, both 0x24 while ticked; unticking wrote 0x2C.
+    /// </summary>
+    public const int LicensedKitsOffset = 0x2E, LicensedKitsMask = 0x08;
+
+    public bool? AllowLicensedKits(ulong teamAddress)
+    {
+        if (profile.Nation?.Teams is not { } t || !Vtable(teamAddress, t.TeamVtable)) return null;
+        var b = new byte[LicensedKitsOffset + 1];
+        return memory.TryRead(teamAddress, b) ? (b[LicensedKitsOffset] & LicensedKitsMask) == 0 : null;
+    }
+
+    /// <summary>Guarded write: team vtable, current byte, then write and read back; other bits are preserved.</summary>
+    public void SetAllowLicensedKits(NationTeamRecord team, bool value)
+    {
+        if (profile.Nation?.Teams is not { } t || !Vtable(team.Address, t.TeamVtable))
+            throw new StaleObjectException("The national team changed since it was read");
+        var current = new byte[LicensedKitsOffset + 1];
+        if (!memory.TryRead(team.Address, current)) throw new MemoryAccessException("Could not read the licensed-kits byte");
+        byte before = current[LicensedKitsOffset];
+        byte after = value ? (byte)(before & ~LicensedKitsMask) : (byte)(before | LicensedKitsMask);
+        if (after == before) return;
+        ulong address = team.Address + LicensedKitsOffset;
+        if (!memory.TryWrite(address, [after]) || !memory.Read(address, 1)[0].Equals(after))
+            throw new MemoryAccessException($"Could not write the licensed-kits flag at 0x{address:X}");
+    }
+
+    bool Vtable(ulong address, uint rva) =>
+        address != 0 && memory.TryRead(address, new byte[8]) && memory.ReadUInt64(address) == moduleBase + rva;
 
     /// <summary>Guarded: team vtable, reputation still equal to the snapshot, then write and read back.</summary>
     public void SetReputation(NationTeamRecord team, int value)

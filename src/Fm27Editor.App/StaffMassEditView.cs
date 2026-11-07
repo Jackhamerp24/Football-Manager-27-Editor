@@ -30,31 +30,42 @@ public sealed partial class MainWindow
     {
         if (busy || backend.State.Status != ConnectionStatus.Connected || staffGrid.CollectionView is not { } view) return;
         var targets = view.OfType<StaffRow>().Select(r => r.Staff).ToArray();
-        var window = new Window { Title = "Mass Edit Staff", Width = 660, Height = 600, MinHeight = 350, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var window = new Window { Title = "Mass Edit Staff", Width = 680, Height = 600, MinHeight = 350, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var choices = Enum.GetValues<StaffMassField>().Select(f => new StaffMassChoice(f.ToString(), Field: f))
             .Concat(Enum.GetValues<StaffAttribute>().Select(a => new StaffMassChoice(a.ToString(), Attribute: a)))
             .Concat(Enum.GetValues<StaffPersonality>().Select(p => new StaffMassChoice($"Personality: {p}", Personality: p)))
             .Append(new StaffMassChoice("Wage", Wage: true)).ToArray();
-        var field = new ComboBox { ItemsSource = choices, SelectedIndex = 0, Width = 170 };
-        var mode = new ComboBox { ItemsSource = Enum.GetValues<MassEditMode>(), SelectedIndex = 0, Width = 100 };
-        var value = new NumericUpDown { Minimum = int.MinValue, Maximum = int.MaxValue, Value = 100, Width = 90 };
+        var field = new ComboBox { ItemsSource = choices, SelectedIndex = 0, Width = 176 };
+        var mode = new ComboBox { ItemsSource = Enum.GetValues<MassEditMode>(), SelectedIndex = 0, Width = 104 };
+        var value = new NumericUpDown { Minimum = int.MinValue, Maximum = int.MaxValue, Value = 100, Width = 92, ShowButtonSpinner = false, HorizontalContentAlignment = HorizontalAlignment.Right };
         var add = new Button { Content = "Add" };
         var remove = new Button { Content = "Remove" };
         var preview = new Button { Content = "Preview" };
         var apply = new Button { Content = "Apply", IsEnabled = false, Classes = { "accent" } };
         var undo = new Button { Content = "Undo last batch", IsEnabled = staffMassUndo.Count > 0 };
+        var close = new Button { Content = "Close" };
+        close.Click += (_, _) => window.Close();
         var message = new TextBlock { Text = $"{targets.Length:N0} staff", Margin = new Thickness(0, 8, 0, 8) };
         var operations = new List<StaffMassOperation>();
-        var operationsList = new ListBox { MaxHeight = 100, MinHeight = 42 };
+        var operationsList = new ListBox { MaxHeight = 100, MinHeight = 42, Margin = new Thickness(0, 8, 0, 0) };
         var table = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = false, RowHeight = 27 };
-        table.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding("Staff.Id"), Width = new DataGridLength(100) });
+        var idCol = new DataGridTextColumn { Header = "ID", Binding = new Binding("Staff.Id"), Width = new DataGridLength(96) };
+        idCol.CellStyleClasses.Add("numeric");
+        table.Columns.Add(idCol);
         table.Columns.Add(new DataGridTextColumn { Header = "Staff", Binding = new Binding("Staff.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding("Field"), Width = new DataGridLength(150) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Before", Binding = new Binding("Before"), Width = new DataGridLength(65) });
-        table.Columns.Add(new DataGridTextColumn { Header = "After", Binding = new Binding("After"), Width = new DataGridLength(65) });
+        var beforeCol = new DataGridTextColumn { Header = "Before", Binding = new Binding("Before"), Width = new DataGridLength(84) };
+        beforeCol.CellStyleClasses.Add("numeric");
+        table.Columns.Add(beforeCol);
+        var afterCol = new DataGridTextColumn { Header = "After", Binding = new Binding("After"), Width = new DataGridLength(84) };
+        afterCol.CellStyleClasses.Add("numeric");
+        table.Columns.Add(afterCol);
         var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { field, mode, value, add, remove, preview } };
         var top = new StackPanel { Children = { controls, operationsList, message } };
-        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0), Children = { apply, undo } };
+        var footer = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = false };
+        DockPanel.SetDock(close, Dock.Right);
+        footer.Children.Add(close);
+        footer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } });
         var root = new DockPanel { Margin = new Thickness(12) };
         DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);

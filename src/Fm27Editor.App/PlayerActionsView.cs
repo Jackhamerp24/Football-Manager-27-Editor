@@ -12,41 +12,12 @@ public sealed partial class MainWindow
 
     void HookPlayerActions(PlayerRecord player)
     {
-        // 1. Direct editing row for PlayerFields (Condition, Sharpness, Jadedness, Morale, Asking Price, etc.)
-        var scalarBar = CreatePlayerScalarsPanel(player);
-        if (scalarBar is not null)
-        {
-            int insertIdx = editor.Children.Count > 0 && editor.Children[^1] is TabControl
-                ? editor.Children.Count - 1
-                : editor.Children.Count;
-            editor.Children.Insert(insertIdx, scalarBar);
-        }
+        var tab = playerTabs.FirstOrDefault(t => ReferenceEquals(t.Panel, editor));
+        if (tab is not null) tab.Sticky.Content = CreatePlayerScalarsPanel(player);
 
-        // 2. Dock Actions panel to the right of tabs
-        if (editor.Children.Count > 0 && editor.Children[^1] is TabControl tabs)
-        {
-            editor.Children.RemoveAt(editor.Children.Count - 1);
-            var host = new Grid
-            {
-                ColumnDefinitions = new ColumnDefinitions("*,Auto")
-            };
-            tabs.Margin = new Thickness(0, 0, 14, 0);
-            Grid.SetColumn(tabs, 0);
-            host.Children.Add(tabs);
+        // 2. The actions panel is docked beside the section host by RenderEditor.
 
-            var actions = CreatePlayerActionsPanel(
-                player: player,
-                isSquadMode: false,
-                getSquadPlayers: null,
-                onStatus: msg => status.Text = msg);
-            Grid.SetColumn(actions, 1);
-            host.Children.Add(actions);
-
-            editor.Children.Add(host);
-        }
-
-        // 3. Hook save and discard buttons for scalar drafts
-        HookScalarDraftButtons(player);
+        UpdateScalarDraftState(player);
     }
 
     Control? CreatePlayerScalarsPanel(PlayerRecord player)
@@ -58,7 +29,6 @@ public sealed partial class MainWindow
         var panel = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 6),
         };
 
         bool hasAny = false;
@@ -66,6 +36,7 @@ public sealed partial class MainWindow
 
         foreach (var d in SquadScalarDefinitions.Descriptors)
         {
+            if (d.Field is not (PlayerField.Condition or PlayerField.MatchSharpness or PlayerField.Jadedness)) continue;
             if (!fields.TryGetValue(d.Field, out long snapshotVal))
                 continue;
 
@@ -74,24 +45,20 @@ public sealed partial class MainWindow
                 ? staged.Value
                 : snapshotVal;
 
-            var box = new Border
+            var item = new StackPanel
             {
-                Background = Brush("#151824"),
-                BorderBrush = Brush("#252A3D"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(10, 5),
-                Margin = new Thickness(0, 0, 8, 4),
-                Width = d.Width,
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Margin = new Thickness(0, 0, 20, 0),
+                VerticalAlignment = VerticalAlignment.Center,
             };
-
-            var stack = new StackPanel { Spacing = 3 };
             var lbl = new TextBlock
             {
                 Text = d.Label,
-                FontSize = 10.5,
-                FontWeight = FontWeight.Bold,
+                FontSize = 11,
+                FontWeight = FontWeight.SemiBold,
                 Foreground = Brush("#94A3B8"),
+                VerticalAlignment = VerticalAlignment.Center,
             };
             ToolTip.SetTip(lbl, $"{d.Label} ({d.Min} .. {d.Max})");
 
@@ -100,7 +67,10 @@ public sealed partial class MainWindow
                 Minimum = d.Min,
                 Maximum = d.Max,
                 Value = (decimal)currentVal,
-                Height = 26,
+                Width = 68,
+                MinWidth = 0,
+                Height = 22,
+                MinHeight = 22,
                 ShowButtonSpinner = false,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 HorizontalContentAlignment = HorizontalAlignment.Right,
@@ -116,13 +86,21 @@ public sealed partial class MainWindow
                 }
             };
 
-            stack.Children.Add(lbl);
-            stack.Children.Add(num);
-            box.Child = stack;
-            panel.Children.Add(box);
+            item.Children.Add(lbl);
+            item.Children.Add(num);
+            panel.Children.Add(item);
         }
 
-        return hasAny ? panel : null;
+        return hasAny
+            ? new Border
+            {
+                Background = UiKit.SurfaceAlt,
+                BorderBrush = UiKit.BorderSubtle,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(14, 5),
+                Child = panel,
+            }
+            : null;
     }
 
     void StageScalarChange(PlayerRecord player, PlayerField field, long snapshotVal, long newVal)
@@ -149,7 +127,7 @@ public sealed partial class MainWindow
     {
         int scalarCount = playerScalarDrafts.TryGetValue(player.Address, out var d) ? d.Count : 0;
         int stdCount = drafts.TryGetValue(player.Address, out var sd) ? sd.Count : 0;
-        int total = scalarCount + stdCount;
+        int total = scalarCount + stdCount + (informationDirty?.Invoke() == true ? 1 : 0);
 
         if (saveButton is not null) saveButton.IsEnabled = total > 0;
         if (discardButton is not null) discardButton.IsEnabled = total > 0;
@@ -206,23 +184,51 @@ public sealed partial class MainWindow
         PlayerRecord? player,
         bool isSquadMode,
         Func<IReadOnlyList<PlayerRecord>>? getSquadPlayers,
-        Action<string>? onStatus)
+        Action<string>? onStatus,
+        Func<IReadOnlyList<PlayerRecord>>? getSelectedPlayers = null)
     {
         var panel = new StackPanel
         {
-            Spacing = 8,
-            Width = 200,
+            Spacing = 4,
+            Margin = new Thickness(5, 6),
         };
 
-        var title = new TextBlock
+        static Grid Pair(Control left, Control right)
         {
-            Text = "ACTIONS",
-            FontSize = 11,
+            var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 4 };
+            Grid.SetColumn(left, 0);
+            Grid.SetColumn(right, 1);
+            g.Children.Add(left);
+            g.Children.Add(right);
+            return g;
+        }
+
+        static TextBlock Subhead(string text, bool first = false) => new()
+        {
+            Text = text,
+            FontSize = 9.5,
             FontWeight = FontWeight.Bold,
-            Foreground = Brush("#94A3B8"),
-            Margin = new Thickness(0, 2, 0, 4),
+            Foreground = UiKit.Brush("#7E8BA3"),
+            LetterSpacing = 0.4,
+            Margin = new Thickness(1, first ? 2 : 6, 0, 1),
         };
-        panel.Children.Add(title);
+
+        if (!isSquadMode && player is not null)
+        {
+            if (backend.Freezer is not null)
+            {
+                var freeze = new Button { Content = "Freeze", FontSize = 11, Height = 24, MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+                freeze.Click += async (_, _) => await ShowPlayerFreezerAsync(player);
+                panel.Children.Add(freeze);
+            }
+            var export = new Button { Content = "Export", FontSize = 11, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+            ToolTip.SetTip(export, "Export attributes");
+            export.Click += async (_, _) => await ExportPlayerAttributesAsync(player);
+            var import = new Button { Content = "Import", FontSize = 11, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+            ToolTip.SetTip(import, "Import attributes");
+            import.Click += async (_, _) => await ImportPlayerAttributesAsync(player);
+            panel.Children.Add(Pair(export, import));
+        }
 
         CheckBox? applyToAll = null;
         if (isSquadMode)
@@ -233,30 +239,25 @@ public sealed partial class MainWindow
             {
                 Content = applyText,
                 IsChecked = false,
-                Height = 26,
+                Height = 24,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 4),
+                Margin = new Thickness(0, 0, 0, 2),
             };
             ToolTip.SetTip(applyToAll, $"Apply to all = every player of the selected team ({squadCount})");
             panel.Children.Add(applyToAll);
         }
 
-        // Section: CONTRACT
-        panel.Children.Add(new TextBlock
-        {
-            Text = "CONTRACT",
-            FontSize = 10,
-            FontWeight = FontWeight.Bold,
-            Foreground = Brush("#7C3AED"),
-            Margin = new Thickness(0, 4, 0, 2),
-        });
+        panel.Children.Add(Subhead("CONTRACT", first: isSquadMode && applyToAll is null));
 
         Button ActionBtn(string text, Action onClick, bool enabled = true)
         {
             var btn = new Button
             {
                 Content = text,
-                Height = 26,
+                FontSize = 11,
+                Height = 24,
+                MinHeight = 24,
+                Padding = new Thickness(3, 0),
                 VerticalContentAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -268,10 +269,12 @@ public sealed partial class MainWindow
 
         void RunAction(string actionName, Action<PlayerRecord> action)
         {
-            bool toAll = applyToAll?.IsChecked == true;
-            if (toAll)
+            var selectedPlayers = isSquadMode && applyToAll?.IsChecked != true
+                ? getSelectedPlayers?.Invoke() ?? [] : [];
+            bool batch = applyToAll?.IsChecked == true || selectedPlayers.Count > 1;
+            if (batch)
             {
-                var list = getSquadPlayers?.Invoke() ?? [];
+                var list = applyToAll?.IsChecked == true ? getSquadPlayers?.Invoke() ?? [] : selectedPlayers;
                 if (list.Count == 0)
                 {
                     onStatus?.Invoke("No players in team");
@@ -324,122 +327,45 @@ public sealed partial class MainWindow
         panel.Children.Add(ActionBtn("Make it Expire", () =>
             RunAction("Make it Expire", p => SquadAdapter.MakeExpire(backend.Session, p))));
 
+        panel.Children.Add(Pair(
+            ActionBtn("−1 Year", () => RunAction("−1 Year", p => SquadAdapter.ShiftExpiry(backend.Session, p, -1))),
+            ActionBtn("+1 Year", () => RunAction("+1 Year", p => SquadAdapter.ShiftExpiry(backend.Session, p, 1)))));
+
         if (!isSquadMode && player is not null)
         {
             panel.Children.Add(ActionBtn("Release Player", () => _ = ShowReleasePlayerAsync(player), enabled: player.Contract is not null));
-            panel.Children.Add(ActionBtn("Undo last release", () => _ = UndoReleaseAsync(), enabled: releaseUndo.Count > 0));
+            if (releaseUndo.Count > 0)
+                panel.Children.Add(ActionBtn("Undo last release", () => _ = UndoReleaseAsync(), enabled: true));
         }
 
-        // Section: TEAM
-        panel.Children.Add(new TextBlock
-        {
-            Text = "TEAM",
-            FontSize = 10,
-            FontWeight = FontWeight.Bold,
-            Foreground = Brush("#64748B"),
-            Margin = new Thickness(0, 8, 0, 2),
-        });
         if (!isSquadMode && player is not null)
         {
+            panel.Children.Add(Subhead("TEAM"));
             bool captain = backend.Session.Profile.Team?.Captain is not null;
             bool vice = backend.Session.Profile.Team?.ViceCaptain is not null;
             panel.Children.Add(ActionBtn("Set captain", () => _ = ShowSetCaptainAsync(player, CaptainRole.Captain), enabled: captain));
             panel.Children.Add(ActionBtn("Set vice captain", () => _ = ShowSetCaptainAsync(player, CaptainRole.ViceCaptain), enabled: vice));
-            panel.Children.Add(ActionBtn("Undo captain change", () => _ = UndoCaptainAsync(), enabled: captainUndo.Count > 0));
+            if (captainUndo.Count > 0)
+                panel.Children.Add(ActionBtn("Undo captain change", () => _ = UndoCaptainAsync(), enabled: true));
         }
 
-        panel.Children.Add(ActionBtn("−1 Year", () =>
-            RunAction("−1 Year", p => SquadAdapter.ShiftExpiry(backend.Session, p, -1))));
+        panel.Children.Add(Subhead("STATE"));
 
-        panel.Children.Add(ActionBtn("+1 Year", () =>
-            RunAction("+1 Year", p => SquadAdapter.ShiftExpiry(backend.Session, p, 1))));
+        panel.Children.Add(Pair(
+            ActionBtn("Heal", () => RunAction("Heal", p => backend.Session.Heal(p))),
+            ActionBtn("Inspire", () => RunAction("Inspire", p => backend.Session.Inspire(p)))));
 
-        // Section: STATE
-        panel.Children.Add(new TextBlock
-        {
-            Text = "STATE",
-            FontSize = 10,
-            FontWeight = FontWeight.Bold,
-            Foreground = Brush("#64748B"),
-            Margin = new Thickness(0, 8, 0, 2),
-        });
+        panel.Children.Add(Pair(
+            ActionBtn("Destroy", () => RunAction("Destroy", p => backend.Session.Destroy(p))),
+            ActionBtn("No Bans", () => RunAction("Remove bans", p => backend.Session.RemoveMatchBans(p)))));
 
-        // Heal -> session.Heal(player)
-        panel.Children.Add(ActionBtn("Heal", () =>
-            RunAction("Heal", p => backend.Session.Heal(p))));
-
-        // Inspire -> session.Inspire(player)
-        panel.Children.Add(ActionBtn("Inspire", () =>
-            RunAction("Inspire", p => backend.Session.Inspire(p))));
-
-        // Destroy -> session.Destroy(player)
-        panel.Children.Add(ActionBtn("Destroy", () =>
-            RunAction("Destroy", p => backend.Session.Destroy(p))));
-
-        // Remove bans -> session.RemoveMatchBans(player)
-        panel.Children.Add(ActionBtn("Remove bans", () =>
-        {
-            bool toAll = applyToAll?.IsChecked == true;
-            if (toAll)
+        panel.Children.Add(ActionBtn("Tactical Familiarity", () =>
+            RunAction("Tactical Understanding", p =>
             {
-                var list = getSquadPlayers?.Invoke() ?? [];
-                if (list.Count == 0)
-                {
-                    onStatus?.Invoke("No players in team");
-                    return;
-                }
-
-                int totalRemoved = 0;
-                int affected = 0;
-                var failed = new List<string>();
-                foreach (var p in list)
-                {
-                    try
-                    {
-                        backend.Edits.Execute(() =>
-                        {
-                            int count = backend.Session.RemoveMatchBans(p);
-                            if (count > 0)
-                            {
-                                totalRemoved += count;
-                                affected++;
-                            }
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        failed.Add($"{p.DisplayName}: {ex.Message}");
-                    }
-                }
-
-                if (failed.Count == 0)
-                    onStatus?.Invoke($"Remove bans: removed {totalRemoved} match ban(s) across {affected} player(s). Continue in FM to see updates.");
-                else
-                    onStatus?.Invoke($"Remove bans: removed {totalRemoved} across {affected} player(s), {failed.Count} failed ({string.Join(", ", failed.Take(2))}).");
-            }
-            else
-            {
-                if (player is null)
-                {
-                    onStatus?.Invoke("Select a player first");
-                    return;
-                }
-
-                try
-                {
-                    int removed = 0;
-                    backend.Edits.Execute(() =>
-                    {
-                        removed = backend.Session.RemoveMatchBans(player);
-                    });
-                    onStatus?.Invoke($"Remove bans: removed {removed} match ban(s) from {player.DisplayName}. Continue in FM to see updates.");
-                }
-                catch (Exception ex)
-                {
-                    onStatus?.Invoke($"Failed Remove bans: {ex.Message}");
-                }
-            }
-        }));
+                var access = backend.Session.PlayerFamiliarity;
+                var snapshot = access.Read(p.Address) ?? throw new StaleObjectException("Tactical understanding is unavailable");
+                access.SetTactical(snapshot, PlayerFamiliarity.MaxTactical);
+            })));
 
         // FMRTE's Information-page presets; each returns false when the player already has what it adds.
         void RunPreset(string actionName, Func<PlayerRecord, bool> preset)
@@ -452,38 +378,18 @@ public sealed partial class MainWindow
         panel.Children.Add(ActionBtn("Register for UEFA", () => RunPreset("Register for UEFA", p => backend.Session.RegisterForUefa(p))));
         panel.Children.Add(ActionBtn("Trained at club", () => RunPreset("Trained at club", p => backend.Session.TrainedAtCurrentClub(p))));
         panel.Children.Add(ActionBtn("Trained at nation", () => RunPreset("Trained at nation", p => backend.Session.TrainedInCurrentNation(p))));
-        panel.Children.Add(ActionBtn("Improve Team Cohesion", () => RunPreset("Improve Team Cohesion", p => backend.Session.SetTeamCohesion(p, TeamCohesionWriter.Improve))));
-        panel.Children.Add(ActionBtn("Destroy Team Cohesion", () => RunPreset("Destroy Team Cohesion", p => backend.Session.SetTeamCohesion(p, TeamCohesionWriter.Destroy))));
+        panel.Children.Add(ActionBtn("Team Cohesion", () => RunPreset("Improve Team Cohesion", p => backend.Session.SetTeamCohesion(p, TeamCohesionWriter.Improve))));
         panel.Children.Add(ActionBtn("All-in-one", () => RunAction("All-in-one", p => backend.Session.AllInOne(p))));
         if (!isSquadMode && player is not null)
         {
             var retirement = new PlannedRetirements(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase);
-            panel.Children.Add(ActionBtn("Prevent retirement", () => _ = ShowSquadPresetAsync([player], PlayerPreset.Fitness, false, false, false, false, false, true), enabled: retirement.IsSupported));
+            if (retirement.IsSupported)
+                panel.Children.Add(ActionBtn("Prevent retirement", () => _ = ShowSquadPresetAsync([player], PlayerPreset.Fitness, false, false, false, false, false, true)));
         }
 
-        string[] otherStateActions =
-        [
-            "Set condition",
-            "Set sharpness",
-            "Set morale",
-            "International withdrawal",
-            "Tactical understanding"
-        ];
-
-        foreach (var act in otherStateActions)
-        {
-            panel.Children.Add(ActionBtn(act, () => { }, enabled: false));
-        }
-
-        return new Border
-        {
-            Background = Brush("#151926"),
-            BorderBrush = Brush("#252A3D"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(5),
-            Padding = new Thickness(12, 10),
-            VerticalAlignment = VerticalAlignment.Top,
-            Child = panel,
-        };
+        var card = UiKit.Card("Tools", panel);
+        card.Width = isSquadMode ? 152 : 132;
+        card.VerticalAlignment = VerticalAlignment.Top;
+        return card;
     }
 }

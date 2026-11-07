@@ -41,3 +41,20 @@ Vector 16 byte inline ở `club+0x48` (profile `club.relationships`); bố cục
 ### Transfer Center — phần đã triển khai
 
 Reader quét vector offer toàn game và chọn theo CLB bán/mua; tra tên từ cả Player và Staff, lọc các trạng thái 2/3/15/20 như reader Transfer Proposals hiện có. Trên save này đọc và UI khớp 1 dòng Sheffield United và 4 dòng Manchester United như trên, gồm Figueroa và Rocha là staff. UI có ô Value dùng `TransferProposalWriter`: thử Balde 150.000 → 150.001 → 150.000, đọc lại toàn bộ 0x98 byte khớp ảnh gốc. Giá trị 150.001 đã từng được FMRTE xác nhận ở tab Transfer Proposals trước đó; lượt thử UI Club này chưa mở lại FMRTE khi giá trị đổi. Chưa xác nhận mọi trạng thái, loại offer, nguồn đích hoặc hành vi khi người trong offer không có trong danh mục đã nạp.
+
+## Cập nhật 5/11 — Sponsors (Finances → Sponsors and Other)
+
+Đã làm và kiểm chứng trên game: **sửa Annual Value và 2 ngày** của một sponsor đang có.
+
+- Core: `ClubSponsorWriter` (guard: đọc lại danh sách, so entry; ghi rồi đọc lại). Record 0x18 byte `{start 4, end 4, total int32, 8 byte khác, income type 1}`; club `+0x130` → holder, vector ở `holder+0`.
+- CLI: `clubsponsor <club-id> <index> total|dates <value> [--write]` (dates dạng `yyyy-MM-dd,yyyy-MM-dd`).
+- Đã ghi thử: Man Utd sponsor 0 → 901,234,567 / 8-1-2025..6-30-2036; FMRTE hiện đúng ở trang Finances → Sponsors and Other. Arsenal sponsor 0 → 1,234,567 rồi khôi phục 600,000,000.
+- Test: 4 test mới; Core 380/380, App 146/146.
+
+**UI (5/11):** đã có — Finances → Sponsors and Other hiện bảng 28 dòng của Man Utd, chọn dòng rồi sửa Total Value / Start / End và bấm Apply; đã thử ghi 900,000,123 và 2025-07-02..2035-07-01 trên app rồi CLI đọc lại đúng, sau đó khôi phục. Nhãn Income Type đã bổ sung 13 Training Kit và 6 Other Income (khớp FMRTE).
+
+**Income Type (5/11):** đã sửa được — CLI `clubsponsor <id> <index> income <code>`, UI có combo + Apply (chỉ các mã đã biết 1,3,4,6,11,13,18,19,22,23). Đã ghi Man Utd 22→1 rồi khôi phục, đọc lại RAM đúng (FMRTE cache bảng nên phải Load Game mới thấy).
+
+**2 cờ Renew Income / Fixed Value (5/11):** đã sửa được — record `+0x15` và `+0x16` (1 byte, 1 = tick); CLI `clubsponsor <id> <index> flags <renew>,<fixed>`, UI có 2 checkbox + Apply; đã thử cả CLI và UI rồi khôi phục.
+
+**Còn thiếu:** thêm/xoá sponsor.

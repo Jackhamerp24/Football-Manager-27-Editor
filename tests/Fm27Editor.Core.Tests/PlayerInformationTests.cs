@@ -37,7 +37,7 @@ public class PlayerInformationTests
         var vector = _w.Memory.Map(CityVector, 24);
         TestWorld.Set64(vector, 0, CityList); TestWorld.Set64(vector, 8, CityList + 16); TestWorld.Set64(vector, 16, CityList + 16);
         Put(0x308, Convert.ToHexString(BitConverter.GetBytes(Maia)));
-        foreach (var n in new[] { Portugal, Poland }) TestWorld.Set64(_w.Memory.Map(n, 0x30), 0, TestWorld.ModuleBase + NationVt);
+        foreach (var n in new[] { Portugal, Poland }) TestWorld.Set64(_w.Memory.Map(n, 0x40), 0, TestWorld.ModuleBase + NationVt);
         Put(0x2F0, Convert.ToHexString(BitConverter.GetBytes(Portugal)));
     }
 
@@ -122,6 +122,35 @@ public class PlayerInformationTests
         Assert.Equal("Maia", Cities().CityOf(Bruno())?.Name);
         Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x308, BitConverter.GetBytes(NotACity)));
         Assert.Null(Cities().CityOf(Bruno()));
+    }
+
+    [Fact]
+    public void BirthCitySearchMatchesCityIdAndRejectsInvalidCityObjects()
+    {
+        var bruno = Bruno();
+        Assert.Equal(new[] { bruno.Address }, Cities().FindPlayersBornInCity([bruno], 855).Select(p => p.Address));
+        Assert.Empty(Cities().FindPlayersBornInCity([bruno], 19013037));
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x308, BitConverter.GetBytes(NotACity)));
+        Assert.Empty(Cities().FindPlayersBornInCity([bruno], 855));
+        var unknown = Cities().FindPlayersBornInCityDetailed([bruno], 855);
+        Assert.Empty(unknown.Matches);
+        Assert.Equal(new[] { bruno.Address }, unknown.Unavailable.Select(p => p.Address));
+    }
+
+    [Fact]
+    public void AdvancedSearchCombinesBirthCityAndNationalityWithoutLosingUnknown()
+    {
+        var reader = new PlayerStatusReader(_w.Memory, _w.Profile, TestWorld.ModuleBase);
+        var search = new AdvancedPlayerSearch(Cities(), new ContractSearch(new ContractWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase)),
+            new PlayerNationalitySearch(reader), new PlayerContinentSearch(new NationLinks(_w.Memory, _w.Profile, TestWorld.ModuleBase)), new PlayerRelationSearch(reader));
+        var player = Bruno();
+        var criteria = new AdvancedPlayerCriteria { BirthCityId = 855, Nationality = new NationRecord(Portugal, 788, "Portugal", null) };
+        Assert.Equal(new[] { player.Address }, search.Find([player], criteria).Matches.Select(p => p.Address));
+        Assert.Empty(search.Find([player], criteria with { BirthCityId = 19013037 }).Matches);
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x308, BitConverter.GetBytes(NotACity)));
+        var unknown = search.Find([player], criteria);
+        Assert.Empty(unknown.Matches);
+        Assert.Equal(new[] { player.Address }, unknown.Unavailable.Select(p => p.Address));
     }
 
     [Fact]

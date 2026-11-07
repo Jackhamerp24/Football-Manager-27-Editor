@@ -1,10 +1,34 @@
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Offsets;
+using Fm27Editor.Core.Game;
+using Fm27Editor.Core.Memory;
+using Fm27Editor.Core.Players;
 
 namespace Fm27Editor.Core.Tests;
 
 public class ConfirmedClubFieldsTests
 {
+    [Fact]
+    public void GamePass_colours_follow_club_holder_and_reject_stale_value()
+    {
+        var profile = GameSession.BuiltInProfiles().Single(p => p.Build == "27.0.0+2493426 Game Pass");
+        var memory = new FakeMemory();
+        var club = memory.Map(Club, 0x170);
+        TestWorld.Set64(club, 0, TestWorld.ModuleBase + profile.Club!.ClubVtableRva);
+        TestWorld.Set64(club, 0xB0, Info);
+        var holder = memory.Map(Info, 0xB0);
+        Convert.FromHexString("6666A9FF").CopyTo(holder, 0xA0); // FMRTE Bayern #FFA96666
+        Convert.FromHexString("5C4B93FF").CopyTo(holder, 0xA8); // FMRTE Bayern #FF934B5C
+        var access = new ClubFieldAccess(memory, profile, TestWorld.ModuleBase);
+        Assert.Equal(0xFFA96666L, access.Read(Club, ClubField.ForegroundColour));
+        Assert.Equal(0xFF934B5CL, access.Read(Club, ClubField.BackgroundColour));
+        access.Set(Club, ClubField.ForegroundColour, 0xFFA96666, 0xFFBE4A4A); // Sheffield FMRTE colour
+        Assert.Equal(Convert.FromHexString("4A4ABEFF"), memory.Read(Info + 0xA0, 4));
+        access.Set(Club, ClubField.BackgroundColour, 0xFF934B5C, 0xFF123456);
+        Assert.Equal(Convert.FromHexString("563412FF"), memory.Read(Info + 0xA8, 4));
+        Assert.Throws<StaleObjectException>(() => access.Set(Club, ClubField.BackgroundColour, 0xFF934B5C, 0));
+    }
+
     const ulong Club = 0x53000000, Info = 0x53010000, Finance = 0x53020000;
 
     [Theory]

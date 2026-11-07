@@ -144,12 +144,12 @@ public sealed partial class MainWindow
         if (statuses.Relationships.Count > 0) list.Children.Add(new ScrollViewer { Content = grid, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         list.Children.Add(new Border
         {
-            BorderBrush = Brush("#222432"),
+            BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, statuses.Relationships.Count > 0 ? 1 : 0, 0, 0),
             Padding = new Thickness(12, 8),
             Child = new WrapPanel { Orientation = Orientation.Horizontal, Children = { addKind, search, targets, addValue, addReason, addPermanent, addNationalityInfo, add } },
         });
-        if (statuses.Holder != 0) panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Child = list });
+        if (statuses.Holder != 0) panel.Children.Add(UiKit.Card("Relationships", list));
         save.Click += (_, _) =>
         {
             var changes = new List<((PlayerRelationship Row, TextBox Value, ComboBox Reason, CheckBox? Permanent) Field, int Value)>();

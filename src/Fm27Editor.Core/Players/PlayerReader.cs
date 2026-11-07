@@ -55,12 +55,28 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
             Contract = contract,
             Nationality = profile.Nation is { } nat ? ReadNation(U64(obj, nat.PlayerNation), nat) : null,
             Division = division,
+            AskingPrice = ReadDirect(PlayerField.AskingPrice, obj),
+            InternationalCaps = ReadDirect(PlayerField.Caps, obj),
+            InternationalGoals = ReadDirect(PlayerField.InternationalGoals, obj),
+            Ethnicity = ReadDirect(PlayerField.Ethnicity, obj),
+            TreatedAsNonEuInItaly = ReadDirect(PlayerField.TreatedAsNonEuInItaly, obj),
+            PreferredMoveBits = profile.PreferredMoves is { } moveOffset && moveOffset >= 0 && moveOffset <= obj.Length - sizeof(ulong)
+                ? BitConverter.ToUInt64(obj[moveOffset..]) : null,
             PendingContractAddress = profile.PendingContract is { } pc ? U64(obj, pc.PlayerPointer) : 0,
             RawAttributes = attrs,
             AttributeScale = profile.AttributeScale,
             Positions = positions,
             Personality = personality,
         };
+    }
+
+    long? ReadDirect(PlayerField field, ReadOnlySpan<byte> obj)
+    {
+        if (profile.PlayerFields is not { } fields || !fields.TryGetValue(field, out var offset) || offset.Path.Count != 1) return null;
+        int at = offset.Path[0];
+        int size = Fm27Editor.Core.Clubs.ClubFieldAccess.Size(offset.Type);
+        if (at < 0 || at > obj.Length - size) return null;
+        return Fm27Editor.Core.Clubs.ClubFieldAccess.Decode(obj.Slice(at, size).ToArray(), offset);
     }
 
     static ulong U64(ReadOnlySpan<byte> b, int off) => BitConverter.ToUInt64(b[off..]);

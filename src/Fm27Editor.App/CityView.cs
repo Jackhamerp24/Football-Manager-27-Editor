@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -21,50 +22,74 @@ public sealed partial class MainWindow
 
     readonly CityNavItem cityNavItem = new();
     readonly Grid cityViewRoot = new() { IsVisible = false };
-    readonly TextBox citySearch = new() { Watermark = "Search city..." };
+    readonly TextBox citySearch = new() { Watermark = "Search city, nation or ID..." };
     readonly DataGrid cityGrid = new()
     {
         IsReadOnly = true, AutoGenerateColumns = false, CanUserResizeColumns = true, CanUserSortColumns = true,
         SelectionMode = DataGridSelectionMode.Single, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-        HorizontalGridLinesBrush = Brush("#1D2130"), RowHeight = 29, Background = Brush("#11131C"), BorderThickness = new Thickness(0),
+        HorizontalGridLinesBrush = Brush("#1D2130"), RowHeight = 28, Background = Brush("#11131C"), BorderThickness = new Thickness(0),
     };
-    readonly StackPanel cityEditor = new() { Spacing = 12, Margin = new Thickness(18, 14) };
+    readonly ContentControl cityHeaderHost = new() { Margin = new Thickness(12, 9, 12, 8) };
+    readonly StackPanel cityEditor = new() { Spacing = 12, Margin = new Thickness(12, 0, 12, 12) };
     readonly Dictionary<ulong, Dictionary<CityField, string>> cityDrafts = [];
     IReadOnlyList<CityRow> cityRows = [];
     CityRecord? selectedCity;
+    Button? citySaveButton;
     bool cityActive;
+    Control cityDetailRoot = new Panel();
 
-    void RegisterCityView(Grid playersSplit)
+    void OpenSelectedCity()
     {
-        if (playersSplit.Parent is not Grid host) return;
-        host.Children.Add(cityViewRoot);
+        selectedCity = (cityGrid.SelectedItem as CityRow)?.City;
+        if (selectedCity is null) return;
+        RenderCityEditor();
+        OpenKindTab("city", selectedCity.Name, cityDetailRoot);
+    }
+
+    void RegisterCityView()
+    {
+        AddModuleTab("Cities", cityViewRoot, cityNavItem);
         modules.ItemsSource = (object[])[.. (object[])modules.ItemsSource!, cityNavItem];
 
         cityGrid.Columns.Add(new DataGridTextColumn { Header = "City", Binding = new Binding(nameof(CityRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        cityGrid.Columns.Add(new DataGridTextColumn { Header = "Nation", Binding = new Binding(nameof(CityRow.Nation)), Width = new DataGridLength(150) });
-        cityGrid.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(CityRow.Id)), Width = new DataGridLength(100) });
+        cityGrid.Columns.Add(new DataGridTextColumn { Header = "Nation", Binding = new Binding(nameof(CityRow.Nation)), Width = new DataGridLength(160) });
+        var idCol = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(CityRow.Id)), Width = new DataGridLength(100) };
+        idCol.CellStyleClasses.Add("numeric");
+        cityGrid.Columns.Add(idCol);
+
         citySearch.TextChanged += (_, _) => FilterCities();
-        cityGrid.SelectionChanged += (_, _) => { selectedCity = (cityGrid.SelectedItem as CityRow)?.City; RenderCityEditor(); };
+        cityGrid.SelectionChanged += (_, _) => selectedCity = (cityGrid.SelectedItem as CityRow)?.City;
+        cityGrid.DoubleTapped += (_, _) => OpenSelectedCity();
+        cityGrid.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { OpenSelectedCity(); e.Handled = true; }
+        };
 
         var left = new DockPanel { Background = Brush("#11131C") };
-        var searchBar = new Border { Background = Brush("#141722"), BorderBrush = Brush("#252A3D"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(10, 8), Child = citySearch };
+        var searchBar = new Border
+        {
+            Background = UiKit.Surface,
+            BorderBrush = UiKit.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(10, 7),
+            Child = citySearch,
+        };
         DockPanel.SetDock(searchBar, Dock.Top);
         left.Children.Add(searchBar);
         left.Children.Add(cityGrid);
-        cityViewRoot.ColumnDefinitions = new ColumnDefinitions
-        {
-            new ColumnDefinition(new GridLength(520)) { MinWidth = 360 },
-            new ColumnDefinition(new GridLength(6, GridUnitType.Pixel)),
-            new ColumnDefinition(new GridLength(1, GridUnitType.Star)) { MinWidth = 380 },
-        };
-        Grid.SetColumn(left, 0);
         cityViewRoot.Children.Add(left);
-        var splitter = new GridSplitter { Width = 6, ResizeDirection = GridResizeDirection.Columns, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
-        Grid.SetColumn(splitter, 1);
-        cityViewRoot.Children.Add(splitter);
-        var scroll = new ScrollViewer { Content = cityEditor, Background = Brush("#0D0F17"), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        Grid.SetColumn(scroll, 2);
-        cityViewRoot.Children.Add(scroll);
+
+        var scroll = new ScrollViewer
+        {
+            Content = cityEditor,
+            Background = UiKit.WindowBg,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+        };
+        var detailDock = new DockPanel { Background = UiKit.WindowBg };
+        DockPanel.SetDock(cityHeaderHost, Dock.Top);
+        detailDock.Children.Add(cityHeaderHost);
+        detailDock.Children.Add(scroll);
+        cityDetailRoot = detailDock;
 
         // Registered after Clubs, Staff, Nations and Stadiums: those show the players screen when none of them is selected.
         modules.SelectionChanged += async (_, _) =>
@@ -72,9 +97,6 @@ public sealed partial class MainWindow
             bool toCities = ReferenceEquals(modules.SelectedItem, cityNavItem);
             if (toCities == cityActive) return;
             cityActive = toCities;
-            cityViewRoot.IsVisible = toCities;
-            if (toCities) playersSplit.IsVisible = false;
-            else if (!clubsActive && !staffActive && !nationActive && !stadiumActive) playersSplit.IsVisible = true;
             if (toCities && cityRows.Count == 0 && backend.State.Status == ConnectionStatus.Connected) await LoadCitiesAsync();
         };
         backend.StateChanged += (_, _) => Dispatcher.UIThread.Post(async () =>
@@ -82,7 +104,9 @@ public sealed partial class MainWindow
             cityRows = [];
             cityDrafts.Clear();
             selectedCity = null;
+            citySaveButton = null;
             cityGrid.ItemsSource = null;
+            cityHeaderHost.Content = null;
             cityEditor.Children.Clear();
             if (cityActive && backend.State.Status == ConnectionStatus.Connected) await LoadCitiesAsync();
         });
@@ -109,29 +133,39 @@ public sealed partial class MainWindow
 
     void FilterCities()
     {
-        string q = Fold(citySearch.Text ?? "");
-        cityGrid.ItemsSource = q.Length == 0 ? cityRows : cityRows.Where(r => Fold(r.Name).Contains(q, StringComparison.Ordinal)).ToList();
+        string q = Fold((citySearch.Text ?? "").Trim());
+        cityGrid.ItemsSource = q.Length == 0
+            ? cityRows
+            : cityRows.Where(r =>
+                Fold(r.Name).Contains(q, StringComparison.Ordinal) ||
+                Fold(r.Nation).Contains(q, StringComparison.Ordinal) ||
+                r.Id.ToString(Inv).Contains(q, StringComparison.Ordinal)).ToList();
     }
 
     void RenderCityEditor()
     {
+        cityHeaderHost.Content = null;
         cityEditor.Children.Clear();
-        if (selectedCity is not { } c) return;
+        if (selectedCity is not { } c) { citySaveButton = null; return; }
         if (!cityDrafts.TryGetValue(c.Address, out var draft)) cityDrafts[c.Address] = draft = [];
-        Button? save = null, discard = null;
-        void Changed() { if (save is not null) save.IsEnabled = discard!.IsEnabled = draft.Count > 0; }
+        var save = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" } };
+        var discard = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
+        citySaveButton = save;
+        void Changed() => save.IsEnabled = discard.IsEnabled = draft.Count > 0;
+        save.Click += (_, _) => SaveCity(c, draft);
+        discard.Click += (_, _) => { cityDrafts.Remove(c.Address); RenderCityEditor(); };
 
-        TextBlock Label(string t, string color = "#CBD5E1") => new() { Text = t, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
+        TextBlock Label(string t, string color = "#CBD5E1") => new() { Text = t, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
         Control Box(CityField f)
         {
             string original = CityLabels.Format(c, f);
-            var box = new TextBox { Text = draft.GetValueOrDefault(f, original), Width = 100, MinHeight = 24, Padding = new Thickness(4, 1), HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center };
+            var box = new TextBox { Text = draft.GetValueOrDefault(f, original), Width = 110, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center };
             box.TextChanged += (_, _) => { string t = box.Text ?? ""; if (t == original) draft.Remove(f); else draft[f] = t; Changed(); };
             return box;
         }
         Control Range()
         {
-            var combo = new ComboBox { ItemsSource = CityLabels.InhabitantRanges, MinWidth = 170 };
+            var combo = new ComboBox { ItemsSource = CityLabels.InhabitantRanges, MinWidth = 176 };
             combo.SelectedIndex = draft.TryGetValue(CityField.Inhabitants, out var d) && int.TryParse(d, out int cur) ? cur : c.Inhabitants;
             combo.SelectionChanged += (_, _) =>
             {
@@ -141,44 +175,76 @@ public sealed partial class MainWindow
             };
             return combo;
         }
-        Border Panel(string title, IEnumerable<(string Label, Control Value)> items)
+
+        Border CardRows(string title, IEnumerable<(string Label, Control Value)> items)
         {
-            var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowSpacing = 3, Margin = new Thickness(12, 8) };
+            var stack = new StackPanel { Spacing = 0 };
+            int idx = 0;
             foreach (var (label, value) in items)
             {
-                int r = g.RowDefinitions.Count; g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                var l = Label(label); Grid.SetRow(l, r); g.Children.Add(l);
-                Grid.SetRow(value, r); Grid.SetColumn(value, 1); g.Children.Add(value);
-            }
-            return new()
-            {
-                Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
-                Child = new StackPanel
+                var line = new DockPanel { MinHeight = 26, LastChildFill = true };
+                DockPanel.SetDock(value, Dock.Right);
+                line.Children.Add(value);
+                line.Children.Add(Label(label));
+                stack.Children.Add(new Border
                 {
-                    Children =
-                    {
-                        new Border { Background = Brush("#1D1F2D"), BorderBrush = Brush("#6D28D9"), BorderThickness = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 6),
-                            Child = new TextBlock { Text = title.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Brush("#E2E8F0") } },
-                        g,
-                    }
-                }
-            };
+                    Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                    Padding = new Thickness(12, 3),
+                    Child = line,
+                });
+            }
+            return UiKit.Card(title, stack);
         }
 
         string nation = cityRows.FirstOrDefault(r => r.City.Address == c.Address)?.Nation ?? "";
-        cityEditor.Children.Add(new StackPanel
+        var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        badges.Children.Add(UiKit.MetaText($"ID {c.Id.ToString(Inv)}"));
+        if (!string.IsNullOrEmpty(nation) && c.Nation != 0)
         {
-            Spacing = 2,
-            Children = { new TextBlock { Text = c.Name, FontSize = 20, FontWeight = FontWeight.Bold }, Label($"{c.Id.ToString(Inv)}  ·  {nation}", "#94A3B8") }
-        });
-        cityEditor.Children.Add(Panel("City", [("Inhabitants Range", Range()), ("Attraction", Box(CityField.Attraction))]));
-        cityEditor.Children.Add(Panel("Location", [("Latitude", Box(CityField.Latitude)), ("Longitude", Box(CityField.Longitude)), ("Altitude", Box(CityField.Altitude))]));
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            nationCatalogue ??= backend.Session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+            var natRecord = nationCatalogue.FirstOrDefault(n => n.Address == c.Nation);
+            var flag = graphics.Image("nationflag", natRecord?.Id, 15);
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { flag, new TextBlock { Text = nation, FontSize = 12, VerticalAlignment = VerticalAlignment.Center } },
+            };
+            var natLink = UiKit.MetaLinkButton(content, highlight: true);
+            natLink.Click += async (_, _) => await OpenPlayerNationAsync(c.Nation);
+            badges.Children.Add(natLink);
+        }
+        else if (!string.IsNullOrEmpty(nation))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaText(nation));
+        }
 
-        save = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" } };
-        discard = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
-        save.Click += (_, _) => SaveCity(c, draft);
-        discard.Click += (_, _) => { cityDrafts.Remove(c.Address); RenderCityEditor(); };
-        cityEditor.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        cityHeaderHost.Content = UiKit.EntityBanner(c.Name, badges, null);
+
+        var leftCard = CardRows("City", [
+            ("Unique ID", Label(c.Id.ToString(Inv), "#F1F5F9")),
+            ("Inhabitants Range", Range()),
+            ("Attraction", Box(CityField.Attraction)),
+        ]);
+        var rightCard = CardRows("Location", [
+            ("Latitude", Box(CityField.Latitude)),
+            ("Longitude", Box(CityField.Longitude)),
+            ("Altitude", Box(CityField.Altitude)),
+        ]);
+
+        var columns = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 12,
+        };
+        Grid.SetColumn(leftCard, 0);
+        Grid.SetColumn(rightCard, 1);
+        columns.Children.Add(leftCard);
+        columns.Children.Add(rightCard);
+        cityEditor.Children.Add(columns);
     }
 
     void SaveCity(CityRecord c, Dictionary<CityField, string> draft)

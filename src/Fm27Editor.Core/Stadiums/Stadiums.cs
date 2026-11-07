@@ -192,8 +192,19 @@ public sealed class StadiumWriter(IProcessMemory memory, OffsetProfile profile, 
         Write(at, bytes);
     }
 
-    public void SetFlag(StadiumRecord stadium, StadiumFlag flag, bool on)
+    /// <summary>Seat Colour is four bytes B, G, R, A at <c>stadium.seatColour</c>; FMRTE edits it with a colour picker
+    /// and wrote #FF00BEEF to Old Trafford at +0x78 (5/11/2026).</summary>
+    public void SetSeatColour(StadiumRecord stadium, uint argb)
     {
+        var s = S;
+        if (s.SeatColour < 0) throw new InvalidOperationException("Seat colour is not mapped in this profile");
+        Require(stadium.Address);
+        ulong at = stadium.Address + (ulong)s.SeatColour;
+        if (BitConverter.ToUInt32(memory.Read(at, 4)) != stadium.SeatColour) throw new StaleObjectException("Seat colour changed since it was read");
+        Write(at, BitConverter.GetBytes(argb));
+    }
+
+    public void SetFlag(StadiumRecord stadium, StadiumFlag flag, bool on)    {
         var s = S;
         Require(stadium.Address);
         bool alt = s.AltFlagBits.TryGetValue(flag, out byte altBit);

@@ -23,3 +23,14 @@ re/club/
 re/squad/
 re/transfer/
 re/rca-experiments/
+
+# Local agent scratch: UI build artifacts, design prototypes, one-off patch scripts, RE surveys
+artifacts/
+design/
+fm27-editor-prototype.html
+re/tools/*.py
+!re/tools/fmrte-rpm-trace.py
+re/*.csv
+# Notes from inspecting a closed-source editor: keep local
+docs/FM-STUDIO-27-research.md
+src/Fm27Editor.App/Assets/Flags/

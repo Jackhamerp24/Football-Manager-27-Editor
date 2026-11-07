@@ -35,24 +35,32 @@ public sealed partial class MainWindow
         static int Index<T>(IReadOnlyList<(T Code, string Name)> list, T code) => list.ToList().FindIndex(x => Equals(x.Code, code));
         var e = new PlanEditor
         {
-            Condition = new ComboBox { Width = 150, ItemsSource = CareerPlanLabels.Conditions.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Conditions, condition) },
-            Job = new ComboBox { Width = 150, ItemsSource = CareerPlanLabels.Jobs.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Jobs, job) },
-            ItemType = new ComboBox { Width = 100, ItemsSource = CareerPlanLabels.ItemTypes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.ItemTypes, item?.Type ?? CareerItemType.Club) },
+            Condition = new ComboBox { Width = 182, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Conditions.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Conditions, condition) },
+            Job = new ComboBox { Width = 152, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Jobs.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Jobs, job) },
+            ItemType = new ComboBox { Width = 98, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.ItemTypes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.ItemTypes, item?.Type ?? CareerItemType.Club) },
             // Type to search the chosen kind (clubs, continents, nations, competitions), then pick.
-            Item = new AutoCompleteBox { Width = 170, MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300,
+            Item = new AutoCompleteBox { Width = 200, MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300,
                 ItemFilter = (q, o) => o is CareerTarget t && Matches(t.Item.Name, q ?? "") },
-            Scope = new ComboBox { Width = 95, ItemsSource = CareerPlanLabels.Scopes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Scopes, scope) },
+            Scope = new ComboBox { Width = 96, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Scopes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Scopes, scope) },
         };
         void Source()
         {
             if (e.ItemType.SelectedIndex < 0) return;
             var type = CareerPlanLabels.ItemTypes[e.ItemType.SelectedIndex].Type;
-            e.Item.ItemsSource = catalogue.Where(c => c.Type == type).Select(c => new CareerTarget(c)).ToArray();
+            var choices = catalogue.Where(c => c.Type == type).Select(c => new CareerTarget(c)).ToList();
+            if (item is not null && item.Type == type && !choices.Any(c => c.Item.Address == item.Address))
+                choices.Add(new CareerTarget(item));
+            e.Item.ItemsSource = choices;
         }
         Source();
-        if (item is not null) e.Item.SelectedItem = new CareerTarget(item);
+        if (item is not null)
+        {
+            e.Item.SelectedItem = (e.Item.ItemsSource as IEnumerable<CareerTarget>)?.FirstOrDefault(c => c.Item.Address == item.Address);
+            e.Item.Text = item.Name;
+            ToolTip.SetTip(e.Item, item.Name);
+        }
         e.ItemType.SelectionChanged += (_, _) => { Source(); e.Item.SelectedItem = null; e.Item.Text = ""; changed(); };
-        e.Item.SelectionChanged += (_, _) => changed();
+        e.Item.SelectionChanged += (_, _) => { ToolTip.SetTip(e.Item, (e.Item.SelectedItem as CareerTarget)?.Item.Name); changed(); };
         foreach (var box in new[] { e.Condition, e.Job, e.Scope }) box.SelectionChanged += (_, _) => changed();
         int r = grid.RowDefinitions.Count;
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
@@ -118,9 +126,9 @@ public sealed partial class MainWindow
         if (rowsOf.Count > 0) list.Children.Add(grid);
         list.Children.Add(new Border
         {
-            BorderBrush = Brush("#222432"), BorderThickness = new Thickness(0, rowsOf.Count > 0 ? 1 : 0, 0, 0), Padding = new Thickness(12, 8), Child = addGrid,
+            BorderBrush = UiKit.BorderSubtle, BorderThickness = new Thickness(0, rowsOf.Count > 0 ? 1 : 0, 0, 0), Padding = new Thickness(12, 8), Child = addGrid,
         });
-        panel.Children.Add(new Border { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Child = list });
+        panel.Children.Add(UiKit.Card("Career Plans", list));
         save.Click += (_, _) =>
         {
             var changes = rowsOf.Where(Changed).ToList();

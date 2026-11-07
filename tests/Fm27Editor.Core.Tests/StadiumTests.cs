@@ -187,4 +187,19 @@ public class StadiumTests
         Assert.Throws<StaleObjectException>(() => Writer().SetInternationalSize(s, (105, 68)));
         Assert.Equal(writes, _w.Memory.Writes);
     }
+
+    /// <summary>FMRTE 27 wrote #FF00BEEF to Old Trafford's Seat Colour and the bytes changed at +0x78 (B, G, R, A);
+    /// the dump above still holds the original #FFE10000, which is what the reader must report.</summary>
+    [Fact]
+    public void Seat_colour_reads_and_writes_the_four_bytes_FMRTE_wrote()
+    {
+        var s = Repo().LoadAll()[0];
+        Assert.Equal(0xFFE10000u, s.SeatColour);
+        Writer().SetSeatColour(s, 0xFF00BEEFu);
+        Assert.Equal("EFBE00FF", Convert.ToHexString(_w.Bytes(Ot + 0x78, 4)));
+        Assert.Equal(0xFF00BEEFu, Repo().LoadAll()[0].SeatColour);
+        int writes = _w.Memory.Writes;
+        Assert.Throws<StaleObjectException>(() => Writer().SetSeatColour(s, 0xFFE10000u));
+        Assert.Equal(writes, _w.Memory.Writes);
+    }
 }

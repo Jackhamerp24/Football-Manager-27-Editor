@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -33,7 +34,7 @@ public sealed partial class MainWindow
 
     readonly StaffNavItem staffNavItem = new();
     readonly Grid staffViewRoot = new() { IsVisible = false };
-    readonly TextBox staffSearch = new() { Watermark = "Search staff name..." };
+    readonly TextBox staffSearch = new() { Watermark = "Search staff name or ID...", Margin = new Thickness(0, 0, 6, 0) };
     readonly ComboBox staffClubFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox staffJobFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     const string AllStaffClubs = "All clubs", AllStaffJobs = "All jobs";
@@ -47,37 +48,54 @@ public sealed partial class MainWindow
         SelectionMode = DataGridSelectionMode.Single,
         GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
         HorizontalGridLinesBrush = Brush("#1D2130"),
-        RowHeight = 29,
+        RowHeight = 28,
         Background = Brush("#11131C"),
         BorderThickness = new Thickness(0),
     };
-    readonly StackPanel staffEditor = new() { Spacing = 12, Margin = new Thickness(18, 14) };
+    readonly ContentControl staffHeaderHost = new() { Margin = new Thickness(12, 9, 12, 8) };
+    readonly ContentControl staffRailHost = new() { Width = 168, Margin = new Thickness(12, 0, 0, 10) };
+    readonly StackPanel staffEditor = new() { Spacing = 10, Margin = new Thickness(0, 0, 12, 12) };
     readonly Dictionary<ulong, StaffDraft> staffDrafts = [];
     IReadOnlyList<StaffRow> staffRows = [];
     StaffRecord? selectedStaff;
+    Button? staffSaveButton;
     bool staffActive;
+    Control staffDetailRoot = new Panel();
     (ulong Address, int Id)? pendingStaffNavigation;
+    string staffSectionKey = "Information";
 
-    void RegisterStaffView(Grid playersSplit)
+    void OpenSelectedStaff()
     {
-        if (playersSplit.Parent is not Grid host) return;
-        host.Children.Add(staffViewRoot);
+        selectedStaff = (staffGrid.SelectedItem as StaffRow)?.Staff;
+        if (selectedStaff is null) return;
+        RenderStaffEditor();
+        OpenKindTab("staff", selectedStaff.DisplayName, staffDetailRoot);
+    }
+
+    void RegisterStaffView()
+    {
+        AddModuleTab("Staff", staffViewRoot, staffNavItem);
         modules.ItemsSource = (object[])[.. (object[])modules.ItemsSource!, staffNavItem];
 
         staffGrid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(StaffRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        staffGrid.Columns.Add(new DataGridTextColumn { Header = "Job", Binding = new Binding(nameof(StaffRow.Job)), Width = new DataGridLength(130) });
-        staffGrid.Columns.Add(new DataGridTextColumn { Header = "Club", Binding = new Binding(nameof(StaffRow.Club)), Width = new DataGridLength(120) });
+        staffGrid.Columns.Add(new DataGridTextColumn { Header = "Job", Binding = new Binding(nameof(StaffRow.Job)), Width = new DataGridLength(136) });
+        staffGrid.Columns.Add(new DataGridTextColumn { Header = "Club", Binding = new Binding(nameof(StaffRow.Club)), Width = new DataGridLength(130) });
         staffGrid.Columns.Add(new DataGridTextColumn { Header = "Nation", Binding = new Binding(nameof(StaffRow.Nation)), Width = new DataGridLength(110) });
         foreach (var (h, p) in new[] { ("Age", nameof(StaffRow.Age)), ("CA", nameof(StaffRow.CA)), ("PA", nameof(StaffRow.PA)) })
-            staffGrid.Columns.Add(new DataGridTextColumn { Header = h, Binding = new Binding(p), Width = new DataGridLength(64) });
+        {
+            var col = new DataGridTextColumn { Header = h, Binding = new Binding(p), Width = new DataGridLength(68) };
+            col.CellStyleClasses.Add("numeric");
+            staffGrid.Columns.Add(col);
+        }
 
         staffSearch.TextChanged += (_, _) => FilterStaff();
         staffClubFilter.SelectionChanged += (_, _) => { if (!updatingStaffFilters) FilterStaff(); };
         staffJobFilter.SelectionChanged += (_, _) => { if (!updatingStaffFilters) FilterStaff(); };
-        staffGrid.SelectionChanged += (_, _) =>
+        staffGrid.SelectionChanged += (_, _) => selectedStaff = (staffGrid.SelectedItem as StaffRow)?.Staff;
+        staffGrid.DoubleTapped += (_, _) => OpenSelectedStaff();
+        staffGrid.KeyDown += (_, e) =>
         {
-            selectedStaff = (staffGrid.SelectedItem as StaffRow)?.Staff;
-            RenderStaffEditor();
+            if (e.Key == Key.Enter) { OpenSelectedStaff(); e.Handled = true; }
         };
 
         var left = new DockPanel { Background = Brush("#11131C") };
@@ -90,24 +108,32 @@ public sealed partial class MainWindow
         Grid.SetColumn(staffClubFilter, 0); filters.Children.Add(staffClubFilter);
         Grid.SetColumn(staffJobFilter, 1); filters.Children.Add(staffJobFilter);
         var searchStack = new StackPanel { Spacing = 6, Children = { searchControls, filters } };
-        var searchBar = new Border { Background = Brush("#141722"), BorderBrush = Brush("#252A3D"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(10, 8), Child = searchStack };
-        DockPanel.SetDock(searchBar, Dock.Top);
-        left.Children.Add(searchBar);
-        left.Children.Add(staffGrid);
-        staffViewRoot.ColumnDefinitions = new ColumnDefinitions
+        var searchHeader = new Border
         {
-            new ColumnDefinition(new GridLength(760)) { MinWidth = 520 },
-            new ColumnDefinition(new GridLength(6, GridUnitType.Pixel)),
-            new ColumnDefinition(new GridLength(1, GridUnitType.Star)) { MinWidth = 460 },
+            Background = UiKit.Surface,
+            BorderBrush = UiKit.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(10, 7),
+            Child = searchStack,
         };
-        Grid.SetColumn(left, 0);
+        DockPanel.SetDock(searchHeader, Dock.Top);
+        left.Children.Add(searchHeader);
+        left.Children.Add(staffGrid);
         staffViewRoot.Children.Add(left);
-        var splitter = new GridSplitter { Width = 6, ResizeDirection = GridResizeDirection.Columns, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
-        Grid.SetColumn(splitter, 1);
-        staffViewRoot.Children.Add(splitter);
-        var scroll = new ScrollViewer { Content = staffEditor, Background = Brush("#0D0F17"), HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        Grid.SetColumn(scroll, 2);
-        staffViewRoot.Children.Add(scroll);
+
+        var scroll = new ScrollViewer
+        {
+            Content = staffEditor,
+            Background = UiKit.WindowBg,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+        };
+        var detailDock = new DockPanel { Background = UiKit.WindowBg };
+        DockPanel.SetDock(staffHeaderHost, Dock.Top);
+        DockPanel.SetDock(staffRailHost, Dock.Left);
+        detailDock.Children.Add(staffHeaderHost);
+        detailDock.Children.Add(staffRailHost);
+        detailDock.Children.Add(scroll);
+        staffDetailRoot = detailDock;
 
         // Runs after the Clubs handler, which shows the players screen whenever Clubs is not selected.
         modules.SelectionChanged += async (_, _) =>
@@ -116,9 +142,6 @@ public sealed partial class MainWindow
             if (toStaff == staffActive) return;
             staffActive = toStaff;
             if (!toStaff) pendingStaffNavigation = null;
-            staffViewRoot.IsVisible = toStaff;
-            if (toStaff) playersSplit.IsVisible = false;
-            else if (!clubsActive) playersSplit.IsVisible = true;
             if (toStaff && staffRows.Count == 0 && backend.State.Status == ConnectionStatus.Connected) await LoadStaffAsync();
             if (toStaff && staffActive) CompleteStaffNavigation();
         };
@@ -134,7 +157,10 @@ public sealed partial class MainWindow
             staffMassUndo.Clear();
             staffMoveUndo.Clear();
             selectedStaff = null;
+            staffSaveButton = null;
             staffGrid.ItemsSource = null;
+            staffHeaderHost.Content = null;
+            staffRailHost.Content = null;
             staffEditor.Children.Clear();
             if (staffActive && backend.State.Status == ConnectionStatus.Connected) await LoadStaffAsync();
         });
@@ -161,6 +187,9 @@ public sealed partial class MainWindow
         FilterStaff();
         staffGrid.SelectedItem = row;
         staffGrid.ScrollIntoView(row, null);
+        selectedStaff = row.Staff;
+        RenderStaffEditor();
+        OpenKindTab("staff", row.Staff.DisplayName, staffDetailRoot);
     }
 
     async Task LoadStaffAsync()
@@ -185,7 +214,7 @@ public sealed partial class MainWindow
 
     void FilterStaff()
     {
-        string q = Fold(staffSearch.Text ?? "");
+        string q = Fold((staffSearch.Text ?? "").Trim());
         string? club = staffClubFilter.SelectedItem is string c && c != AllStaffClubs ? c : null;
         string? job = staffJobFilter.SelectedItem is string j && j != AllStaffJobs ? j : null;
         staffGrid.ItemsSource = StaffFilter.Apply(staffRows, q, club, job);
@@ -214,129 +243,222 @@ public sealed partial class MainWindow
 
     void RenderStaffEditor()
     {
+        staffHeaderHost.Content = null;
+        staffRailHost.Content = null;
         staffEditor.Children.Clear();
-        if (selectedStaff is not { } s) return;
+        if (selectedStaff is not { } s) { staffSaveButton = null; return; }
         if (!staffDrafts.TryGetValue(s.Address, out var draft)) staffDrafts[s.Address] = draft = new StaffDraft();
-        Button? save = null, discard = null;
+        var save = new Button { Content = "Save changes", IsEnabled = draft.Changes.Count > 0, Classes = { "accent" } };
+        var discard = new Button { Content = "Discard", IsEnabled = draft.Changes.Count > 0 };
+        staffSaveButton = save;
+        save.Click += (_, _) => SaveStaff(s, draft);
+        discard.Click += (_, _) => { staffDrafts.Remove(s.Address); RenderStaffEditor(); };
 
-        TextBox Box(string key, string original, double width = 44)
+        TextBox Box(string key, string original, double width = 48)
         {
+            bool isRating20 = key.StartsWith("attr:", StringComparison.Ordinal) || key.StartsWith("pers:", StringComparison.Ordinal);
             var box = new TextBox
             {
-                Text = draft.Changes.GetValueOrDefault(key, original), Width = width, MinHeight = 24, Padding = new Thickness(4, 1),
-                HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center,
+                Text = draft.Changes.GetValueOrDefault(key, original),
+                Width = isRating20 ? 32 : width,
+                MinWidth = 0,
+                Height = isRating20 ? 20 : 22,
+                MinHeight = isRating20 ? 20 : 22,
+                Padding = isRating20 ? new Thickness(2, 0) : new Thickness(5, 0),
+                FontSize = 11.5,
+                FontWeight = isRating20 ? FontWeight.Bold : FontWeight.SemiBold,
+                HorizontalContentAlignment = isRating20 ? HorizontalAlignment.Center : HorizontalAlignment.Right,
+                VerticalContentAlignment = VerticalAlignment.Center,
             };
-            if (key.StartsWith("attr:", StringComparison.Ordinal) || key.StartsWith("pers:", StringComparison.Ordinal))
-                box.Foreground = int.TryParse(box.Text, out int v) ? RatingColor(v) : Brush("#F1F5F9");
+            void ApplyRatingChrome()
+            {
+                if (!isRating20) return;
+                if (int.TryParse(box.Text, out int v))
+                {
+                    box.Foreground = RatingColor(v);
+                    box.Background = RatingBg(v);
+                    box.BorderBrush = RatingBorder(v);
+                }
+                else
+                {
+                    box.Foreground = UiKit.TextPrimary;
+                }
+            }
+            ApplyRatingChrome();
             box.TextChanged += (_, _) =>
             {
                 if (box.Text == original) draft.Changes.Remove(key); else draft.Changes[key] = box.Text ?? "";
-                if (save is not null) save.IsEnabled = discard!.IsEnabled = draft.Changes.Count > 0;
+                ApplyRatingChrome();
+                save.IsEnabled = discard.IsEnabled = draft.Changes.Count > 0;
             };
             return box;
         }
-        TextBlock Label(string text, string color = "#CBD5E1") => new() { Text = text, FontSize = 12.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
-        Border Panel(string title, Control body) => new()
+
+        TextBlock Label(string text, string color = "#CBD5E1", bool trim = false)
         {
-            Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
-            Child = new StackPanel
+            var tb = new TextBlock
             {
-                Children =
-                {
-                    new Border { Background = Brush("#1D1F2D"), BorderBrush = Brush("#6D28D9"), BorderThickness = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 6),
-                        Child = new TextBlock { Text = title.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Brush("#E2E8F0") } },
-                    body,
-                }
-            }
-        };
-        Grid Rows(IEnumerable<(string Label, Control Value)> items)
-        {
-            var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowSpacing = 3, Margin = new Thickness(12, 8) };
-            foreach (var (label, value) in items)
+                Text = text,
+                FontSize = 11.5,
+                Foreground = Brush(color),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.NoWrap,
+            };
+            if (trim)
             {
-                int r = g.RowDefinitions.Count; g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                var l = Label(label); Grid.SetRow(l, r); g.Children.Add(l);
-                Grid.SetRow(value, r); Grid.SetColumn(value, 1); g.Children.Add(value);
+                tb.TextTrimming = TextTrimming.CharacterEllipsis;
+                tb.HorizontalAlignment = HorizontalAlignment.Right;
+                tb.MaxWidth = 156;
+                if (!string.IsNullOrEmpty(text)) ToolTip.SetTip(tb, text);
             }
-            return g;
+            return tb;
         }
 
-        staffEditor.Children.Add(new StackPanel
+        StackPanel Rows(IEnumerable<(string Label, Control Value)> items)
         {
-            Spacing = 2,
-            Children =
+            var stack = new StackPanel { Spacing = 0 };
+            int idx = 0;
+            foreach (var (label, value) in items)
             {
-                new TextBlock { Text = s.DisplayName, FontSize = 20, FontWeight = FontWeight.Bold },
-                Label(string.Join("  ·  ", new[] { StaffLabels.Job(s.JobCode), s.Club?.DisplayName, s.Nationality?.DisplayName }.Where(x => !string.IsNullOrEmpty(x))), "#94A3B8"),
+                var line = new DockPanel { MinHeight = 23, LastChildFill = true };
+                DockPanel.SetDock(value, Dock.Right);
+                line.Children.Add(value);
+                line.Children.Add(Label(label));
+                stack.Children.Add(new Border
+                {
+                    Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                    Padding = new Thickness(8, 2, 7, 2),
+                    Child = line,
+                });
             }
-        });
+            return stack;
+        }
 
-        var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*,12,*") };
-        var col = new[] { new StackPanel { Spacing = 12 }, new StackPanel { Spacing = 12 }, new StackPanel { Spacing = 12 } };
+        var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        badges.Children.Add(UiKit.MetaText($"ID {s.Id.ToString(Inv)}"));
+        string jobName = StaffLabels.Job(s.JobCode);
+        if (!string.IsNullOrEmpty(jobName))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaText(jobName, highlight: true));
+        }
+        if (s.Club is { } club && !string.IsNullOrEmpty(club.DisplayName))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            var clubLink = UiKit.MetaLinkButton(club.DisplayName);
+            clubLink.Click += async (_, _) => await OpenPlayerClubAsync(club.Address);
+            badges.Children.Add(clubLink);
+        }
+        if (s.Nationality is { } nat && !string.IsNullOrEmpty(nat.DisplayName))
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            nationCatalogue ??= backend.Session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+            int? natId = nationCatalogue.FirstOrDefault(n => n.Address == nat.Address)?.Id
+                ?? nationCatalogue.FirstOrDefault(n => string.Equals(n.Name, nat.DisplayName, StringComparison.OrdinalIgnoreCase))?.Id;
+            var flag = graphics.Image("nationflag", natId, 15);
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { flag, new TextBlock { Text = nat.DisplayName, FontSize = 12, VerticalAlignment = VerticalAlignment.Center } },
+            };
+            var natLink = UiKit.MetaLinkButton(content);
+            natLink.Click += async (_, _) => await OpenPlayerNationAsync(nat.Address);
+            badges.Children.Add(natLink);
+        }
+
+        var caDisplay = new TextBlock { Text = s.CurrentAbility.ToString(Inv), FontSize = 16, FontWeight = FontWeight.Bold, Foreground = Brush("#38BDF8"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+        var paDisplay = new TextBlock { Text = s.PotentialAbility.ToString(Inv), FontSize = 16, FontWeight = FontWeight.Bold, Foreground = Brush("#C084FC"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+
+        var headerCommands = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { UiKit.StatBox("CA", caDisplay), UiKit.StatBox("PA", paDisplay) },
+        };
+
+        var portraitImg = graphics.Image("person", s.Id, 72);
+        staffHeaderHost.Content = UiKit.EntityBanner(s.DisplayName, badges, headerCommands, portraitImg);
+
+        var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,*,8,*") };
+        var col = new[] { new StackPanel { Spacing = 10 }, new StackPanel { Spacing = 10 }, new StackPanel { Spacing = 10 } };
         for (int i = 0; i < 3; i++) { Grid.SetColumn(col[i], i * 2); columns.Children.Add(col[i]); }
 
-        col[0].Children.Add(Panel("Information", Rows([
-            ("Unique ID", Label(s.Id.ToString(Inv))), ("Full Name", Label(s.FullName ?? "")),
-            ("Born", Label(s.DateOfBirth?.ToString("d/M/yyyy", Inv) ?? "")),
+        col[0].Children.Add(UiKit.Card("Information", Rows([
+            ("Unique ID", Label(s.Id.ToString(Inv), "#F1F5F9")),
+            ("Full Name", Label(s.FullName ?? "", "#F1F5F9", trim: true)),
+            ("Born", Label(s.DateOfBirth?.ToString("yyyy-MM-dd", Inv) ?? "", "#F1F5F9")),
         ])));
-        col[0].Children.Add(Panel("Reputation", Rows([
-            ("Home", Box("rep:Home", s.HomeReputation.ToString(Inv), 64)), ("Current", Box("rep:Current", s.CurrentReputation.ToString(Inv), 64)),
-            ("World", Box("rep:World", s.WorldReputation.ToString(Inv), 64)),
+        col[0].Children.Add(UiKit.Card("Ability", Rows([
+            ("CA", Box("CA", s.CurrentAbility.ToString(Inv), 58)),
+            ("PA", Box("PA", s.PotentialAbility.ToString(Inv), 58)),
         ])));
-        col[0].Children.Add(Panel("Ability", Rows([("CA", Box("CA", s.CurrentAbility.ToString(Inv), 56)), ("PA", Box("PA", s.PotentialAbility.ToString(Inv), 56))])));
+        col[0].Children.Add(UiKit.Card("Reputation", Rows([
+            ("Home", Box("rep:Home", s.HomeReputation.ToString(Inv), 68)),
+            ("Current", Box("rep:Current", s.CurrentReputation.ToString(Inv), 68)),
+            ("World", Box("rep:World", s.WorldReputation.ToString(Inv), 68)),
+        ])));
         if (s.ManagerAttributes is { } mgr)
-            col[0].Children.Add(Panel("Manager", Rows(StaffLabels.Manager
-                .Select(m => (m.Label, (Control)Box($"mgr:{m.Attribute}", mgr[(int)m.Attribute].ToString(Inv)))))));
-        col[0].Children.Add(Panel("Personality", Rows(Enum.GetValues<StaffPersonality>()
+            col[0].Children.Add(UiKit.Card("Manager", Rows(StaffLabels.Manager
+                .Select(m => (m.Label, (Control)Box($"mgr:{m.Attribute}", mgr[(int)m.Attribute].ToString(Inv), 42))))));
+        col[0].Children.Add(UiKit.Card("Personality", Rows(Enum.GetValues<StaffPersonality>()
             .Select(t => (t.ToString(), (Control)Box($"pers:{t}", s.Personality[(int)t].ToString(Inv)))))));
-        int[] placement = [1, 2, 1, 2, 2, 2];
+
+        int[] placement = [1, 2, 1, 1, 2, 2];
         for (int g = 0; g < StaffLabels.Groups.Length; g++)
         {
             var (title, items) = StaffLabels.Groups[g];
-            col[placement[g]].Children.Add(Panel(title, Rows(items.Select(it => (it.Label, (Control)Box($"attr:{it.Attribute}", s.Attribute(it.Attribute).ToString(Inv)))))));
+            col[placement[g]].Children.Add(UiKit.Card(title, Rows(items.Select(it => (it.Label, (Control)Box($"attr:{it.Attribute}", s.Attribute(it.Attribute).ToString(Inv)))))));
         }
-        save = new Button { Content = "Save changes", IsEnabled = draft.Changes.Count > 0, Classes = { "accent" } };
-        discard = new Button { Content = "Discard", IsEnabled = draft.Changes.Count > 0 };
-        save.Click += (_, _) => SaveStaff(s, draft);
-        discard.Click += (_, _) => { staffDrafts.Remove(s.Address); RenderStaffEditor(); };
-        var information = new StackPanel { Spacing = 8, Children = { columns, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } } } };
 
-        var staffMoveTab = new TabItem { Header = "Move to club" };
-        var tabs = new TabControl
+        var moveHost = new ContentControl();
+        void EnsureMoveLoaded()
         {
-            ItemsSource = new[]
-            {
-                new TabItem { Header = "Information", Content = information },
-                new TabItem { Header = "Contract", Content = StaffContractPanel(s) },
-                new TabItem { Header = "Career Plans", Content = CareerPlansPanel(backend.Session.Owner(s), RenderStaffEditor) },
-                new TabItem { Header = "Relationships", Content = RelationshipsPanel(backend.Session.Owner(s), RenderStaffEditor) },
-                new TabItem { Header = "Languages", Content = LanguagesPanel(backend.Session.Owner(s), RenderStaffEditor) },
-                new TabItem { Header = "Knowledge", Content = StaffKnowledgePanel(s) },
-                new TabItem { Header = "Formations", Content = StaffFormationsPanel(s) },
-                new TabItem { Header = "Tendencies", Content = StaffTendenciesPanel(s) },
-                staffMoveTab,
-            },
-            SelectedIndex = staffTab,
-        };
-        void LoadMoveTab() { if (tabs.SelectedItem == staffMoveTab && staffMoveTab.Content is null) staffMoveTab.Content = StaffMovePanel(s); }
-        tabs.SelectionChanged += (_, _) => { if (tabs.SelectedIndex >= 0) staffTab = tabs.SelectedIndex; LoadMoveTab(); };
-        LoadMoveTab();
-        staffEditor.Children.Add(tabs);
-    }
+            if (staffSectionKey == "Move to club" && moveHost.Content is null)
+                moveHost.Content = StaffMovePanel(s);
+        }
 
-    int staffTab;
+        var staffSections = new SectionHost.Section[]
+        {
+            new("Information", "Information", columns),
+            new("Contract", "Contract", StaffContractPanel(s)),
+            new("Career Plans", "Career Plans", CareerPlansPanel(backend.Session.Owner(s), RenderStaffEditor)),
+            new("Relationships", "Relationships", RelationshipsPanel(backend.Session.Owner(s), RenderStaffEditor)),
+            new("Languages", "Languages", LanguagesPanel(backend.Session.Owner(s), RenderStaffEditor)),
+            new("Knowledge", "Knowledge", StaffKnowledgePanel(s)),
+            new("Formations", "Formations", StaffFormationsPanel(s)),
+            new("Tendencies", "Tendencies", StaffTendenciesPanel(s)),
+            new("Move to club", "Move to club", moveHost),
+        };
+
+        var hostContent = SectionHost.Build(
+            "staff",
+            staffSections,
+            staffSectionKey,
+            key =>
+            {
+                staffSectionKey = key;
+                EnsureMoveLoaded();
+            },
+            staffRailHost);
+        EnsureMoveLoaded();
+        staffEditor.Children.Add(hostContent);
+    }
 
     /// <summary>FMRTE 27's staff Contract tab: Type, Wages, Started, Expires, On Rolling Contract.</summary>
     Control StaffContractPanel(StaffRecord s)
     {
-        var panel = new StackPanel { Spacing = 8 };
+        var panel = new StackPanel { Spacing = 10, MaxWidth = 540, HorizontalAlignment = HorizontalAlignment.Left };
         var access = backend.Session.StaffContracts;
         if (access.Read(s) is not { } contract) return panel;
         var save = new Button { Content = "Save contract", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
         OfferContractEditor? editor = null;
         editor = OfferContractBox(contract, () => save.IsEnabled = discard.IsEnabled = editor?.Changed() == true, out var view);
-        panel.Children.Add(Card(view));
+        view.Margin = new Thickness(12, 10);
+        panel.Children.Add(UiKit.Card("Contract Details", view));
         save.Click += (_, _) =>
         {
             if (editor.Parse() is not { } fields) { status.Text = "Contract: enter wages of 0 or more and dates like 2027-06-30, expiry after start"; return; }
@@ -349,7 +471,31 @@ public sealed partial class MainWindow
             catch (Exception ex) { status.Text = ex.Message; }
         };
         discard.Click += (_, _) => RenderStaffEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        var renew = new Button { Content = "Renew for 4 Years" };
+        renew.Click += (_, _) =>
+        {
+            try
+            {
+                var today = backend.Session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+                backend.Edits.Execute(() => access.Renew(s, contract, 4, today));
+                status.Text = $"Renewed {s.DisplayName} for 4 years. Continue in FM to see updates.";
+                RenderStaffEditor();
+            }
+            catch (Exception ex) { status.Text = ex.Message; }
+        };
+        var expire = new Button { Content = "Make it expire" };
+        expire.Click += (_, _) =>
+        {
+            try
+            {
+                var today = backend.Session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+                backend.Edits.Execute(() => access.Expire(s, contract, today));
+                status.Text = $"{s.DisplayName}'s contract now expires. Continue in FM to see updates.";
+                RenderStaffEditor();
+            }
+            catch (Exception ex) { status.Text = ex.Message; }
+        };
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard, renew, expire } });
         return panel;
     }
 

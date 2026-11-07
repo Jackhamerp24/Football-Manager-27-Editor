@@ -64,7 +64,15 @@ public sealed partial class MainWindow
         return grid;
     }
 
-    static Border Card(Control child) => new() { Background = Brush("#161822"), BorderBrush = Brush("#242636"), BorderThickness = new Thickness(1), Padding = new Thickness(12, 8), Child = child };
+    static Border Card(Control child) => new()
+    {
+        Background = UiKit.Surface,
+        BorderBrush = UiKit.BorderSubtle,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(12, 10),
+        Child = child,
+    };
 
     /// <summary>FMRTE 27's Transfer Proposals: the offers FMRTE lists, each with its fee and offered contract editable.</summary>
     Control ProposalsPanel(PlayerRecord player)

@@ -62,6 +62,43 @@ public class NationLinksTests
     }
 
     [Fact]
+    public void PlayerContinentSearchUsesPrimaryNationalityAndReportsUnknown()
+    {
+        Build();
+        static PlayerRecord Player(ulong id, ulong nation) => new()
+        {
+            Address = id, VtableRva = 1, CurrentAbility = 1, PotentialAbility = 1,
+            HomeReputation = 1, CurrentReputation = 1, WorldReputation = 1, Height = 170,
+            RawAttributes = new byte[64], AttributeScale = 5, Positions = new byte[14], Personality = new byte[8],
+            Nationality = new NationInfo(nation, null, null),
+        };
+        var players = new[] { Player(1, Vietnam), Player(2, Brazil), Player(3, England), Player(4, NotANation) };
+        var search = new PlayerContinentSearch(Links());
+        var asia = search.Find(players, new ContinentRecord(Asia, "Asia"));
+        Assert.Equal(new ulong[] { 1 }, asia.Matches.Select(p => p.Address));
+        Assert.Equal(new ulong[] { 4 }, asia.Unavailable.Select(p => p.Address));
+        var europe = search.Find(players, new ContinentRecord(Europe, "Europe"));
+        Assert.Equal(new ulong[] { 3 }, europe.Matches.Select(p => p.Address));
+    }
+
+    [Fact]
+    public void Continent_catalogue_includes_world_even_when_no_nation_points_to_it()
+    {
+        Build();
+        const ulong world = 0x9200_4000, holder = 0x9400_0000, vector = 0x9400_1000;
+        Continent(world, "World");
+        var root = _m.Map(TestWorld.ModuleBase + _w.Profile.Nation!.ListRootRva!.Value, 8);
+        TestWorld.Set64(root, 0, holder);
+        var data = _m.Map(holder, 0x810);
+        TestWorld.Set64(data, 0x240, vector); TestWorld.Set64(data, 0x248, vector + 32); TestWorld.Set64(data, 0x250, vector + 32);
+        var pointers = _m.Map(vector, 32);
+        TestWorld.Set64(pointers, 0, Asia); TestWorld.Set64(pointers, 8, Europe);
+        TestWorld.Set64(pointers, 16, SouthAmerica); TestWorld.Set64(pointers, 24, world);
+        var nations = new[] { Vietnam, Brazil, England }.Select(a => new NationRecord(a, null, null, null));
+        Assert.Equal(["Asia", "Europe", "South America", "World"], Links().Continents(nations).Select(c => c.Name));
+    }
+
+    [Fact]
     public void Stadium_matches_FMRTE_My_Dinh_for_Vietnam_and_nothing_for_Brazil()
     {
         Build();

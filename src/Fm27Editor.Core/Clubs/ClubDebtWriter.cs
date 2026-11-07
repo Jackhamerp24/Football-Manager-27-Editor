@@ -88,6 +88,26 @@ public sealed class ClubDebtWriter(IProcessMemory memory, OffsetProfile profile,
             throw new MemoryAccessException($"Could not write debt interest-only flag at 0x{address:X}");
     }
 
+    /// <summary>
+    /// Drops every debt of the club by collapsing the pointer vector to empty. Records are left in memory; the game
+    /// usually rebuilds the monthly repayment totals from this list.
+    /// </summary>
+    public void RemoveAll(ulong club)
+    {
+        var f = profile.Club?.FinanceLists ?? throw new InvalidOperationException("Profile has no finance list offsets");
+        var debts = new ClubListReader(memory, profile, moduleBase).ReadDebts(club);
+        if (debts.Count == 0) throw new StaleObjectException("The club has no debts to remove");
+        if (debts[0].Snapshot is not { } snapshot || snapshot.Club != club)
+            throw new StaleObjectException("Debt snapshot is unavailable");
+
+        byte[] end = BitConverter.GetBytes(snapshot.Begin);
+        ulong address = snapshot.Holder + (ulong)f.DebtsVector + 8;
+        if (!memory.TryWrite(address, end) || !memory.Read(address, 8).AsSpan().SequenceEqual(end))
+            throw new MemoryAccessException($"Could not empty the debt list at 0x{address:X}");
+        if (new ClubListReader(memory, profile, moduleBase).ReadDebts(club).Count != 0)
+            throw new MemoryAccessException("Debts are still listed after writing");
+    }
+
     void RequireCurrent(ulong club, ClubDebtEntry entry)
     {
         if (entry.Snapshot is not { } original || original.Club != club)

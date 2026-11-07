@@ -7,6 +7,7 @@ namespace Fm27Editor.App;
 public enum ClubSection
 {
     Information,
+    Squads,
     Finances,
     Supporters,
     TacticalUnderstanding,
@@ -15,6 +16,7 @@ public enum ClubSection
     RegionalDivisions,
     Sponsors,
     Debts,
+    IncomeStatement,
     Kits,
     TransferCenter,
     Relationships,
@@ -146,9 +148,15 @@ public static class ClubFieldInfo
         ClubSection.Staff,
     ];
 
+    /// <summary>
+    /// Club sidebar entries. Tactical Understanding is deliberately absent: the squad-wide control is the "Max" button on
+    /// the club header (it writes every squad player at once), so the per-team section is noise.
+    /// </summary>
     public static IReadOnlyList<ClubSection> Sections { get; } =
     [
-        .. ScalarSections,
+        ClubSection.Information,
+        ClubSection.Squads,
+        .. ScalarSections.Where(s => s is not (ClubSection.TacticalUnderstanding or ClubSection.Information)),
         .. TopLevelListSections,
     ];
 
@@ -166,6 +174,7 @@ public static class ClubFieldInfo
     public static string SectionTitle(ClubSection section) => section switch
     {
         ClubSection.Information => "Information",
+        ClubSection.Squads => "Squads",
         ClubSection.Finances => "Finances",
         ClubSection.Supporters => "Supporters",
         ClubSection.TacticalUnderstanding => "Tactical Understanding",

@@ -260,13 +260,13 @@ public sealed class PlayerInspirer(IProcessMemory memory, OffsetProfile profile,
 }
 
 /// <summary>
-/// Destroy, as the user defined it: the opposite of Heal plus Inspire. Morale to 1, Condition and Match Sharpness to 5000,
+/// Destroy: Morale to 0, Condition and Match Sharpness to 5000,
 /// Jadedness (FM26 IGE's "Fatigue") to 1000 — the lowest condition/sharpness and the highest fatigue FM26's official
 /// In-Game Editor allows. Injuries are not added. Each step is guarded; fields already at the target are not written.
 /// </summary>
 public sealed class PlayerDestroyer(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
-    public const int LowestMorale = 1, LowestCondition = 5000, LowestSharpness = 5000, MostJaded = 1000;
+    public const int LowestMorale = 0, LowestCondition = 5000, LowestSharpness = 5000, MostJaded = 1000;
 
     public void Destroy(PlayerRecord player)
     {

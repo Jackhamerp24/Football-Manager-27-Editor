@@ -31,7 +31,7 @@ static partial class Program
             for (int o = 0; o + 4096 <= d.Length; o += 4096)
             {
                 ulong addr = baseAddr + (ulong)o;
-                if (addr < 0x1D000000000UL || addr >= 0x1E000000000UL || !before.TryGetValue(addr, out var h) || h.AsSpan().SequenceEqual(MD5.HashData(d.AsSpan(o, 4096)))) continue;
+                if (!before.TryGetValue(addr, out var h) || h.AsSpan().SequenceEqual(MD5.HashData(d.AsSpan(o, 4096)))) continue;
                 if (++changed > maxPages) continue;
                 Console.WriteLine($"changed page 0x{addr:X}");
                 File.WriteAllBytes(Path.Combine(Path.GetTempPath(), $"page_{addr:X}.bin"), d.AsSpan(o, 4096).ToArray());

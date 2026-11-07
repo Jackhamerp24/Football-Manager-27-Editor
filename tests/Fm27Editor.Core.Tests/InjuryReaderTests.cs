@@ -170,7 +170,7 @@ public class InjuryReaderTests
 
     /// <summary>
     /// User's definition of Destroy, with FM26 IGE's limits (Condition and Match Sharpness 5000–10000, Fatigue up to 1000):
-    /// morale 1, condition 5000, sharpness 5000, jadedness 1000. Injuries stay as they are.
+    /// morale 0 (user request), condition 5000, sharpness 5000, jadedness 1000. Injuries stay as they are.
     /// </summary>
     [Fact]
     public void Destroy_sets_the_lowest_morale_condition_sharpness_and_highest_jadedness()
@@ -183,7 +183,7 @@ public class InjuryReaderTests
 
         // 5000 = 0x1388, 1000 = 0x03E8: sharpness +0x258, jadedness +0x25A, condition +0x25C; morale +0x26C.
         Assert.Equal(Convert.FromHexString("8813E8038813"), after[0x258..0x25E]);
-        Assert.Equal(1, after[0x26C]);
+        Assert.Equal(0, after[0x26C]);
         after[0x258..0x25E].CopyTo(before, 0x258); before[0x26C] = after[0x26C];
         Assert.Equal(before, after);
         Assert.Equal(2, Read().Count); // injuries untouched

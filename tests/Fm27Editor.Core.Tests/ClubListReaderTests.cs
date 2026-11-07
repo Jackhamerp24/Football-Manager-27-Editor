@@ -40,6 +40,91 @@ public class ClubListReaderTests
         Assert.Equal(expected, memory.Read(record, 0x50));
     }
 
+    [Fact]
+    public void Writes_vision_type_and_both_dates()
+    {
+        // Same captured Sheffield record as the importance test: type 5, importance 150, dates 1/1/1900 markers.
+        const string raw = "C805C41CFB7F0000FFFF7FFF0000000008DD8E9372020000000000000000000001006C0701006C07FFFFFFFF9605000001006C07FFFFFFFF02000000020000000000000000000000D047179600F70590";
+        const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
+        const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
+        var memory = new FakeMemory();
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var teamBytes = memory.Map(team, 0xB8);
+        Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
+        Put64(memory.Map(detail, 0xD0), 0xC8, holder);
+        var holderBytes = memory.Map(holder, 0x80);
+        Put64(holderBytes, 0, module + 0x4DBCC98); Put64(holderBytes, 0x78, header);
+        var headerBytes = memory.Map(header, 24);
+        Put64(headerBytes, 0, vector); Put64(headerBytes, 8, vector + 8); Put64(headerBytes, 16, vector + 8);
+        Put64(memory.Map(vector, 8), 0, record);
+        Convert.FromHexString(raw).CopyTo(memory.Map(record, 0x50), 0);
+
+        var layout = profile.Club!.Lists!;
+        var reader = new ClubListReader(memory, profile, module);
+        var writer = new ClubVisionWriter(memory, profile, module);
+        var row = reader.ReadClubVision(team).Single();
+
+        writer.SetType(team, row, 7);
+        Assert.Equal((byte)7, reader.ReadClubVision(team).Single().TypeCode);
+
+        row = reader.ReadClubVision(team).Single();
+        writer.SetDates(team, row, new DateOnly(2027, 3, 4), new DateOnly(2029, 5, 6));
+
+        var expected = Convert.FromHexString(raw);
+        expected[layout.VisionType] = 7;
+        PutVisionDate(expected, layout.VisionStart, new DateOnly(2027, 3, 4));
+        PutVisionDate(expected, layout.VisionEnd, new DateOnly(2029, 5, 6));
+        Assert.Equal(expected, memory.Read(record, 0x50));
+    }
+
+    static void PutVisionDate(byte[] bytes, int offset, DateOnly date)
+    {
+        ushort current = BitConverter.ToUInt16(bytes, offset);
+        BitConverter.GetBytes((ushort)((current & 0xFE00) | date.DayOfYear)).CopyTo(bytes, offset);
+        BitConverter.GetBytes((short)date.Year).CopyTo(bytes, offset + 2);
+    }
+
+    [Fact]
+    public void Reads_and_writes_vision_target_and_status()
+    {
+        const string raw = "C805C41CFB7F0000FFFF7FFF0000000008DD8E9372020000000000000000000001006C0701006C07FFFFFFFF9605000001006C07FFFFFFFF02000000020000000000000000000000D047179600F70590";
+        const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
+        const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
+        var memory = new FakeMemory();
+        // The 2493426 profile carries the measured visionTarget/visionStatus offsets; the fixture uses its vtables.
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var teamBytes = memory.Map(team, 0xB8);
+        Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
+        Put64(memory.Map(detail, 0xD0), 0xC8, holder);
+        var holderBytes = memory.Map(holder, 0x80);
+        Put64(holderBytes, 0, module + 0x4DBCC98); Put64(holderBytes, 0x78, header);
+        var headerBytes = memory.Map(header, 24);
+        Put64(headerBytes, 0, vector); Put64(headerBytes, 8, vector + 8); Put64(headerBytes, 16, vector + 8);
+        Put64(memory.Map(vector, 8), 0, record);
+        Convert.FromHexString(raw).CopyTo(memory.Map(record, 0x50), 0);
+
+        var reader = new ClubListReader(memory, profile, module);
+        var writer = new ClubVisionWriter(memory, profile, module);
+        var before = memory.Read(record, 0x50);
+        var row = reader.ReadClubVision(team).Single();
+        Assert.Equal(BitConverter.ToInt32(before, 0x28), row.Target);
+        Assert.Equal(before[0x38], row.Status);
+
+        writer.SetTarget(team, row, 1234);
+        Assert.Equal(1234, reader.ReadClubVision(team).Single().Target);
+
+        row = reader.ReadClubVision(team).Single();
+        writer.SetStatus(team, row, 2);
+        Assert.Equal((byte)2, reader.ReadClubVision(team).Single().Status);
+
+        var after = memory.Read(record, 0x50);
+        Assert.Equal(1234, BitConverter.ToInt32(after, 0x28));
+        Assert.Equal((byte)2, after[0x38]);
+        // Everything else stays byte-identical.
+        for (int i = 0; i < 0x50; i++)
+            if (i is not (>= 0x28 and < 0x2C) and not 0x38) Assert.Equal(before[i], after[i]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

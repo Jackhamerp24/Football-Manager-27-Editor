@@ -74,4 +74,17 @@ public class PlayerStatusReaderTests
         Assert.True(_w.Memory.TryWrite(Holder + 8, BitConverter.GetBytes(Records + 7 * 16 + 1)));
         Assert.Same(PlayerStatuses.None, Read());
     }
+
+    [Fact]
+    public void SearchTrainingUsesObservedClubAndNationAndReportsInvalidTargets()
+    {
+        var player = new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
+        var search = new PlayerRelationSearch(new PlayerStatusReader(_w.Memory, _w.Profile, TestWorld.ModuleBase));
+        Assert.Equal(new[] { player.Address }, search.Find([player], new(TrainedAtClub: Club, TrainedAtNation: Nation)).Matches.Select(p => p.Address));
+        Assert.Empty(search.Find([player], new(TrainedAtNation: Other)).Matches);
+        Assert.True(_w.Memory.TryWrite(Records + 5 * 16, BitConverter.GetBytes(Other)));
+        var unknown = search.Find([player], new(TrainedAtNation: Nation));
+        Assert.Empty(unknown.Matches);
+        Assert.Equal(new[] { player.Address }, unknown.Unavailable.Select(p => p.Address));
+    }
 }

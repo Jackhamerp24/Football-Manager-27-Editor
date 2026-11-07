@@ -40,16 +40,96 @@ public sealed class NationRepository(IProcessMemory memory, OffsetProfile profil
     {
         var n = N;
         if (n.ListRootRva is not { } rva || n.ListOffset is not { } off) throw new InvalidOperationException("Profile has no nation list");
-        ulong root = memory.ReadUInt64(moduleBase + rva);
-        ulong begin = memory.ReadUInt64(root + (ulong)off), end = memory.ReadUInt64(root + (ulong)off + 8);
-        if (root == 0 || begin == 0 || end < begin || (end - begin) % 8 != 0 || (end - begin) / 8 > MaxNations)
-            throw new MemoryAccessException($"Nation list looks invalid (begin 0x{begin:X}, end 0x{end:X}); is a save loaded?");
-        var raw = memory.Read(begin, (int)(end - begin));
+        try
+        {
+            ulong root = memory.ReadUInt64(moduleBase + rva);
+            ulong begin = root == 0 ? 0 : memory.ReadUInt64(root + (ulong)off), end = root == 0 ? 0 : memory.ReadUInt64(root + (ulong)off + 8);
+            if (begin != 0 && end >= begin && (end - begin) % 8 == 0 && (end - begin) / 8 <= MaxNations)
+            {
+                var raw = memory.Read(begin, (int)(end - begin));
+                var pointers = new ulong[raw.Length / 8];
+                Buffer.BlockCopy(raw, 0, pointers, 0, raw.Length);
+                var list = ReadPointers(pointers);
+                if (list.Count > 0) return list;
+            }
+        }
+        catch (MemoryAccessException) { }
+        if (FindNearbyNationList(rva) is { Count: > 0 } discovered) return discovered;
+        return LoadFromReferences();
+    }
+
+    // Some saves move the database holder between adjacent static slots and change its vector offsets.
+    IReadOnlyList<NationRecord>? FindNearbyNationList(uint configuredRva)
+    {
+        IReadOnlyList<NationRecord>? best = null;
+        var expectedVtable = moduleBase + N.VtableRva;
+        var holderBytes = new byte[0x810];
+        Span<byte> pointer = stackalloc byte[8];
+        for (long delta = -0x20; delta <= 0x20; delta += 8)
+        {
+            if ((long)configuredRva + delta < 0) continue;
+            if (!memory.TryRead(moduleBase + (ulong)((long)configuredRva + delta), pointer)) continue;
+            ulong holder = BitConverter.ToUInt64(pointer);
+            if (holder == 0 || !memory.TryRead(holder, holderBytes)) continue;
+            for (int off = 0; off + 24 <= holderBytes.Length; off += 8)
+            {
+                ulong begin = BitConverter.ToUInt64(holderBytes, off), end = BitConverter.ToUInt64(holderBytes, off + 8), cap = BitConverter.ToUInt64(holderBytes, off + 16);
+                if (begin == 0 || end <= begin || cap < end || (end - begin) % 8 != 0 || (end - begin) / 8 > MaxNations) continue;
+                int count = (int)((end - begin) / 8);
+                if (best is not null && count <= best.Count) continue;
+                var raw = new byte[count * 8];
+                if (!memory.TryRead(begin, raw)) continue;
+                bool plausible = true;
+                for (int i = 0; i < Math.Min(count, 3); i++)
+                {
+                    ulong obj = BitConverter.ToUInt64(raw, i * 8);
+                    if (obj == 0 || !memory.TryRead(obj, pointer) || BitConverter.ToUInt64(pointer) != expectedVtable) { plausible = false; break; }
+                }
+                if (!plausible) continue;
+                var pointers = new ulong[count];
+                Buffer.BlockCopy(raw, 0, pointers, 0, raw.Length);
+                var rows = ReadPointers(pointers);
+                if (rows.Count == count) best = rows;
+            }
+        }
+        return best;
+    }
+
+    // FM Studio collects nation objects from players, clubs and competitions when building its nation list.
+    IReadOnlyList<NationRecord> LoadFromReferences()
+    {
+        var players = new PlayerRepository(memory, profile, moduleBase).LoadAll();
+        var pointers = players.Where(p => p.Nationality is not null).Select(p => p.Nationality!.Address).ToHashSet();
+        foreach (var club in ClubDirectory.FromPlayers(memory, players, profile, moduleBase))
+            for (int offset = 0xD8; offset <= 0xF8; offset += 8)
+                AddPointer(club.Address + (ulong)offset);
+        if (profile.Competition is not null)
+        {
+            try
+            {
+                foreach (var competition in new Fm27Editor.Core.Competitions.CompetitionRepository(memory, profile, moduleBase).LoadAll())
+                    AddPointer(competition.Address + 0x60);
+            }
+            catch (MemoryAccessException) { }
+        }
+        var result = ReadPointers(pointers);
+        if (result.Count == 0) throw new MemoryAccessException("Could not find any nations from player, club or competition references");
+        return result;
+
+        void AddPointer(ulong address)
+        {
+            Span<byte> bytes = stackalloc byte[8];
+            if (memory.TryRead(address, bytes)) pointers.Add(BitConverter.ToUInt64(bytes));
+        }
+    }
+
+    IReadOnlyList<NationRecord> ReadPointers(IEnumerable<ulong> pointers)
+    {
+        var n = N;
         var reader = new PlayerReader(memory, profile) { ModuleBase = moduleBase };
         var result = new List<NationRecord>();
-        for (int i = 0; i < raw.Length; i += 8)
+        foreach (ulong p in pointers.Distinct())
         {
-            ulong p = BitConverter.ToUInt64(raw, i);
             if (reader.ReadNation(p, n) is not { } info) continue;
             int? id = n.Id is { } io && memory.Read(p + (ulong)io, 4) is var b ? BitConverter.ToInt32(b) : null;
             result.Add(new NationRecord(p, id, info.Name, info.ShortName));

@@ -7,7 +7,7 @@ namespace Fm27Editor.Core.Tests;
 
 public class ClubAffiliationFeeTests
 {
-    const ulong List = 0x5000_0000, Record = 0x5001_0000;
+    const ulong List = 0x5000_0000, Record = 0x5001_0000, OtherList = 0x5002_0000;
     // Live FM27 2493426 bytes; FMRTE: Bayern→Unterhaching £322136; Nottingham→Crumlin £50000.
     const string Bayern = "6022D56973020000104CD5697302000058EA040021000000000000001C4200004E01E807B500EE0701006C07D72EEA0701323219FFFF0000";
     const string Nottingham = "705DD46973020000C064EA697302000050C30000010000000000000030020000F400D707B500EE0701006C0701006C0715323201FFFF0000";
@@ -33,11 +33,40 @@ public class ClubAffiliationFeeTests
         BitConverter.GetBytes(parentId).CopyTo(p, 0xC); BitConverter.GetBytes(feederId).CopyTo(f, 0xC);
         TestWorld.Set64(p, 0x118, List); TestWorld.Set64(p, 0x120, List + 8); TestWorld.Set64(p, 0x128, List + 8);
         TestWorld.Set64(memory.Map(List, 8), 0, Record);
+        TestWorld.Set64(f, 0x118, OtherList); TestWorld.Set64(f, 0x120, OtherList + 8); TestWorld.Set64(f, 0x128, OtherList + 8);
+        TestWorld.Set64(memory.Map(OtherList, 8), 0, Record);
         bytes.CopyTo(memory.Map(Record, 0x38), 0);
     }
 
     ClubListReader Reader() => new(memory, profile, TestWorld.ModuleBase);
     ClubAffiliationWriter Writer() => new(memory, profile, TestWorld.ModuleBase);
+
+    [Fact]
+    public void Duplicate_and_remove_update_inline_header_without_overwriting_original_pointer()
+    {
+        Build(Bayern, 915, 958);
+        var original = Assert.Single(Reader().ReadAffiliations(parent));
+        ulong next = 0x5100_0000;
+        ulong Allocate(int size) { ulong at = next; next += 0x1000; memory.Map(at, size); return at; }
+
+        var added = Writer().Duplicate(parent, original, Allocate);
+        Assert.NotNull(added);
+        var header = memory.Read(parent + 0x118, 24);
+        ulong begin = BitConverter.ToUInt64(header);
+        Assert.Equal(begin + 16, BitConverter.ToUInt64(header, 8));
+        Assert.Equal(Record, BitConverter.ToUInt64(memory.Read(begin, 8)));
+        Assert.Equal(Record, BitConverter.ToUInt64(memory.Read(List, 8))); // original array untouched
+        Assert.Equal(2, Reader().ReadAffiliations(parent).Count);
+        Assert.Equal(added!.Address, Reader().ReadAffiliations(feeder)[1].Address);
+
+        int writes = memory.Writes;
+        Assert.Throws<StaleObjectException>(() => Writer().Remove(parent, original));
+        Assert.Equal(writes, memory.Writes);
+        Writer().Remove(parent, added!);
+        Assert.Equal(begin + 8, BitConverter.ToUInt64(memory.Read(parent + 0x120, 8)));
+        Assert.Equal(Record, Assert.Single(Reader().ReadAffiliations(parent)).Address);
+        Assert.Equal(Record, Assert.Single(Reader().ReadAffiliations(feeder)).Address);
+    }
 
     [Fact]
     public void Annual_fee_matches_FMRTE_and_writer_preserves_real_record()

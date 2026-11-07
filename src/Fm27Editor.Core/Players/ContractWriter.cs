@@ -74,6 +74,20 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
             .ToList();
     }
 
+    /// <summary>Returns null when the clause vector cannot be trusted; an empty list means a valid empty vector.</summary>
+    public IReadOnlyList<ContractTerm>? ReadTermsForSearch(PlayerRecord player)
+    {
+        if (C.Clauses is not { } o) return null;
+        ulong address = Require(player).Address + (ulong)o;
+        ulong begin = memory.ReadUInt64(address), end = memory.ReadUInt64(address + 8), capacity = memory.ReadUInt64(address + 16);
+        if (begin == 0) return end == 0 && capacity == 0 ? [] : null;
+        if (end < begin || capacity < end || (end - begin) % 8 != 0 || (capacity - begin) % 8 != 0 || (end - begin) / 8 > MaxClauses) return null;
+        if (end == begin) return [];
+        var raw = memory.Read(begin, checked((int)(end - begin)));
+        return Enumerable.Range(0, raw.Length / 8)
+            .Select(i => new ContractTerm(i, BitConverter.ToInt32(raw, i * 8), BitConverter.ToInt16(raw, i * 8 + 4), BitConverter.ToInt16(raw, i * 8 + 6))).ToList();
+    }
+
     // Overloads on PlayerRecord: the snapshot comes from the player read (wage, expiry) or a fresh read.
     public void SetWage(PlayerRecord player, int weekly)
     {

@@ -30,6 +30,7 @@ public static class Modules
     public static IReadOnlyList<IEntityAction> Actions { get; } = [];
 }
 public sealed record AttributeThreshold(PlayerAttribute Attribute, int MinValue, int? MaxValue = null);
+public sealed record NumericRange(long? Min, long? Max);
 
 public sealed record PlayerFilter
 {
@@ -44,6 +45,9 @@ public sealed record PlayerFilter
     public int? MinPa { get; init; }
     public int? MaxPa { get; init; }
     public IReadOnlyList<PlayerPosition> Positions { get; init; } = [];
+    public IReadOnlyDictionary<PlayerPosition, int> PositionThresholds { get; init; } = new Dictionary<PlayerPosition, int>();
+    public IReadOnlyDictionary<string, NumericRange> NumericRanges { get; init; } = new Dictionary<string, NumericRange>();
+    public ulong RequiredPreferredMoves { get; init; }
     public int PositionMinRating { get; init; } = 15;
     public IReadOnlyList<AttributeThreshold> AttributeThresholds { get; init; } = [];
 }
@@ -74,6 +78,9 @@ public sealed record FilterPreset(
     IReadOnlyList<PlayerPosition>? Positions = null,
     int PositionMinRating = 15)
 {
+    public IReadOnlyDictionary<PlayerPosition, int>? PositionThresholds { get; init; }
+    public IReadOnlyDictionary<string, NumericRange>? NumericRanges { get; init; }
+    public ulong RequiredPreferredMoves { get; init; }
     public override string ToString() => Name;
 }
 
@@ -109,7 +116,7 @@ public static class FilterPresetStore
 
     public static IReadOnlyList<FilterPreset> Defaults { get; } =
     [
-        new("Wonderkids (U21, PA >= 165)", [], MaxAge: 21, MinPa: 165),
+        new("Wonderkids (age <= 20, PA > 150)", [], MaxAge: 20, MinPa: 151),
         new("Fast Striker", [
             new(PlayerAttribute.Pace, 15),
             new(PlayerAttribute.Acceleration, 15),
@@ -194,8 +201,10 @@ public sealed class PlayersModule : IEditorModule
         new("Age", "Age"),
         new("CA", "CurrentAbility"),
         new("PA", "PotentialAbility"),
+        new("Position", "PositionSummary"),
         new("Club", "ClubName"),
-        new("Nationality", "NationalityName")
+        new("Nationality", "NationalityName"),
+        new("Asking Price", "DisplayAskingPrice")
     ];
 
     public async Task<IReadOnlyList<object>> LoadAsync(IEditorBackend backend, CancellationToken ct) =>
@@ -210,7 +219,10 @@ public sealed class PlayersModule : IEditorModule
     public bool Matches(object row, string query)
     {
         var p = (PlayerRecord)row;
-        return ContainsText(p.DisplayName, query) || ContainsText(p.FullName ?? "", query);
+        string trimmed = query.Trim();
+        return ContainsText(p.DisplayName, trimmed)
+            || ContainsText(p.FullName ?? "", trimmed)
+            || (trimmed.Length > 0 && p.Id?.ToString(CultureInfo.InvariantCulture).Contains(trimmed, StringComparison.Ordinal) == true);
     }
 
     public bool MatchesFilter(PlayerRecord p, PlayerFilter filter)
@@ -247,7 +259,27 @@ public sealed class PlayersModule : IEditorModule
             return false;
         if (filter.MaxPa is { } maxPa && p.PotentialAbility > maxPa)
             return false;
-        if (filter.Positions.Count > 0)
+        foreach (var (key, range) in filter.NumericRanges)
+        {
+            long? value = key switch
+            {
+                "Height" => p.Height, "Caps" => p.InternationalCaps, "Goals" => p.InternationalGoals,
+                "Home Reputation" => p.HomeReputation, "Current Reputation" => p.CurrentReputation,
+                "World Reputation" => p.WorldReputation, "CA/PA Difference" => p.PotentialAbility - p.CurrentAbility,
+                "Asking Price" => p.DisplayAskingPrice, "Wages" => p.Contract?.Wage,
+                "Ethnicity" => p.Ethnicity, "Treated As Non-EU In Italy" => p.TreatedAsNonEuInItaly,
+                _ when key.StartsWith("Personality:", StringComparison.Ordinal) && Enum.TryParse<PersonalityAttribute>(key[12..], out var personality) => p.PersonalityValue(personality),
+                _ => null
+            };
+            if (value is null || range.Min is { } lo && value < lo || range.Max is { } hi && value > hi) return false;
+        }
+        if (filter.RequiredPreferredMoves != 0 && (p.PreferredMoveBits is not { } moves || (moves & filter.RequiredPreferredMoves) != filter.RequiredPreferredMoves)) return false;
+        if (filter.PositionThresholds.Count > 0)
+        {
+            foreach (var (position, min) in filter.PositionThresholds)
+                if (p.Position(position) < min) return false;
+        }
+        else if (filter.Positions.Count > 0)
         {
             int minPos = Math.Clamp(filter.PositionMinRating, 1, 20);
             bool anyPos = false;

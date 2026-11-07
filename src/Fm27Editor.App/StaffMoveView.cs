@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Staff;
@@ -17,16 +18,27 @@ public sealed partial class MainWindow
         var service = new StaffMoveService(session.Memory, session.Profile, session.ModuleBase);
         IReadOnlyList<ClubEntry> all = clubCache ?? [];
         StaffMovePlan? plan = null;
-        var search = new TextBox { Watermark = "Club or ID", Width = 340, HorizontalAlignment = HorizontalAlignment.Left };
-        var clubs = new ListBox { Width = 340, Height = 190, HorizontalAlignment = HorizontalAlignment.Left };
-        var details = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-        var error = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Foreground = Brush("#F59E0B") };
+        var search = new TextBox { Watermark = "Filter club name or ID...", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var clubs = new ListBox
+        {
+            Height = 220,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = UiKit.SurfaceInput,
+            BorderBrush = UiKit.BorderControl,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+        };
+        var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextPrimary, FontSize = 12, IsVisible = false };
+        var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#F59E0B"), FontSize = 11.5, IsVisible = false };
         var apply = new Button { Content = "Confirm transfer", IsEnabled = false, Classes = { "accent" } };
-        var undo = new Button { Content = "Undo last staff move", IsEnabled = staffMoveUndo.Count > 0 };
+        var undo = new Button { Content = "Undo last staff move", IsEnabled = staffMoveUndo.Count > 0, IsVisible = staffMoveUndo.Count > 0 };
 
         void Invalidate()
         {
-            plan = null; apply.IsEnabled = false; details.Text = ""; error.Text = "";
+            plan = null;
+            apply.IsEnabled = false;
+            details.Text = ""; details.IsVisible = false;
+            error.Text = ""; error.IsVisible = false;
         }
         void Filter()
         {
@@ -61,9 +73,14 @@ public sealed partial class MainWindow
                 var from = all.Single(c => c.Address == staff.Club?.Address);
                 plan = service.Plan(staff, from, option.Club, session.ReadGameDate());
                 details.Text = $"{plan.From.DisplayName}  →  {plan.To.DisplayName}\n{string.Join(", ", plan.Departments)}";
+                details.IsVisible = true;
                 apply.IsEnabled = true;
             }
-            catch (Exception ex) { error.Text = UserMessage.For(ex); }
+            catch (Exception ex)
+            {
+                error.Text = UserMessage.For(ex);
+                error.IsVisible = true;
+            }
         };
         apply.Click += (_, _) =>
         {
@@ -96,18 +113,52 @@ public sealed partial class MainWindow
             _ = Task.Run(() => session.LoadClubs(session.Players.LoadAll())).ContinueWith(task => Dispatcher.UIThread.Post(() =>
             {
                 if (backend.State.Status != ConnectionStatus.Connected || !ReferenceEquals(backend.Session, session)) return;
-                if (task.IsFaulted) { error.Text = UserMessage.For(task.Exception!.GetBaseException()); return; }
+                if (task.IsFaulted)
+                {
+                    error.Text = UserMessage.For(task.Exception!.GetBaseException());
+                    error.IsVisible = true;
+                    return;
+                }
                 clubCache = all = task.Result;
                 Filter();
             }));
         }
         else Filter();
 
-        return new StackPanel
+        var curRow = new DockPanel { LastChildFill = true };
+        var curVal = new TextBlock { Text = staff.Club?.DisplayName ?? "None", FontWeight = FontWeight.SemiBold, Foreground = UiKit.TextPrimary };
+        DockPanel.SetDock(curVal, Dock.Right);
+        curRow.Children.Add(curVal);
+        curRow.Children.Add(new TextBlock { Text = "Current Club", Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
+
+        var leftCard = UiKit.Card("Destination Club", new StackPanel
         {
-            Spacing = 8, Margin = new Thickness(0, 6), HorizontalAlignment = HorizontalAlignment.Left,
-            Children = { new TextBlock { Text = staff.Club?.DisplayName ?? "" }, search, clubs, details, error,
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } } },
+            Spacing = 8,
+            Margin = new Thickness(12, 10),
+            Children = { curRow, search, clubs },
+        });
+        var rightCard = UiKit.Card("Transfer Summary", new StackPanel
+        {
+            Spacing = 10,
+            Margin = new Thickness(12, 10),
+            Children =
+            {
+                details,
+                error,
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } },
+            },
+        });
+
+        var split = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("356,*"),
+            ColumnSpacing = 12,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        Grid.SetColumn(leftCard, 0);
+        Grid.SetColumn(rightCard, 1);
+        split.Children.Add(leftCard);
+        split.Children.Add(rightCard);
+        return split;
     }
 }
