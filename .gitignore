@@ -34,3 +34,6 @@ re/*.csv
 # Notes from inspecting a closed-source editor: keep local
 docs/FM-STUDIO-27-research.md
 src/Fm27Editor.App/Assets/Flags/
+
+# Agent docs stay local
+docs/*.md
