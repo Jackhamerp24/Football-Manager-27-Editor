@@ -58,7 +58,7 @@ public sealed partial class MainWindow : Window
     readonly ComboBox clubFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox nationFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
 
-    readonly Button openAttrDialogButton = new() { Content = "Scout", MinWidth = 72, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+
     readonly ComboBox quickPresetCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly Button favouritesFilter = new()
     {
@@ -68,6 +68,7 @@ public sealed partial class MainWindow : Window
     readonly Button clearAttrButton = new() { Content = "Clear", IsVisible = false };
     readonly WrapPanel attrChipsPanel = new() { Orientation = Orientation.Horizontal, IsVisible = false, Margin = new Thickness(0, 4, 0, 0) };
     readonly List<AttributeThreshold> activeAttrThresholds = [];
+    readonly List<RelationshipCriterion> activeRelationships = [];
     readonly List<PlayerPosition> activePositions = [];
     readonly Dictionary<PlayerPosition, int> activePositionThresholds = [];
     readonly Dictionary<PlayerPosition, NumericRange> activePositionRanges = [];
@@ -128,6 +129,14 @@ public sealed partial class MainWindow : Window
 
         unifiedReleaseTimer = CreateUnifiedReleaseTimer();
         StartSaveWatcher();
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Avalonia.Input.Key.M && (e.KeyModifiers & Avalonia.Input.KeyModifiers.Control) != 0)
+            {
+                OpenMassEdit();
+                e.Handled = true;
+            }
+        };
         status.PropertyChanged += (_, e) => { if (e.Property == TextBlock.TextProperty && e.NewValue is string t && t.Length > 0) FlightRecorder.Current?.Log("status", t); };
         Opened += (_, _) => _ = NotifyIfUpdateAsync();
         _ = graphics.LoadAsync();
@@ -302,7 +311,6 @@ public sealed partial class MainWindow : Window
         clubFilter.SelectionChanged += (_, _) => { if (!suppressFilterEvents) Filter(); };
         nationFilter.SelectionChanged += (_, _) => { if (!suppressFilterEvents) Filter(); };
 
-        openAttrDialogButton.Click += async (_, _) => await OpenAttributeFilterDialogAsync();
         favouritesFilter.Content = new Avalonia.Controls.PathIcon { Width = 14, Height = 14, Data = Avalonia.Media.Geometry.Parse("M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.46,13.97L5.82,21L12,17.27Z") };
         Avalonia.Controls.ToolTip.SetTip(favouritesFilter, "Favourites");
         favouritesFilter.Click += (_, _) => ShowFavourites();
@@ -384,17 +392,34 @@ public sealed partial class MainWindow : Window
         activePreferredMoves = 0;
         activePosMinRating = 15;
         activeAttrThresholds.Clear();
+        activeRelationships.Clear();
     }
 
     async Task OpenAttributeFilterDialogAsync()
     {
         var current = BuildCurrentFilter();
         var players = rows.OfType<PlayerRecord>().ToArray();
-        var dialog = new AttributeFilterDialog(current, savedPresets, activePresetName, players);
+        var connected = backend.State.Status == ConnectionStatus.Connected;
+        var statusReader = connected ? new PlayerStatusReader(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase) : null;
+        var dialog = new AttributeFilterDialog(current, savedPresets, activePresetName, players,
+            connected ? backend.Session.Nations.LoadAll() : null,
+            connected ? backend.Session.LoadClubs(players) : null,
+            staffSource: connected ? () => backend.Session.Staff.LoadAll() : null,
+            clubSource: connected ? () => backend.Session.LoadClubs(players) : null,
+            staffRelations: statusReader is null ? null : staff => statusReader.Read(backend.Session.Owner(staff)).Entries,
+            clubAccess: connected ? new Fm27Editor.Core.Clubs.ClubFieldAccess(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase) : null,
+            today: connected ? backend.Session.ReadGameDate() : null);
         await dialog.ShowDialog(this);
         savedPresets = dialog.UpdatedPresets;
+        if (dialog.Saved && dialog.SelectedScope != "Player")
+        {
+            await new SearchResultsWindow(dialog.SelectedScope, dialog.MatchedStaff, dialog.MatchedClubs, backend.Session.ReadGameDate()).ShowDialog(this);
+            RefreshQuickPresetCombo();
+            return;
+        }
         if (dialog.Saved)
         {
+            search.Text = dialog.ResultNameQuery ?? "";
             activeDivision = dialog.ResultDivision;
             activeClub = dialog.ResultClub;
             activeNationality = dialog.ResultNationality;
@@ -416,6 +441,8 @@ public sealed partial class MainWindow : Window
             activePosMinRating = dialog.ResultPositionMinRating;
             activeAttrThresholds.Clear();
             activeAttrThresholds.AddRange(dialog.ResultThresholds);
+            activeRelationships.Clear();
+            activeRelationships.AddRange(dialog.ResultRelationships);
             activePresetName = dialog.SelectedPresetName;
             SelectSortByFirstAttributeIfNeeded();
             RefreshQuickPresetCombo();
@@ -467,15 +494,14 @@ public sealed partial class MainWindow : Window
     {
         var stack = new StackPanel { Spacing = 8 };
 
-        // Row 1: Search + Scout + Preset
+        // Row 1: Search + Preset (Advanced Search now lives in the top bar)
         var row1 = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,180"),
+            ColumnDefinitions = new ColumnDefinitions("*,180"),
             ColumnSpacing = 8,
         };
         Grid.SetColumn(search, 0); row1.Children.Add(search);
-        Grid.SetColumn(openAttrDialogButton, 1); row1.Children.Add(openAttrDialogButton);
-        Grid.SetColumn(quickPresetCombo, 2); row1.Children.Add(quickPresetCombo);
+        Grid.SetColumn(quickPresetCombo, 1); row1.Children.Add(quickPresetCombo);
         stack.Children.Add(row1);
 
         stack.Children.Add(attrChipsPanel);
@@ -586,9 +612,6 @@ public sealed partial class MainWindow : Window
         bool hasAny = count > 0;
         attrChipsPanel.IsVisible = hasAny;
         clearAttrButton.IsVisible = hasAny;
-        openAttrDialogButton.Content = hasAny ? $"Scout ({count})" : "Scout";
-        if (hasAny) openAttrDialogButton.Classes.Add("accent");
-        else openAttrDialogButton.Classes.Remove("accent");
     }
 
     void PopulateFilterDropdowns()
@@ -769,6 +792,9 @@ public sealed partial class MainWindow : Window
             AttributeThresholds = activeAttrThresholds.ToArray(),
     };
 
+    IReadOnlyList<PlayerRecord> FilterByRelationships(IReadOnlyList<PlayerRecord> rows) =>
+        RelationFilter.Find(rows, activeRelationships, new PlayerStatusReader(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase));
+
     async void Filter()
     {
         int version = ++searchVersion;
@@ -797,6 +823,12 @@ public sealed partial class MainWindow : Window
         {
             string query = search.Text?.Trim() ?? "";
             result = query.Length == 0 ? rows : rows.Where(r => module.Matches(r, query)).ToArray();
+        }
+
+        if (module is PlayersModule && activeRelationships.Count > 0 && result is not null)
+        {
+            var candidates = result.OfType<PlayerRecord>().ToArray();
+            result = (await Task.Run(() => FilterByRelationships(candidates))).Cast<object>().ToArray();
         }
 
         var prevSelectedAddress = selected?.Address;

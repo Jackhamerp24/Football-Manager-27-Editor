@@ -171,6 +171,8 @@ sách, hiện không có nhãn hoặc sai dữ liệu, và việc sửa chúng c
   hình hiện tại.
 - Preset đội hình, khoá giá trị, xuất file, tìm kiếm nâng cao, xuất / nhập chỉ số.
 - Giao diện sáng (trắng và xanh dương) bên cạnh giao diện tối, đổi bằng một nút và được nhớ cho lần sau.
+- Sửa hàng loạt (mass edit) cho cầu thủ, nhân sự và CLB theo bố cục FMRTE, thêm phạm vi **Quốc gia** (Youth Rating và
+  các field quốc gia) mà FMRTE không có; mở bằng nút trên thanh công cụ hoặc Ctrl+M.
 - Áo đấu và màu CLB, tài chính và nhà tài trợ; VAR, tiền thưởng, quy định đội hình và bảng xếp hạng của giải; thoả thuận,
   ưu tiên chuyển nhượng và EuroCoefficients của quốc gia; chủ sở hữu, vị trí, sân lân cận và toạ độ của sân; quốc gia,
   vùng, ngôn ngữ và khí hậu của thành phố.
@@ -180,7 +182,6 @@ Tiếp theo:
 - Bản build cho macOS.
 - Hiển thị giá tiền theo tiền tệ trong game, hoặc tiền tệ do người dùng tự đặt.
 - Phân tích chuyên sâu: tab thông số radar và visualisation của cầu thủ.
-- Sửa hàng loạt (mass edit).
 - Danh sách theo dõi (shortlist).
 - Điều khoản chuyển nhượng cho lần chuyển diễn ra ngay (hiện chỉ hỗ trợ % bán lại).
 - Tab Scout Information và Stats; Possible Signings.

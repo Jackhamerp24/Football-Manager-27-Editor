@@ -52,6 +52,29 @@ public class NationTests
     NationFieldAccess Fields() => new(_w.Memory, _w.Profile, TestWorld.ModuleBase);
 
     [Fact]
+    public void Mass_edit_plans_applies_and_undoes_youth_rating_for_both_teams()
+    {
+        var fields = Fields();
+        var vietnam = new NationRecord(Vietnam, 145, "Vietnam", null);
+        var changes = NationMassEdit.Plan([vietnam], fields, NationField.YouthRating, MassEditMode.Set, 71);
+        var change = Assert.Single(changes);
+        Assert.Equal(70, change.Before);
+        Assert.Equal(71, change.After);
+        NationMassEdit.Apply(change, fields);
+        Assert.Equal(71, fields.Read(Vietnam, NationField.YouthRating));
+        NationMassEdit.Undo(change, fields);
+        Assert.Equal(70, fields.Read(Vietnam, NationField.YouthRating));
+
+        var women = NationMassEdit.Plan([vietnam], fields, NationField.WomenYouthRating, MassEditMode.Change, 9);
+        Assert.Equal(161, Assert.Single(women).Before);
+        NationMassEdit.Apply(women[0], fields);
+        Assert.Equal(170, fields.Read(Vietnam, NationField.WomenYouthRating));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => NationMassEdit.Plan([vietnam], fields, NationField.YouthRating, MassEditMode.Set, 201));
+        Assert.Empty(NationMassEdit.Plan([vietnam], fields, NationField.YouthRating, MassEditMode.Set, 70));
+    }
+
+    [Fact]
     public void Finds_nations_when_the_database_holder_moves_to_a_neighbouring_slot()
     {
         // In the Game Pass session the old slot was invalid and the nation vector moved to holder +0x180.

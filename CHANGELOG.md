@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0
+
+### Mass edit
+- **Mass edit** (toolbar button or Ctrl+M) changes many players, coaches, clubs or nations at once, in FMRTE's layout, with a Nation scope
+  (youth rating and the other nation fields) that FMRTE does not have. Every change goes through the edit history, so it can be undone.
+
+### Search
+- **Advanced search** is rebuilt and filters players, coaches and clubs, with a results window.
+
+### Players and staff
+- **Relationships** lists every one of FMRTE's 21 relation types (Dislikes Team, Competition Unregistration, Invited to represent nation,
+  Developed at Country, Other Nation Caps and Youth Caps with their Caps and Goals, and the rest), reads rows the game names "Unknown (N)",
+  and adds and removes any of them.
+
 ## 1.0.1
 
 ### Staff

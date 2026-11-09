@@ -22,7 +22,7 @@ public sealed partial class MainWindow
         Width = 280,
         Height = 26,
         FontSize = 13,
-        Watermark = "Search player, club, stadium, award or ID",
+        Watermark = "Universal search: player, club, stadium, staff, competition, award or ID",
     };
     readonly Border searchOverlay = new()
     {
@@ -51,7 +51,7 @@ public sealed partial class MainWindow
         unifiedSearch.Height = 32;
         unifiedSearch.FontSize = 14.5;
         unifiedSearch.HorizontalAlignment = HorizontalAlignment.Stretch;
-        unifiedSearch.Watermark = "Search player, club, stadium, staff, competition, award or ID";
+        unifiedSearch.Watermark = "Universal search: player, club, stadium, staff, competition, award or ID";
 
         var closeBtn = new Button
         {
@@ -253,9 +253,11 @@ public sealed partial class MainWindow
         left.Children.Add(ToolBtn("M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z", "Reload current screen (Ctrl+R)", ReloadCurrentScreen));
         left.Children.Add(ToolBtn("M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3", "Session edit history", () => _ = ShowEditHistoryAsync()));
         left.Children.Add(Divider());
+        left.Children.Add(ToolBtn("M15.5,14L20.5,19L19,20.5L14,15.5V14.71L13.73,14.43C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.43,13.73L14.71,14H15.5M9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14M12,10H10V12H9V10H7V9H9V7H10V9H12V10Z", "Advanced Search", () => _ = OpenAttributeFilterDialogAsync()));
         left.Children.Add(ToolBtn("M20.79,13.95L18.46,14.57L16.46,13.44V10.56L18.46,9.43L20.79,10.05L21.31,8.12L19.54,7.65L20,5.88L18.07,5.36L17.45,7.69L15.45,8.82L13,7.38V5.12L14.71,3.41L13.29,2L12,3.29L10.71,2L9.29,3.41L11,5.12V7.38L8.55,8.82L6.55,7.69L5.93,5.36L4,5.88L4.46,7.65L2.69,8.12L3.21,10.05L5.54,9.43L7.54,10.56V13.44L5.54,14.57L3.21,13.95L2.69,15.88L4.46,16.35L4,18.12L5.93,18.64L6.55,16.31L8.55,15.18L11,16.62V18.88L9.29,20.59L10.71,22L12,20.71L13.29,22L14.71,20.59L13,18.88V16.62L15.45,15.18L17.45,16.31L18.07,18.64L20,18.12L19.54,16.35L21.31,15.88L20.79,13.95Z", "Freezer Manager", OpenCurrentFreezer));
         left.Children.Add(ToolBtn("M8.5,13.5L11,16.5L14.5,12L19,18H5M21,19V5C21,3.89 20.1,3 19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19Z", "Choose graphics folder", () => _ = ChooseGraphicsAsync()));
         left.Children.Add(favouritesFilter);
+        left.Children.Add(ToolBtn("M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z", "Mass Edit (Ctrl+M)", OpenMassEdit));
         left.Children.Add(BuildThemeToggle());
         left.Children.Add(BuildSettingsButton());
 
@@ -283,7 +285,7 @@ public sealed partial class MainWindow
         searchRow.Children.Add(shortcutPill);
         searchRow.Children.Add(new TextBlock
         {
-            Text = "Search player, club, stadium, award or ID…",
+            Text = "Universal search: player, club, stadium, award or ID…",
             FontSize = 13.5,
             Foreground = Brush("#64748B"),
             VerticalAlignment = VerticalAlignment.Center,

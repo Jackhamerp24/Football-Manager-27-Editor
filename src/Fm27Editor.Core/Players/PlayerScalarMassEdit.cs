@@ -9,10 +9,10 @@ public static class PlayerScalarMassEdit
         PlayerField field, MassEditMode mode, long value)
     {
         if (!Fields.Contains(field) || !Enum.IsDefined(mode)) throw new ArgumentException("Invalid mass edit field or mode");
-        // Match the editor's existing squad field ranges; these are not claims about FMRTE's rejection limits.
+        // FMRTE 27 rejects Condition/Sharpness below 5000 on save; the editor uses the same floor.
         var (minimum, maximum) = field switch
         {
-            PlayerField.Condition or PlayerField.MatchSharpness => (0L, 10000L),
+            PlayerField.Condition or PlayerField.MatchSharpness => (5000L, 10000L),
             PlayerField.Jadedness => (-500L, 1000L),
             PlayerField.Morale => (1L, 20L),
             _ => throw new ArgumentException("Invalid mass edit field")

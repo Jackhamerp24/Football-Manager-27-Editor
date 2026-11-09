@@ -38,20 +38,7 @@ public static class NationLabels
             (NationField.WomenAverageAttendance, "Average"), (NationField.WomenMinimumAttendance, "Minimum"), (NationField.WomenMaximumAttendance, "Maximum")]),
     ];
 
-    public static (long Min, long Max) Range(NationField f) => Enum.Parse<NationField>(f.ToString().StartsWith("Women", StringComparison.Ordinal) ? f.ToString()[5..] : f.ToString()) switch
-    {
-        NationField.EconomicFactor or NationField.FaFinancialPower or NationField.FaPatience or NationField.ForeignManagerLikelihood => (1, 20),
-        NationField.YearsToGainNationality => (0, 30),
-        NationField.Development or NationField.GainNationalityType => (1, 2),
-        NationField.Importance => (1, 4),
-        NationField.AllowMultipleAssistantManagers or NationField.DoesNotAllowDualNationality => (0, 1),
-        NationField.FifaPosition => (1, 255),
-        NationField.FifaRankingPoints => (0, 5000),
-        NationField.YearAffiliatedToFifa or NationField.YearAffiliatedToFederation or NationField.YearAssociationFormed => (1800, 2100),
-        NationField.YouthRating => (0, 200),
-        NationField.MaxYouthAge => (15, 30),
-        _ => (0, 250_000),
-    };
+    public static (long Min, long Max) Range(NationField f) => NationFieldInfo.Range(f);
 
     /// <summary>Parses every pending change; the first invalid one is returned as an error and nothing is applied.</summary>
     public static bool TryParse(IReadOnlyDictionary<NationField, string> changes, out Dictionary<NationField, long> values, out string? error)

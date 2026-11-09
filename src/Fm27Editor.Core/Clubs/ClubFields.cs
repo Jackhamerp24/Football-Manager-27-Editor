@@ -59,6 +59,8 @@ public sealed class ClubFieldAccess(IProcessMemory memory, OffsetProfile profile
 
     public bool IsMapped(ClubField field) => Map.ContainsKey(field);
 
+    public ClubFieldRoot? Root(ClubField field) => Map.TryGetValue(field, out var offset) ? offset.Root : null;
+
     /// <summary>Mapped fields of the club and of <paramref name="team"/> (usually its first team). Unreadable fields are left out.</summary>
     public IReadOnlyDictionary<ClubField, long> ReadAll(ulong club, ulong team)
     {

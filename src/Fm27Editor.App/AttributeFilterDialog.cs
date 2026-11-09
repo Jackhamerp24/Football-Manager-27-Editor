@@ -3,10 +3,14 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Fm27Editor.Core.Clubs;
+using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Players;
+using Fm27Editor.Core.Staff;
 
 namespace Fm27Editor.App;
 
@@ -26,6 +30,38 @@ public sealed class AttributeFilterDialog : Window
         public required NumericUpDown ValueInput { get; init; }
         public required NumericUpDown MaxInput { get; init; }
     }
+
+
+    sealed class RelationRow
+    {
+        public required Border Card { get; init; }
+        public required ComboBox Kind { get; init; }
+        public required Button Target { get; init; }
+        public required TextBox Min { get; init; }
+        public required TextBox Max { get; init; }
+        public ulong TargetAddress { get; set; }
+        public string TargetName { get; set; } = "";
+    }
+
+    readonly List<RelationRow> relationRows = [];
+    readonly IReadOnlyList<NationRecord> nationsCatalogue;
+    readonly IReadOnlyList<ClubEntry> clubsCatalogue;
+    readonly StackPanel relationStack = new() { Spacing = 8 };
+
+    readonly TabControl scopeTabs = new();
+    readonly ContentControl coachHost = new();
+    readonly ContentControl clubHost = new();
+    readonly Func<IReadOnlyList<StaffRecord>>? staffSource;
+    readonly Func<IReadOnlyList<ClubEntry>>? clubSource;
+    readonly Func<StaffRecord, IReadOnlyList<RelationEntry>>? staffRelations;
+    readonly ClubFieldAccess? clubAccess;
+    readonly DateOnly today;
+    readonly string initialScope;
+    StaffFilterPanel? coachPanel;
+    ClubFilterPanel? clubPanel;
+    public string SelectedScope { get; private set; } = "Player";
+    public IReadOnlyList<StaffRecord> MatchedStaff { get; private set; } = [];
+    public IReadOnlyList<ClubEntry> MatchedClubs { get; private set; } = [];
 
     readonly Dictionary<PlayerAttribute, (int Min, int Max)> staged = [];
     readonly HashSet<PlayerPosition> stagedPositions = [];
@@ -50,15 +86,16 @@ public sealed class AttributeFilterDialog : Window
     const string AllNationalities = "All Nationalities";
 
     readonly IReadOnlyList<PlayerRecord> allPlayers;
-    readonly ComboBox divisionCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, FontSize = 13 };
-    readonly ComboBox clubCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, FontSize = 13 };
-    readonly ComboBox nationCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, FontSize = 13 };
+    readonly ComboBox divisionCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
+    readonly ComboBox clubCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
+    readonly ComboBox nationCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
 
-    readonly ComboBox presetCombo = new() { Width = 220 };
+    readonly ComboBox presetCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220 };
     readonly TextBox presetNameBox = new() { Watermark = "Preset name...", Width = 190 };
     readonly Button savePresetButton = new() { Content = "Save preset" };
     readonly Button deletePresetButton = new() { Content = "Delete", IsEnabled = false };
 
+    readonly TextBox nameQueryBox = new() { Watermark = "Name", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
     readonly TextBox minAgeBox = new() { Watermark = "Min", Width = 54, HorizontalContentAlignment = HorizontalAlignment.Right };
     readonly TextBox maxAgeBox = new() { Watermark = "Max", Width = 54, HorizontalContentAlignment = HorizontalAlignment.Right };
     readonly TextBox minCaBox = new() { Watermark = "Min", Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
@@ -125,30 +162,143 @@ public sealed class AttributeFilterDialog : Window
     public int? ResultMaxCa => ParseOptInt(maxCaBox.Text);
     public int? ResultMinPa => ParseOptInt(minPaBox.Text);
     public int? ResultMaxPa => ParseOptInt(maxPaBox.Text);
+    public string? ResultNameQuery => string.IsNullOrWhiteSpace(nameQueryBox.Text) ? null : nameQueryBox.Text.Trim();
     public string? ResultDivision => divisionCombo.SelectedItem is string s && s != AllLeagues ? s : null;
     public string? ResultClub => clubCombo.SelectedItem is string s && s != AllClubs ? s : null;
     public string? ResultNationality => nationCombo.SelectedItem is string s && s != AllNationalities ? s : null;
     public IReadOnlyList<FilterPreset> UpdatedPresets => presets;
+
+    /// <summary>Relationship conditions, ANDed like the other tabs; a row without a target is ignored.</summary>
+    public IReadOnlyList<RelationshipCriterion> ResultRelationships =>
+        relationRows.Select(r => (r, t: TypeOf(r)))
+            .Where(x => x.t is not null && (x.t.Target == RelationTargetKind.None || x.r.TargetAddress != 0))
+            .Select(x =>
+            {
+                int min = int.TryParse(x.r.Min.Text?.Trim(), out var lo) ? Math.Clamp(lo, 0, 100) : 0;
+                int max = int.TryParse(x.r.Max.Text?.Trim(), out var hi) ? Math.Clamp(hi, 0, 100) : 100;
+                return new RelationshipCriterion(x.t!.Code, x.r.TargetAddress, x.r.TargetName, Math.Min(min, max), Math.Max(min, max));
+            })
+            .ToArray();
+
+    static RelationType? TypeOf(RelationRow row) => row.Kind.SelectedIndex < 0 ? null : RelationCatalog.All[Math.Clamp(row.Kind.SelectedIndex, 0, RelationCatalog.All.Count - 1)];
+
+    Control BuildRelationships()
+    {
+        var add = new Button { Content = "Add", Width = 90 };
+        add.Click += (_, _) => AddRelationRow();
+        var header = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Thickness(0, 0, 0, 6),
+            Children = { add },
+        };
+        var body = new StackPanel { Spacing = 8, Children = { header, relationStack } };
+        var scroll = new ScrollViewer { Content = body, Padding = new Thickness(14, 10), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+
+        return scroll;
+    }
+
+    void AddRelationRow()
+    {
+        var kind = new ComboBox { ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, PlaceholderText = "Select type…", MaxDropDownHeight = 260, Width = 320, MinWidth = 320, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left };
+        var target = new Button { Content = "Choose…", IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+        var min = new TextBox { Text = "0", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var max = new TextBox { Text = "100", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var remove = new Button { Content = "Remove", Width = 80, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("320,*,90,90,80"), ColumnSpacing = 8, Margin = new Thickness(8) };
+        Grid.SetColumn(kind, 0); Grid.SetColumn(target, 1); Grid.SetColumn(min, 2); Grid.SetColumn(max, 3); Grid.SetColumn(remove, 4);
+        grid.Children.Add(kind); grid.Children.Add(target); grid.Children.Add(min); grid.Children.Add(max); grid.Children.Add(remove);
+        var card = new Border { Background = UiKit.SurfaceInput, BorderBrush = UiKit.BorderControl, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Child = grid };
+        var row = new RelationRow { Card = card, Kind = kind, Target = target, Min = min, Max = max };
+        kind.SelectionChanged += (_, _) => { row.TargetAddress = 0; row.TargetName = ""; target.Content = "Choose…"; target.IsVisible = TypeOf(row) is { Target: not RelationTargetKind.None }; };
+        target.Click += async (_, _) => await PickRelationTarget(row);
+        remove.Click += (_, _) => { relationRows.Remove(row); relationStack.Children.Remove(card); };
+        relationRows.Add(row);
+        relationStack.Children.Add(card);
+    }
+
+    async Task PickRelationTarget(RelationRow row)
+    {
+        if (TypeOf(row) is not { } type) return;
+        switch (type.Target)
+        {
+            case RelationTargetKind.None:
+                row.TargetAddress = 0;
+                row.TargetName = "";
+                return;
+            case RelationTargetKind.Nation:
+            {
+                var picked = await PickerDialog.Show(this, "Choose nation", q => nationsCatalogue.Where(n => MainWindow.Fold(n.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                    .Take(200).Select(n => (n.DisplayName, n)).ToArray(), "Nation name");
+                if (picked is null) return;
+                row.TargetAddress = picked.Address;
+                row.TargetName = picked.DisplayName;
+                break;
+            }
+            case RelationTargetKind.Club or RelationTargetKind.Team:
+            {
+                var clubs = clubsCatalogue;
+                var picked = await PickerDialog.Show(this, "Choose club", q => clubs.Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                    .Take(200).Select(c => (c.DisplayName, c)).ToArray(), "Club name");
+                if (picked is null) return;
+                if (type.Target == RelationTargetKind.Team && picked.FirstTeam is null) return;
+                row.TargetAddress = type.Target == RelationTargetKind.Team ? picked.FirstTeam!.Address : picked.Address;
+                row.TargetName = picked.DisplayName;
+                break;
+            }
+            default:
+            {
+                var picked = await PickerDialog.Show(this, "Choose person", q => allPlayers.Where(p => MainWindow.Fold(p.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                    .Take(200).Select(p => ($"{p.DisplayName} ({p.ClubName})", p)).ToArray(), "Player name");
+                if (picked is null) return;
+                row.TargetAddress = picked.Address;
+                row.TargetName = picked.DisplayName;
+                break;
+            }
+        }
+        row.Target.Content = row.TargetName;
+    }
     public string? SelectedPresetName { get; private set; }
 
     public AttributeFilterDialog(
         PlayerFilter initialFilter,
         IReadOnlyList<FilterPreset> currentPresets,
         string? activePresetName = null,
-        IReadOnlyList<PlayerRecord>? players = null)
+        IReadOnlyList<PlayerRecord>? players = null,
+        IReadOnlyList<NationRecord>? nationCatalogue = null,
+        IReadOnlyList<ClubEntry>? clubCatalogue = null,
+        string initialScope = "Player",
+        Func<IReadOnlyList<StaffRecord>>? staffSource = null,
+        Func<IReadOnlyList<ClubEntry>>? clubSource = null,
+        Func<StaffRecord, IReadOnlyList<RelationEntry>>? staffRelations = null,
+        ClubFieldAccess? clubAccess = null,
+        DateOnly? today = null)
     {
-        Title = "Player Filter & Presets";
-        Width = 940;
-        Height = 740;
-        MinWidth = 700;
-        MinHeight = 500;
+        Title = "Advanced Search";
+        this.initialScope = initialScope;
+        this.staffSource = staffSource;
+        this.clubSource = clubSource;
+        this.staffRelations = staffRelations;
+        this.clubAccess = clubAccess;
+        this.today = today ?? DateOnly.FromDateTime(DateTime.Today);
+        Width = 1080;
+        Height = 760;
+        CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Brush("#0D0F17");
         Foreground = Brush("#F1F5F9");
         FontSize = 13;
 
         allPlayers = players ?? Array.Empty<PlayerRecord>();
+        nationsCatalogue = nationCatalogue ?? Array.Empty<NationRecord>();
+        clubsCatalogue = clubCatalogue ?? Array.Empty<Fm27Editor.Core.Clubs.ClubEntry>();
         presets = currentPresets;
+
+        divisionCombo.ItemTemplate = TextItem(240);
+        clubCombo.ItemTemplate = TextItem(240);
+        nationCombo.ItemTemplate = TextItem(240);
+        presetCombo.ItemTemplate = PresetItem();
 
         var leagues = allPlayers
             .Select(p => p.DivisionName)
@@ -211,6 +361,13 @@ public sealed class AttributeFilterDialog : Window
             }
         }
 
+        nameQueryBox.Text = initialFilter.NameQuery ?? "";
+        Limit(minAgeBox, 0, 100);
+        Limit(maxAgeBox, 0, 100);
+        Limit(minCaBox, 1, 200);
+        Limit(maxCaBox, 1, 200);
+        Limit(minPaBox, 1, 200);
+        Limit(maxPaBox, 1, 200);
         minAgeBox.Text = initialFilter.MinAge?.ToString() ?? "";
         maxAgeBox.Text = initialFilter.MaxAge?.ToString() ?? "";
         minCaBox.Text = initialFilter.MinCa?.ToString() ?? "";
@@ -221,20 +378,24 @@ public sealed class AttributeFilterDialog : Window
 
         var root = new DockPanel();
 
-        // Top preset bar
-        var topBar = BuildPresetBar();
-        DockPanel.SetDock(topBar, Dock.Top);
-        root.Children.Add(topBar);
-
-        // Bottom action bar (Save / Discard)
+        // Bottom action bar
         var bottomBar = BuildBottomBar();
         DockPanel.SetDock(bottomBar, Dock.Bottom);
         root.Children.Add(bottomBar);
 
-        // Each page stays within the dialog width; long content scrolls vertically.
+        // Player scope: preset bar above the FMRTE-style left section list.
         var bodyStack = new StackPanel { Spacing = 10 };
         bodyStack.Children.Add(BuildGeneralAndPositionsCard());
         bodyStack.Children.Add(BuildAdditionalRanges());
+        bodyStack.Children.Add(new Border
+        {
+            Background = Brush("#151926"),
+            BorderBrush = Brush("#252A3D"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8),
+            Child = BuildPositionBoard(),
+        });
 
         var boardScroll = new ScrollViewer
         {
@@ -243,12 +404,39 @@ public sealed class AttributeFilterDialog : Window
             Padding = new Thickness(14, 10),
             Content = bodyStack
         };
-        var positionScroll = new ScrollViewer { Padding = new Thickness(14, 10), Content = BuildPositionBoard() };
-        root.Children.Add(new TabControl { ItemsSource = new[] { new TabItem { Header = "General", Content = boardScroll }, new TabItem { Header = "Attributes", Content = BuildAttributeBoard() }, new TabItem { Header = "Positions", Content = positionScroll }, new TabItem { Header = "Preferred Moves", Content = BuildPreferredMoves() } } });
+        var playerSections = SideSections(
+            ("General", boardScroll),
+            ("Contract", BuildContractPage()),
+            ("Technical/Gk", AttributePair("Technical", "Goalkeeping")),
+            ("Mental Attributes", AttributePair("Mental", "Personality")),
+            ("Physical/Hidden", AttributePair("Physical", "Hidden")),
+            ("Preferred Moves", BuildPreferredMoves()),
+            ("Relationships", BuildRelationships()));
+
+        var playerRoot = new DockPanel();
+        var topBar = BuildPresetBar();
+        DockPanel.SetDock(topBar, Dock.Top);
+        playerRoot.Children.Add(topBar);
+        playerRoot.Children.Add(playerSections);
+
+        scopeTabs.ItemsSource = new[]
+        {
+            new TabItem { Header = "Player", Content = playerRoot },
+            new TabItem { Header = "Coach", Content = coachHost },
+            new TabItem { Header = "Club", Content = clubHost },
+        };
+        scopeTabs.Margin = new Thickness(0, 4, 0, 0);
+        scopeTabs.SelectionChanged += (_, _) =>
+        {
+            EnsureScopePanels();
+            UpdateScopeSummary();
+        };
+        root.Children.Add(scopeTabs);
 
         Content = root;
+        scopeTabs.SelectedIndex = initialScope switch { "Coach" => 1, "Club" => 2, _ => 0 };
 
-        foreach (var tb in new[] { minAgeBox, maxAgeBox, minCaBox, maxCaBox, minPaBox, maxPaBox })
+        foreach (var tb in new[] { nameQueryBox, minAgeBox, maxAgeBox, minCaBox, maxCaBox, minPaBox, maxPaBox })
             tb.TextChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
 
         RefreshPresetCombo(activePresetName);
@@ -256,6 +444,47 @@ public sealed class AttributeFilterDialog : Window
         SyncPositionButtons();
     }
 
+    static Control SideSections(params (string Title, Control Content)[] pages) => new SectionNav(pages);
+
+    void EnsureScopePanels()
+    {
+        if (scopeTabs.SelectedIndex == 1 && coachPanel is null)
+        {
+            coachPanel = new StaffFilterPanel(staffSource?.Invoke() ?? Array.Empty<StaffRecord>(), today, staffRelations);
+            coachPanel.Changed += (_, _) => UpdateScopeSummary();
+            coachHost.Content = coachPanel;
+        }
+        if (scopeTabs.SelectedIndex == 2 && clubPanel is null)
+        {
+            if (clubAccess is null)
+            {
+                clubHost.Content = new TextBlock
+                {
+                    Text = "Connect to the game to search clubs.",
+                    Foreground = Brush("#94A3B8"),
+                    Margin = new Thickness(14),
+                };
+                return;
+            }
+            clubPanel = new ClubFilterPanel(clubSource?.Invoke() ?? Array.Empty<ClubEntry>(), clubAccess);
+            clubPanel.Changed += (_, _) => UpdateScopeSummary();
+            clubHost.Content = clubPanel;
+        }
+    }
+
+    void UpdateScopeSummary()
+    {
+        if (scopeTabs.SelectedIndex < 0) return;
+        SelectedScope = scopeTabs.SelectedIndex switch { 1 => "Coach", 2 => "Club", _ => "Player" };
+        if (SelectedScope == "Player")
+        {
+            UpdateSummary();
+            return;
+        }
+        int count = SelectedScope == "Coach" ? coachPanel?.FilterCount() ?? 0 : clubPanel?.FilterCount() ?? 0;
+        summaryText.Foreground = Brush("#CBD5E1");
+        summaryText.Text = count == 0 ? "No filters set" : $"{count} filter(s) set";
+    }
     Control BuildPresetBar()
     {
         var dock = new DockPanel { LastChildFill = false };
@@ -468,10 +697,15 @@ public sealed class AttributeFilterDialog : Window
     {
         var stack = new StackPanel { Spacing = 10 };
 
+        var nameStack = new StackPanel { Spacing = 3 };
+        nameStack.Children.Add(SectionLabel("NAME"));
+        nameStack.Children.Add(nameQueryBox);
+        stack.Children.Add(nameStack);
+
         // Row 1: League, Club, Nationality
         var geoGrid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,*,*"),
+            ColumnDefinitions = new ColumnDefinitions("240,240,240"),
             ColumnSpacing = 8,
             Margin = new Thickness(0, 0, 0, 4)
         };
@@ -1034,17 +1268,14 @@ public sealed class AttributeFilterDialog : Window
             return UiKit.Card(title, stack);
         }
 
-        var rightGrid = new Grid
+        var rightGrid = new StackPanel
         {
-            ColumnDefinitions = new ColumnDefinitions("*,*"),
-            ColumnSpacing = 8,
+            Spacing = 8,
             VerticalAlignment = VerticalAlignment.Top,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var defCard = BuildPosCard("Defensive", PitchLayout.DefensivePositions);
         var attCard = BuildPosCard("Midfield & Attack", PitchLayout.AttackingPositions);
-        Grid.SetColumn(defCard, 0);
-        Grid.SetColumn(attCard, 1);
         rightGrid.Children.Add(defCard);
         rightGrid.Children.Add(attCard);
 
@@ -1069,23 +1300,32 @@ public sealed class AttributeFilterDialog : Window
     Control BuildAdditionalRanges()
     {
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        var keys = new[] { "Height", "Caps", "Goals", "Home Reputation", "Current Reputation", "World Reputation", "CA/PA Difference", "Asking Price", "Wages" };
+        var keys = new[] { "Height", "Caps", "Goals", "Home Reputation", "Current Reputation", "World Reputation", "CA/PA Difference" };
         foreach (string key in keys)
         {
             initialRanges.TryGetValue(key, out var range);
             var min = new TextBox { Width = 92, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
             var max = new TextBox { Width = 92, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var (lo, hi) = key switch
+            {
+                "Height" => (0L, 300L),
+                "Caps" or "Goals" => (0L, 200L),
+                "CA/PA Difference" => (-200L, 200L),
+                _ => (0L, 10000L),
+            };
+            Limit(min, lo, hi);
+            Limit(max, lo, hi);
             rangeInputs[key] = (min, max);
             string label = key.StartsWith("Personality:", StringComparison.Ordinal) ? key[12..] : key;
-            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Width = 360, Margin = new Thickness(0, 0, 12, 6), Spacing = 6, Children = { new TextBlock { Text = label, Width = 152, VerticalAlignment = VerticalAlignment.Center }, min, max } });
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Width = 396, Margin = new Thickness(0, 0, 12, 6), Spacing = 6, Children = { new TextBlock { Text = label, Width = 190, VerticalAlignment = VerticalAlignment.Center }, min, max } });
         }
         void AddChoice(string key, IEnumerable<FilterChoice> options)
         {
             var choices = options.ToArray();
             long? selected = initialRanges.TryGetValue(key, out var range) ? range.Min : null;
-            var combo = new ComboBox { ItemsSource = choices, SelectedItem = choices.FirstOrDefault(option => option.Value == selected), Width = 190 };
+            var combo = new ComboBox { ItemsSource = choices, SelectedItem = choices.FirstOrDefault(option => option.Value == selected), Width = 190, MinWidth = 190, MaxWidth = 190, ItemTemplate = ChoiceItem() };
             choiceInputs[key] = combo;
-            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Width = 360, Margin = new Thickness(0, 0, 12, 6), Spacing = 6, Children = { new TextBlock { Text = key, Width = 152, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center }, combo } });
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Width = 396, Margin = new Thickness(0, 0, 12, 6), Spacing = 6, Children = { new TextBlock { Text = key, Width = 190, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center }, combo } });
         }
         AddChoice("Ethnicity", new[] { new FilterChoice(null, "Unset") }.Concat(InformationLabels.Ethnicities.Select(value => new FilterChoice(value.Code, value.Name))));
         AddChoice("Treated As Non-EU In Italy", [new(null, "Any"), new(1, "Yes"), new(0, "No")]);
@@ -1104,6 +1344,56 @@ public sealed class AttributeFilterDialog : Window
         return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
 
+    Control AttributePair(string first, string second)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8, Margin = new Thickness(8) };
+        var a = BuildGroupCard(first, PlayerFields.All.Where(f => f.Group == first));
+        var b = second == "Personality" ? BuildPersonalityRanges() : BuildGroupCard(second, PlayerFields.All.Where(f => f.Group == second));
+        Grid.SetColumn(a, 0); grid.Children.Add(a);
+        Grid.SetColumn(b, 1); grid.Children.Add(b);
+        return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
+    }
+
+    Control BuildContractPage()
+    {
+        var stack = new StackPanel { Spacing = 10, Margin = new Thickness(14, 10) };
+        stack.Children.Add(RangeCard("Wages", "WAGES"));
+        stack.Children.Add(RangeCard("Asking Price", "ASKING PRICE"));
+        return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = stack };
+    }
+
+    readonly Dictionary<TextBox, (long Min, long Max)> limits = [];
+
+    void Limit(TextBox box, long min, long max)
+    {
+        limits[box] = (min, max);
+        string original = "";
+        box.GotFocus += (_, _) => original = box.Text ?? "";
+        box.LostFocus += (_, _) =>
+        {
+            string text = box.Text?.Trim() ?? "";
+            if (text.Length == 0) return;
+            if (!long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) || value < min || value > max)
+                box.Text = original;
+        };
+    }
+    Control RangeCard(string key, string label)
+    {
+        initialRanges.TryGetValue(key, out var range);
+        var min = new TextBox { Width = 92, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+        var max = new TextBox { Width = 92, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+        Limit(min, 0, 2_000_000_000);
+        Limit(max, 0, 2_000_000_000);
+        rangeInputs[key] = (min, max);
+        min.TextChanged += (_, _) => UpdateSummary();
+        max.TextChanged += (_, _) => UpdateSummary();
+        return UiKit.Card(label, new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children = { min, new TextBlock { Text = "to", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center }, max }
+        });
+    }
     Control BuildBottomBar()
     {
         var dock = new DockPanel { LastChildFill = false };
@@ -1111,6 +1401,8 @@ public sealed class AttributeFilterDialog : Window
         var clearAllBtn = new Button { Content = "Clear all" };
         clearAllBtn.Click += (_, _) =>
         {
+            if (SelectedScope == "Coach") { coachPanel?.Clear(); UpdateScopeSummary(); return; }
+            if (SelectedScope == "Club") { clubPanel?.Clear(); UpdateScopeSummary(); return; }
             updatingControls = true;
             divisionCombo.SelectedIndex = 0;
             RefreshDialogClubs(null);
@@ -1152,11 +1444,31 @@ public sealed class AttributeFilterDialog : Window
 
         var saveBtn = new Button
         {
-            Content = "Save filter",
+            Content = "Search",
             Classes = { "accent" },
         };
         saveBtn.Click += (_, _) =>
         {
+            if (SelectedScope == "Coach")
+            {
+                if (coachPanel?.Criteria() is null) { summaryText.Text = "Invalid range"; return; }
+                var matched = coachPanel.Matched();
+                if (matched.Count == 0) { summaryText.Text = "No staff match the filter."; return; }
+                MatchedStaff = matched;
+                Saved = true;
+                Close();
+                return;
+            }
+            if (SelectedScope == "Club")
+            {
+                if (clubPanel?.Criteria() is null) { summaryText.Text = "Invalid range"; return; }
+                var matched = clubPanel.Matched();
+                if (matched.Count == 0) { summaryText.Text = "No clubs match the filter."; return; }
+                MatchedClubs = matched;
+                Saved = true;
+                Close();
+                return;
+            }
             foreach (var (_, controls) in rangeInputs)
             {
                 if ((!string.IsNullOrWhiteSpace(controls.Min.Text) && ParseOptLong(controls.Min.Text) is null) ||
@@ -1164,13 +1476,14 @@ public sealed class AttributeFilterDialog : Window
                     (ParseOptLong(controls.Min.Text) is { } min && ParseOptLong(controls.Max.Text) is { } max && min > max))
                 { summaryText.Text = "Invalid range"; return; }
             }
+            SelectedScope = "Player";
             Saved = true;
             Close();
         };
 
         var discardBtn = new Button
         {
-            Content = "Discard",
+            Content = "Cancel",
         };
         discardBtn.Click += (_, _) =>
         {
@@ -1399,6 +1712,7 @@ public sealed class AttributeFilterDialog : Window
 
     void UpdateSummary()
     {
+        if (scopeTabs.SelectedIndex > 0) { UpdateScopeSummary(); return; }
         var parts = new List<string>();
         if (ResultDivision is not null) parts.Add($"League: {ResultDivision}");
         if (ResultClub is not null) parts.Add($"Club: {ResultClub}");
@@ -1439,4 +1753,31 @@ public sealed class AttributeFilterDialog : Window
 
     static IBrush RatingColor(int value) => Brush(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8");
     static IBrush Brush(string color) => AppTheme.Brush(color);
+    static FuncDataTemplate<string> TextItem(double width) =>
+        new((text, _) => new TextBlock
+        {
+            Text = text,
+            MaxWidth = width - 36,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+    static FuncDataTemplate<FilterChoice> ChoiceItem() =>
+        new((choice, _) => new TextBlock
+        {
+            Text = choice.Name,
+            MaxWidth = 154,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+    static FuncDataTemplate<FilterPreset> PresetItem() =>
+        new((preset, _) => new TextBlock
+        {
+            Text = preset.Name,
+            MaxWidth = 184,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
 }

@@ -174,6 +174,8 @@ Done:
   current screen.
 - Squad presets, freezer, export, advanced search, attribute export / import.
 - Light (white and blue) theme next to the dark one, switched with one button and remembered.
+- Mass edit for players, staff and clubs in FMRTE's layout, plus a Nation scope (youth rating and the other nation
+  fields) that FMRTE does not have; opened with the toolbar button or Ctrl+M.
 - Club kits and colours, finances and sponsors; competition VAR, prize money, squad rules and standings; nation
   agreements, transfer preferences and EuroCoefficients; stadium owner, location, nearby stadium and coordinates; city
   nation, region, language and weather.
@@ -183,7 +185,6 @@ Next:
 - A macOS build.
 - Prices shown in the game's currency, or in a currency the user picks.
 - Deeper analysis: the player stats radar tab and player visualisation.
-- Mass edit.
 - Shortlist.
 - Transfer terms for a move that happens now (today only the sell-on is supported).
 - Scout Information and Stats tabs; Possible Signings.

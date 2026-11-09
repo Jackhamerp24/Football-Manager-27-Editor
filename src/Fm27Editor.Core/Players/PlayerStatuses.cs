@@ -69,6 +69,8 @@ public sealed record PlayerStatuses(
 {
     public static readonly PlayerStatuses None = new([], [], []);
     public IReadOnlyList<PlayerRelationship> Relationships { get; init; } = [];
+    /// <summary>Every row of the relation vector, of any type, in game order.</summary>
+    public IReadOnlyList<RelationEntry> Entries { get; init; } = [];
     /// <summary>The relations vector as read (holder, begin, end), for guarded adds; 0 when there is none.</summary>
     public ulong Holder { get; init; }
     public ulong Begin { get; init; }
@@ -105,12 +107,16 @@ public sealed class PlayerStatusReader(IProcessMemory memory, OffsetProfile prof
         var clubs = new List<PlayerTrainedAtClub>();
         var nations = new List<PlayerTrainedAtNation>();
         var relationships = new List<PlayerRelationship>();
+        var entries = new List<RelationEntry>();
         bool nationalitiesComplete = true, trainingComplete = true, relationshipsComplete = true;
         PlayerRelationship? retirement = null;
         for (int i = 0; i < bytes.Length; i += o.RecordSize)
         {
             ulong target = BitConverter.ToUInt64(bytes, i + o.Target);
             byte type = bytes[i + o.Type], code = bytes[i + o.Code];
+            var targetKind = (RelationTargetKind)bytes[i + o.TargetKind];
+            entries.Add(new(begin + (ulong)i, type, targetKind, target, target == 0 ? null : TargetName(targetKind, target, o), BitConverter.ToUInt16(bytes, i + o.Reason), code,
+                bytes[i + o.Flags], bytes[i + o.Flags + 1], Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end));
             if (type == o.RegistrationType && TeamClub(target) is { } club) registrations.Add(new(club, code));
             else if (type == o.TrainedAtClubType) { if (Club(target) is { } c) clubs.Add(new(c, code)); else trainingComplete = false; }
             else if (type == o.TrainedAtNationType) { if (Nation(target) is { } n) nations.Add(new(n, code)); else trainingComplete = false; }
@@ -133,8 +139,17 @@ public sealed class PlayerStatusReader(IProcessMemory memory, OffsetProfile prof
                 retirement = new(begin + (ulong)i, RelationshipKind.RetiredFromInternationalFootball, null, code, bytes[i + o.Reason], bytes[i + o.Flags],
                     Convert.ToHexString(bytes, i, o.RecordSize), holder, begin, end);
         }
-        return new(registrations, clubs, nations) { Relationships = relationships, Holder = holder, Begin = begin, End = end, Capacity = cap, RecordSnapshot = Convert.ToHexString(bytes), InternationalRetirement = retirement, NationalitiesComplete = nationalitiesComplete, TrainingComplete = trainingComplete, RelationshipsComplete = relationshipsComplete };
+        return new(registrations, clubs, nations) { Entries = entries, Relationships = relationships, Holder = holder, Begin = begin, End = end, Capacity = cap, RecordSnapshot = Convert.ToHexString(bytes), InternationalRetirement = retirement, NationalitiesComplete = nationalitiesComplete, TrainingComplete = trainingComplete, RelationshipsComplete = relationshipsComplete };
     }
+
+    string? TargetName(RelationTargetKind kind, ulong target, RelationOffsets o) => kind switch
+    {
+        RelationTargetKind.Person => PersonName(target, o),
+        RelationTargetKind.Club => Club(target)?.DisplayName,
+        RelationTargetKind.Team => TeamClub(target)?.DisplayName,
+        RelationTargetKind.Nation => Nation(target)?.DisplayName,
+        _ => null,
+    };
 
     /// <summary>Common name, else first + last, else full name: persons not in play keep only the name entries (+0x40 is null).</summary>
     internal string? PersonName(ulong person, RelationOffsets o)
@@ -189,7 +204,7 @@ public sealed class PlayerStatusReader(IProcessMemory memory, OffsetProfile prof
 /// Mbappé 100 → 99 and Michael Olise 90 → 89 showed in FMRTE 27 as written. Guarded: player vtable, unchanged holder and
 /// vector, whole 16-byte record; read-back.
 /// </summary>
-public sealed class RelationshipWriter(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
+public sealed partial class RelationshipWriter(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
     public void SetValue(PlayerRecord player, PlayerRelationship relationship, int value) => SetValue(PersonOwner.Of(player, profile), relationship, value);
 

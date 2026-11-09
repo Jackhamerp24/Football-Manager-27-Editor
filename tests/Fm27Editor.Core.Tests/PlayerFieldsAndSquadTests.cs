@@ -85,4 +85,17 @@ public class PlayerFieldsAndSquadTests
         Assert.True(_w.Memory.TryWrite(Team, BitConverter.GetBytes(TestWorld.ModuleBase + TestWorld.OtherVtable)));
         Assert.Empty(new SquadReader(_w.Memory, _w.Profile, TestWorld.ModuleBase).Read(Team));
     }
+
+    [Fact]
+    public void Scalar_mass_edit_uses_FMRTE_editor_limits()
+    {
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + (ulong)_w.Profile.Fields.Id!.Value, BitConverter.GetBytes(1)));
+        var players = new[] { Mainoo() };
+        var access = Access();
+        Assert.Single(PlayerScalarMassEdit.Plan(players, access, PlayerField.Condition, MassEditMode.Set, 5000));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PlayerScalarMassEdit.Plan(players, access, PlayerField.Condition, MassEditMode.Set, 4999));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PlayerScalarMassEdit.Plan(players, access, PlayerField.MatchSharpness, MassEditMode.Set, 4999));
+    }
 }

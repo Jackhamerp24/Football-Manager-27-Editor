@@ -175,6 +175,8 @@ try
         "careers" => CareersCommand(string.Join(" ", args[1..])),
         "careerprobe" => CareerProbe(string.Join(" ", args[1..])),
         "staffjobdept" => StaffJobDepartments(),
+        "relsurvey" => RelSurvey(),
+        "relplayer" => RelPlayer(int.Parse(args[1])),
         "pfhist" => PlayerFieldHistogram(Enum.Parse<PlayerField>(args[1]), args.Length > 2 ? int.Parse(args[2]) : 0),
         "personidx" => PersonIndexCommand(Convert.ToUInt64(args[1], 16)),
         "near32" => Near32Command(int.Parse(args[1]), args[2..]),
@@ -4276,6 +4278,54 @@ int StaffJobDepartments()
                 }
         }
     foreach (var (job, d) in map) Console.WriteLine($"job {job,3}: {string.Join(", ", d.Select(x => $"{x.Key} {x.Value}"))}");
+    return 0;
+}
+
+// relsurvey   histogram of relation record types over every player: count, up to 3 example players with the record bytes (read only)
+int RelSurvey()
+{
+    using var session = Attach(writable: false);
+    var m = session.Memory; var o = session.Profile.Relations!;
+    var byType = new SortedDictionary<int, (int Count, List<string> Examples)>();
+    foreach (var p in session.Players.LoadAll())
+    {
+        var owner = session.Owner(p);
+        ulong holder = m.ReadUInt64(owner.At(o.Pointer));
+        if (holder == 0) continue;
+        ulong begin = m.ReadUInt64(holder), end = m.ReadUInt64(holder + 8);
+        if (begin == 0 || end < begin || (end - begin) % (ulong)o.RecordSize != 0 || (end - begin) / (ulong)o.RecordSize > 500) continue;
+        for (ulong a = begin; a < end; a += (ulong)o.RecordSize)
+        {
+            var r = m.Read(a, o.RecordSize);
+            int type = r[o.Type];
+            if (!byType.TryGetValue(type, out var e)) byType[type] = e = (0, []);
+            e.Count++;
+            if (e.Examples.Count < 3 && (e.Count == 1 || e.Count % 997 == 0)) e.Examples.Add($"{p.Id} {p.DisplayName}: {Convert.ToHexString(r)}");
+            byType[type] = e;
+        }
+    }
+    foreach (var (type, e) in byType) { Console.WriteLine($"type 0x{type:X2} ({type}): {e.Count}"); foreach (var x in e.Examples) Console.WriteLine("    " + x); }
+    return 0;
+}
+
+// relplayer <id>   every relation record of one player: type, hex and the target object's vtable RVA (read only)
+int RelPlayer(int id)
+{
+    using var session = Attach(writable: false);
+    var m = session.Memory; var o = session.Profile.Relations!; ulong mb = session.Game.ModuleBase;
+    var p = session.Players.LoadAll().Single(x => x.Id == id);
+    var owner = session.Owner(p);
+    ulong holder = m.ReadUInt64(owner.At(o.Pointer));
+    ulong begin = m.ReadUInt64(holder), end = m.ReadUInt64(holder + 8);
+    Console.WriteLine($"{p.DisplayName}: {(end - begin) / (ulong)o.RecordSize} records");
+    for (ulong a = begin; a < end; a += (ulong)o.RecordSize)
+    {
+        var r = m.Read(a, o.RecordSize);
+        ulong target = BitConverter.ToUInt64(r, 0);
+        string vt = "-";
+        if (target > 0x10000) { try { ulong v = m.ReadUInt64(target); vt = v >= mb ? $"+0x{v - mb:X}" : $"0x{v:X}"; } catch (Exception) { vt = "unreadable"; } }
+        Console.WriteLine($"  type 0x{r[o.Type]:X2} {Convert.ToHexString(r)} target vtable {vt}");
+    }
     return 0;
 }
 
