@@ -82,7 +82,8 @@ public sealed class UiSnapshotTests
     {
         RunOnUi(() =>
         {
-            string outDir = @"C:\Users\Duong\.gemini\antigravity\brain\e0639a3d-2028-4a5d-830e-4a8ed6138a59";
+            string outDir = Path.Combine(Path.GetTempPath(), "fm27-ui-snapshots");
+            Directory.CreateDirectory(outDir);
 
         // 1. Render Loan Form
         var loanForm = new UiKit.TwoColumnFormBuilder();
