@@ -1,220 +1,155 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
-using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Threading;
 using Fm27Editor.Core.Game;
 using Fm27Editor.Core.Stadiums;
 
 namespace Fm27Editor.App;
 
-public sealed partial class MainWindow
+internal sealed record StadiumRow(StadiumRecord Stadium, string Name, int Id, string Owner, int Capacity);
+
+/// <summary>Pending stadium edits: field texts, flags, and per-stand (capacity text, roof, seats, tunnel).</summary>
+internal sealed class StadiumDraft
 {
-    public sealed record StadiumNavItem
+    public Dictionary<StadiumField, string> Fields { get; } = [];
+    public Dictionary<StadiumFlag, bool> Flags { get; } = [];
+    public Dictionary<int, (string Capacity, bool Roof, bool Seats, bool Tunnel)> Stands { get; } = [];
+    /// <summary>Pending Int. Length / Width: ticked flag and the two texts, or null when unchanged.</summary>
+    public (bool On, string Length, string Width)? IntSize { get; set; }
+    /// <summary>Pending Seat Colour as #AARRGGBB, or null when unchanged.</summary>
+    public string? SeatColour { get; set; }
+    /// <summary>Pending Owner (a club) and Location (a city), or null when unchanged.</summary>
+    public Fm27Editor.Core.Clubs.ClubEntry? Owner { get; set; }
+    public Fm27Editor.Core.Players.CityRecord? Location { get; set; }
+    public StadiumRecord? Nearby { get; set; }
+    /// <summary>Pending Latitude / Longitude texts, or null when unchanged.</summary>
+    public string? Latitude { get; set; }
+    public string? Longitude { get; set; }
+    public int Count => (Latitude is null ? 0 : 1) + (Longitude is null ? 0 : 1) + Fields.Count + Flags.Count + Stands.Count + (IntSize is null ? 0 : 1) + (SeatColour is null ? 0 : 1) + (Owner is null ? 0 : 1) + (Location is null ? 0 : 1) + (Nearby is null ? 0 : 1);
+}
+
+/// <summary>Stadiums: information, pitch, and the eight stands.</summary>
+internal sealed class StadiumScreen(IScreenHost host)
+    : EntityScreen<StadiumRecord, StadiumRow, StadiumDraft>(host, "stadium", "Stadiums", "stadiums", "Search stadium, owner or ID...")
+{
+    string sectionKey = "Information";
+    IReadOnlyDictionary<StadiumField, long> snapshot = new Dictionary<StadiumField, long>();
+
+    protected override bool HasRail => true;
+
+    protected override void ConfigureColumns(DataGrid grid)
     {
-        public string Title => "Stadiums";
-        public override string ToString() => Title;
+        grid.Columns.Add(new DataGridTextColumn { Header = "Stadium", Binding = new Binding(nameof(StadiumRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = "Owner", Binding = new Binding(nameof(StadiumRow.Owner)), Width = new DataGridLength(184) });
+        var capacity = new DataGridTextColumn { Header = "Capacity", Binding = new Binding(nameof(StadiumRow.Capacity)) { StringFormat = "N0" }, Width = new DataGridLength(115) };
+        capacity.CellStyleClasses.Add("numeric");
+        grid.Columns.Add(capacity);
+        var id = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(StadiumRow.Id)), Width = new DataGridLength(110) };
+        id.CellStyleClasses.Add("numeric");
+        grid.Columns.Add(id);
     }
 
-    public sealed record StadiumRow(StadiumRecord Stadium, string Name, int Id, string Owner, int Capacity);
-
-    /// <summary>Pending stadium edits: field texts, flags, and per-stand (capacity text, roof, seats, tunnel).</summary>
-    sealed class StadiumDraft
+    protected override IReadOnlyList<StadiumRow> LoadRows(GameSession session)
     {
-        public Dictionary<StadiumField, string> Fields { get; } = [];
-        public Dictionary<StadiumFlag, bool> Flags { get; } = [];
-        public Dictionary<int, (string Capacity, bool Roof, bool Seats, bool Tunnel)> Stands { get; } = [];
-        /// <summary>Pending Int. Length / Width: ticked flag and the two texts, or null when unchanged.</summary>
-        public (bool On, string Length, string Width)? IntSize { get; set; }
-        /// <summary>Pending Seat Colour as #AARRGGBB, or null when unchanged.</summary>
-        public string? SeatColour { get; set; }
-        public int Count => Fields.Count + Flags.Count + Stands.Count + (IntSize is null ? 0 : 1) + (SeatColour is null ? 0 : 1);
+        var writer = session.StadiumWriter;
+        return session.Stadiums.LoadAll()
+            .Select(s => new StadiumRow(s, s.DisplayName, s.Id, s.Owner?.DisplayName ?? "",
+                (int)(writer.ReadFields(s.Address).TryGetValue(StadiumField.Capacity, out var c) ? c : 0)))
+            .OrderByDescending(r => r.Capacity).ToList();
     }
 
-    readonly StadiumNavItem stadiumNavItem = new();
-    readonly Grid stadiumViewRoot = new() { IsVisible = false };
-    readonly TextBox stadiumSearch = new() { Watermark = "Search stadium, owner or ID..." };
-    readonly DataGrid stadiumGrid = new()
+    protected override bool Matches(StadiumRow row, string q) =>
+        Fold(row.Name).Contains(q, StringComparison.Ordinal) || Fold(row.Owner).Contains(q, StringComparison.Ordinal)
+        || row.Id.ToString(Inv).Contains(q, StringComparison.Ordinal);
+
+    protected override StadiumRecord RecordOf(StadiumRow row) => row.Stadium;
+    protected override ulong AddressOf(StadiumRecord record) => record.Address;
+    protected override string NameOf(StadiumRecord record) => record.Name ?? record.Address.ToString("X");
+    protected override Func<ulong, int, Fm27Editor.Core.History.ChangeLabel?>? LabelsOf(StadiumRecord record) =>
+        Fm27Editor.Core.History.EntityChangeLabels.ForStadium(Host.Backend.Session.Memory, Host.Backend.Session.Profile, record.Address);
+    protected override StadiumDraft NewDraft() => new();
+    protected override bool HasChanges(StadiumRecord record, StadiumDraft draft) => draft.Count > 0;
+    protected override StadiumRecord? Reload(StadiumRecord record) => Host.Backend.Session.Stadiums.Reload(record.Address);
+    protected override StadiumRow Refresh(StadiumRow row, StadiumRecord fresh) => row with { Stadium = fresh };
+
+    static StackPanel ItemRows(IEnumerable<(string Label, Control Value)> items)
     {
-        IsReadOnly = true, AutoGenerateColumns = false, CanUserResizeColumns = true, CanUserSortColumns = true,
-        SelectionMode = DataGridSelectionMode.Single, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-        HorizontalGridLinesBrush = Brush("#1D2130"), RowHeight = 28, Background = Brush("#11131C"), BorderThickness = new Thickness(0),
-    };
-    readonly ContentControl stadiumHeaderHost = new() { Margin = new Thickness(12, 9, 12, 8) };
-    readonly StackPanel stadiumEditor = new() { Spacing = 12, Margin = new Thickness(12, 0, 12, 12) };
-    readonly Dictionary<ulong, StadiumDraft> stadiumDrafts = [];
-    IReadOnlyList<StadiumRow> stadiumRows = [];
-    StadiumRecord? selectedStadium;
-    Button? stadiumSaveButton;
-    bool stadiumActive;
-    Control stadiumDetailRoot = new Panel();
-
-    void OpenSelectedStadium()
-    {
-        selectedStadium = (stadiumGrid.SelectedItem as StadiumRow)?.Stadium;
-        if (selectedStadium is null) return;
-        RenderStadiumEditor();
-        OpenKindTab("stadium", selectedStadium.Name ?? selectedStadium.Address.ToString("X"), stadiumDetailRoot);
-    }
-
-    void RegisterStadiumView()
-    {
-        AddModuleTab("Stadiums", stadiumViewRoot, stadiumNavItem);
-        modules.ItemsSource = (object[])[.. (object[])modules.ItemsSource!, stadiumNavItem];
-
-        stadiumGrid.Columns.Add(new DataGridTextColumn { Header = "Stadium", Binding = new Binding(nameof(StadiumRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        stadiumGrid.Columns.Add(new DataGridTextColumn { Header = "Owner", Binding = new Binding(nameof(StadiumRow.Owner)), Width = new DataGridLength(160) });
-        var capCol = new DataGridTextColumn { Header = "Capacity", Binding = new Binding(nameof(StadiumRow.Capacity)) { StringFormat = "N0" }, Width = new DataGridLength(100) };
-        capCol.CellStyleClasses.Add("numeric");
-        stadiumGrid.Columns.Add(capCol);
-        var idCol = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(StadiumRow.Id)), Width = new DataGridLength(96) };
-        idCol.CellStyleClasses.Add("numeric");
-        stadiumGrid.Columns.Add(idCol);
-
-        stadiumSearch.TextChanged += (_, _) => FilterStadiums();
-        stadiumGrid.SelectionChanged += (_, _) => selectedStadium = (stadiumGrid.SelectedItem as StadiumRow)?.Stadium;
-        stadiumGrid.DoubleTapped += (_, _) => OpenSelectedStadium();
-        stadiumGrid.KeyDown += (_, e) =>
+        var stack = new StackPanel { Spacing = 0 };
+        int idx = 0;
+        foreach (var (label, value) in items)
         {
-            if (e.Key == Key.Enter) { OpenSelectedStadium(); e.Handled = true; }
-        };
-
-        var left = new DockPanel { Background = Brush("#11131C") };
-        var searchBar = new Border
-        {
-            Background = UiKit.Surface,
-            BorderBrush = UiKit.BorderSubtle,
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(10, 7),
-            Child = stadiumSearch,
-        };
-        DockPanel.SetDock(searchBar, Dock.Top);
-        left.Children.Add(searchBar);
-        left.Children.Add(stadiumGrid);
-        stadiumViewRoot.Children.Add(left);
-
-        var scroll = new ScrollViewer
-        {
-            Content = stadiumEditor,
-            Background = UiKit.WindowBg,
-            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-        };
-        var detailDock = new DockPanel { Background = UiKit.WindowBg };
-        DockPanel.SetDock(stadiumHeaderHost, Dock.Top);
-        detailDock.Children.Add(stadiumHeaderHost);
-        detailDock.Children.Add(scroll);
-        stadiumDetailRoot = detailDock;
-
-        // Registered after Clubs, Staff and Nations: those show the players screen when none of them is selected.
-        modules.SelectionChanged += async (_, _) =>
-        {
-            bool toStadiums = ReferenceEquals(modules.SelectedItem, stadiumNavItem);
-            if (toStadiums == stadiumActive) return;
-            stadiumActive = toStadiums;
-            if (toStadiums && stadiumRows.Count == 0 && backend.State.Status == ConnectionStatus.Connected) await LoadStadiumsAsync();
-        };
-        backend.StateChanged += (_, _) => Dispatcher.UIThread.Post(async () =>
-        {
-            stadiumRows = [];
-            stadiumDrafts.Clear();
-            selectedStadium = null;
-            stadiumSaveButton = null;
-            stadiumGrid.ItemsSource = null;
-            stadiumHeaderHost.Content = null;
-            stadiumEditor.Children.Clear();
-            if (stadiumActive && backend.State.Status == ConnectionStatus.Connected) await LoadStadiumsAsync();
-        });
-    }
-
-    async Task LoadStadiumsAsync()
-    {
-        status.Text = "Loading stadiums...";
-        try
-        {
-            var session = backend.Session;
-            stadiumRows = await Task.Run(() =>
+            var line = new DockPanel { MinHeight = 25, LastChildFill = true };
+            DockPanel.SetDock(value, Dock.Right);
+            line.Children.Add(value);
+            line.Children.Add(Label(label));
+            stack.Children.Add(new Border
             {
-                var w = session.StadiumWriter;
-                return session.Stadiums.LoadAll()
-                    .Select(s => new StadiumRow(s, s.DisplayName, s.Id, s.Owner?.DisplayName ?? "",
-                        (int)(w.ReadFields(s.Address).TryGetValue(StadiumField.Capacity, out var c) ? c : 0)))
-                    .OrderByDescending(r => r.Capacity).ToList();
+                Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                Padding = new Thickness(10, 2, 10, 2),
+                Child = line,
             });
-            FilterStadiums();
-            status.Text = $"{stadiumRows.Count:N0} stadiums";
         }
-        catch (Exception ex) { status.Text = ex.Message; }
+        return stack;
     }
 
-    void FilterStadiums()
+    static TextBox TextInput(string text, double width, Action<string> changed, HorizontalAlignment align = HorizontalAlignment.Right, bool date = false)
     {
-        string q = Fold((stadiumSearch.Text ?? "").Trim());
-        stadiumGrid.ItemsSource = q.Length == 0
-            ? stadiumRows
-            : stadiumRows.Where(r =>
-                Fold(r.Name).Contains(q, StringComparison.Ordinal) ||
-                Fold(r.Owner).Contains(q, StringComparison.Ordinal) ||
-                r.Id.ToString(Inv).Contains(q, StringComparison.Ordinal)).ToList();
+        var box = date
+            ? new DateBox { Text = text, Width = width, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = align, VerticalContentAlignment = VerticalAlignment.Center }
+            : new TextBox { Text = text, Width = width, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = align, VerticalContentAlignment = VerticalAlignment.Center };
+        box.TextChanged += (_, _) => changed(box.Text ?? "");
+        return box;
     }
 
-    void RenderStadiumEditor()
+    protected override void BuildEditor(StadiumRecord s, StadiumDraft draft, Action changed)
     {
-        stadiumHeaderHost.Content = null;
-        stadiumEditor.Children.Clear();
-        if (selectedStadium is not { } s) { stadiumSaveButton = null; return; }
-        if (!stadiumDrafts.TryGetValue(s.Address, out var draft)) stadiumDrafts[s.Address] = draft = new StadiumDraft();
-        var values = backend.Session.StadiumWriter.ReadFields(s.Address);
-        var offsets = backend.Session.Profile.Stadium!;
-        var save = new Button { Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
-        stadiumSaveButton = save;
-        void Changed() => save.IsEnabled = discard.IsEnabled = draft.Count > 0;
-        save.Click += (_, _) => SaveStadium(s, draft, values);
-        discard.Click += (_, _) => { stadiumDrafts.Remove(s.Address); RenderStadiumEditor(); };
+        var values = Host.Backend.Session.StadiumWriter.ReadFields(s.Address);
+        snapshot = values;
+        var offsets = Host.Backend.Session.Profile.Stadium!;
 
-        TextBlock Label(string t, string color = "#CBD5E1") => new() { Text = t, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
-        TextBox Box(string text, double width, Action<string> changed, HorizontalAlignment align = HorizontalAlignment.Right)
+        Control SeatColourControl()
         {
-            var box = new TextBox { Text = text, Width = width, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = align, VerticalContentAlignment = VerticalAlignment.Center };
-            box.TextChanged += (_, _) => changed(box.Text ?? "");
-            return box;
-        }
-        Control SeatColourControl(StadiumRecord stadium, StadiumDraft stDraft)
-        {
-            string original = $"#{stadium.SeatColour:X8}";
-            var box = Box(stDraft.SeatColour ?? original, 106, text =>
+            string original = $"#{s.SeatColour:X8}";
+            var box = TextInput(draft.SeatColour ?? original, 106, text =>
             {
                 string value = text.Trim();
-                stDraft.SeatColour = value == original ? null : value;
-                Changed();
+                draft.SeatColour = value == original ? null : value;
+                changed();
             }, HorizontalAlignment.Left);
-            return ColourInput(box);
+            return ColourInputControl.Create(box);
         }
 
         Control IntSizeControl()
         {
             var orig = (On: s.IntLength is not null, Length: s.IntLength is { } l ? (l / 10).ToString(Inv) : "", Width: s.IntWidth is { } wd ? (wd / 10).ToString(Inv) : "");
             var cur = draft.IntSize ?? orig;
-            var length = Box(cur.Length, 52, _ => { }); var width = Box(cur.Width, 52, _ => { });
+            var length = TextInput(cur.Length, 52, _ => { });
+            var width = TextInput(cur.Width, 52, _ => { });
             var on = new CheckBox { IsChecked = cur.On, VerticalAlignment = VerticalAlignment.Center };
             void Update()
             {
                 length.IsEnabled = width.IsEnabled = on.IsChecked == true;
                 var next = (On: on.IsChecked == true, Length: length.Text ?? "", Width: width.Text ?? "");
                 draft.IntSize = next == orig ? null : next;
-                Changed();
+                changed();
             }
-            length.TextChanged += (_, _) => Update(); width.TextChanged += (_, _) => Update();
+            length.TextChanged += (_, _) => Update();
+            width.TextChanged += (_, _) => Update();
             on.IsCheckedChanged += (_, _) =>
             {
-                if (on.IsChecked == true && string.IsNullOrWhiteSpace(length.Text)) { length.Text = (values.TryGetValue(StadiumField.PitchLength, out var pl) ? pl : 105).ToString(Inv); width.Text = (values.TryGetValue(StadiumField.PitchWidth, out var pw) ? pw : 68).ToString(Inv); }
+                if (on.IsChecked == true && string.IsNullOrWhiteSpace(length.Text))
+                {
+                    length.Text = (values.TryGetValue(StadiumField.PitchLength, out var pl) ? pl : 105).ToString(Inv);
+                    width.Text = (values.TryGetValue(StadiumField.PitchWidth, out var pw) ? pw : 68).ToString(Inv);
+                }
                 Update();
             };
             length.IsEnabled = width.IsEnabled = cur.On;
             return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { on, length, new TextBlock { Text = "×", Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center }, width } };
         }
+
         Control FieldControl(StadiumField f, long original)
         {
             if (StadiumLabels.Choices.TryGetValue(f, out var choices))
@@ -227,178 +162,310 @@ public sealed partial class MainWindow
                 {
                     long code = codes[combo.SelectedIndex];
                     if (code == original) draft.Fields.Remove(f); else draft.Fields[f] = code.ToString(Inv);
-                    Changed();
+                    changed();
                 };
                 return combo;
             }
             string text = StadiumLabels.Format(f, original);
-            return Box(draft.Fields.GetValueOrDefault(f, text), StadiumLabels.IsDate(f) ? 104 : 88, t => { if (t == text) draft.Fields.Remove(f); else draft.Fields[f] = t; Changed(); });
-        }
-
-        StackPanel Rows(IEnumerable<(string Label, Control Value)> items)
-        {
-            var stack = new StackPanel { Spacing = 0 };
-            int idx = 0;
-            foreach (var (label, value) in items)
-            {
-                var line = new DockPanel { MinHeight = 25, LastChildFill = true };
-                DockPanel.SetDock(value, Dock.Right);
-                line.Children.Add(value);
-                line.Children.Add(Label(label));
-                stack.Children.Add(new Border
-                {
-                    Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
-                    Padding = new Thickness(10, 2, 10, 2),
-                    Child = line,
-                });
-            }
-            return stack;
+            return TextInput(draft.Fields.GetValueOrDefault(f, text), StadiumLabels.IsDate(f) ? 130 : 88, t => { if (t == text) draft.Fields.Remove(f); else draft.Fields[f] = t; changed(); }, date: StadiumLabels.IsDate(f));
         }
 
         var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         badges.Children.Add(UiKit.MetaText($"ID {s.Id.ToString(Inv)}"));
         if (s.Owner is { } owner && !string.IsNullOrEmpty(owner.DisplayName))
         {
-            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaDot());
             var ownerLink = UiKit.MetaLinkButton(owner.DisplayName, highlight: true);
-            ownerLink.Click += async (_, _) => await OpenPlayerClubAsync(owner.Address);
+            ownerLink.Click += async (_, _) => await Host.OpenClubAsync(owner.Address);
             badges.Children.Add(ownerLink);
-        }
-        if (!string.IsNullOrEmpty(s.NearbyStadium))
-        {
-            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
-            badges.Children.Add(UiKit.MetaText(s.NearbyStadium));
         }
 
         long capVal = values.TryGetValue(StadiumField.Capacity, out var cv) ? cv : s.StandsTotal;
         var capText = new TextBlock
         {
-            Text = capVal.ToString("N0", Inv),
-            FontSize = 16,
-            FontWeight = FontWeight.Bold,
-            Foreground = Brush("#38BDF8"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 4, 0),
+            Text = capVal.ToString("N0", Inv), FontSize = 16, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#38BDF8"),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
         };
         var headerActions = new StackPanel
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            VerticalAlignment = VerticalAlignment.Center,
+            Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center,
             Children = { UiKit.StatBox("CAP", capText) },
         };
-        var stadiumImg = graphics.Image("stadium", s.Id, 72);
-        stadiumHeaderHost.Content = UiKit.EntityBanner(s.DisplayName, badges, headerActions, stadiumImg);
+        HeaderHost.Content = UiKit.EntityBanner(s.DisplayName, badges, headerActions, Host.Graphics.Image("stadium", s.Id, 72));
 
-        var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
-        var col = new[] { new StackPanel { Spacing = 12 }, new StackPanel { Spacing = 12 } };
-        Grid.SetColumn(col[0], 0); Grid.SetColumn(col[1], 2);
-        columns.Children.Add(col[0]); columns.Children.Add(col[1]);
-
-        var stadiumItems = StadiumLabels.Groups[0].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))).ToList();
-        int afterOwner = stadiumItems.FindIndex(i => i.Label == "Owner Type") + 1;
-        stadiumItems.Insert(afterOwner, ("Seat Colour", SeatColourControl(s, draft)));
-        stadiumItems.Add(("Latitude / Longitude", Label($"{s.Latitude.ToString("0.000000", Inv)}, {s.Longitude.ToString("0.000000", Inv)}", "#F1F5F9")));
+        // Section 1: Information
+        var stadiumItems = new List<(string Label, Control Value)>
+        {
+            ("Unique ID", Label(s.Id.ToString(Inv), "#F1F5F9")),
+            ("Name", Label(s.DisplayName, "#F1F5F9")),
+        };
+        if (values.ContainsKey(StadiumField.Environment))
+            stadiumItems.Add(("Environment", FieldControl(StadiumField.Environment, values[StadiumField.Environment])));
+        var stadiums = Host.Backend.Session.Stadiums;
+        ulong locationNow = stadiums.LocationPointer(s.Address);
+        stadiumItems.Add(("Location", PickerRow(draft.Location?.Name ?? stadiums.LocationOf(s.Address)?.Name ?? "", locationNow != 0 && draft.Location is null ? () => Host.OpenCity(locationNow) : null, draft.Location is not null, async () =>
+        {
+            var city = await ChooseCityAsync();
+            if (city is null) return;
+            draft.Location = city.Address == stadiums.LocationPointer(s.Address) ? null : city;
+            changed(); Reopen();
+        })));
+        stadiumItems.Add(("Owner", PickerRow(draft.Owner?.DisplayName ?? s.Owner?.DisplayName ?? "", s.Owner is { } stadiumOwner && draft.Owner is null ? () => _ = Host.OpenClubAsync(stadiumOwner.Address) : null, draft.Owner is not null, async () =>
+        {
+            var club = await ChooseClubAsync();
+            if (club is null) return;
+            draft.Owner = club.Address == (s.Owner?.Address ?? 0) ? null : club;
+            changed(); Reopen();
+        })));
+        if (values.ContainsKey(StadiumField.OwnerType))
+            stadiumItems.Add(("Owner Type", FieldControl(StadiumField.OwnerType, values[StadiumField.OwnerType])));
+        ulong nearbyNow = stadiums.NearbyPointer(s.Address);
+        stadiumItems.Add(("Nearby Stadium", PickerRow(draft.Nearby?.DisplayName ?? s.NearbyStadium ?? "", nearbyNow != 0 && draft.Nearby is null ? () => Host.OpenStadium(nearbyNow) : null, draft.Nearby is not null, async () =>
+        {
+            var other = await ChooseStadiumAsync(s);
+            if (other is null) return;
+            draft.Nearby = other.Address == nearbyNow ? null : other;
+            changed(); Reopen();
+        })));
+        stadiumItems.Add(("Seat Colour", SeatColourControl()));
+        if (values.ContainsKey(StadiumField.Decay))
+            stadiumItems.Add(("Decay", FieldControl(StadiumField.Decay, values[StadiumField.Decay])));
+        if (values.ContainsKey(StadiumField.BuildDate))
+            stadiumItems.Add(("Build Date", FieldControl(StadiumField.BuildDate, values[StadiumField.BuildDate])));
+        if (values.ContainsKey(StadiumField.RebuildDate))
+            stadiumItems.Add(("Re-Build Date", FieldControl(StadiumField.RebuildDate, values[StadiumField.RebuildDate])));
+        TextBox CoordinateBox(string original, Func<string?> get, Action<string?> set)
+        {
+            var box = new TextBox { Text = get() ?? original, Width = 110, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center };
+            box.TextChanged += (_, _) => { string t = box.Text ?? ""; set(t == original ? null : t); changed(); };
+            return box;
+        }
+        stadiumItems.Add(("Latitude / Longitude", new StackPanel
+        {
+            Orientation = Orientation.Horizontal, Spacing = 6,
+            Children =
+            {
+                CoordinateBox(s.Latitude.ToString("0.000000", Inv), () => draft.Latitude, v => draft.Latitude = v),
+                CoordinateBox(s.Longitude.ToString("0.000000", Inv), () => draft.Longitude, v => draft.Longitude = v),
+            },
+        }));
         foreach (var (flag, flagLabel) in StadiumLabels.Flags)
         {
             bool original = StadiumLabels.FlagOn(s, offsets, flag);
-            var cb = new CheckBox { IsChecked = draft.Flags.GetValueOrDefault(flag, original) };
-            cb.IsCheckedChanged += (_, _) => { bool on = cb.IsChecked == true; if (on == original) draft.Flags.Remove(flag); else draft.Flags[flag] = on; Changed(); };
-            stadiumItems.Add((flagLabel, cb));
+            var box = new CheckBox { IsChecked = draft.Flags.GetValueOrDefault(flag, original) };
+            box.IsCheckedChanged += (_, _) => { bool on = box.IsChecked == true; if (on == original) draft.Flags.Remove(flag); else draft.Flags[flag] = on; changed(); };
+            stadiumItems.Add((flagLabel, box));
         }
-        col[0].Children.Add(UiKit.Card("Stadium", Rows(stadiumItems)));
-        col[0].Children.Add(UiKit.Card(StadiumLabels.Groups[1].Title, Rows(StadiumLabels.Groups[1].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))))));
+
         var pitchItems = StadiumLabels.Groups[2].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))).ToList();
         pitchItems.Insert(pitchItems.FindIndex(i => i.Label == "Pitch Width (m)") + 1, ("Int. Length / Width (m)", IntSizeControl()));
-        col[1].Children.Add(UiKit.Card(StadiumLabels.Groups[2].Title, Rows(pitchItems)));
 
-        var stands = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto"), RowSpacing = 4, ColumnSpacing = 10, Margin = new Thickness(12, 8) };
-        void Cell(Control c, int row, int column) { Grid.SetRow(c, row); Grid.SetColumn(c, column); stands.Children.Add(c); }
-        stands.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        string[] heads = ["Stand", "Capacity", "Roof", "Seats", "Tunnel"];
-        for (int c = 0; c < heads.Length; c++)
+        var informationPanel = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
+        var columns = new[] { new StackPanel { Spacing = 12 }, new StackPanel { Spacing = 12 } };
+        Grid.SetColumn(columns[0], 0);
+        Grid.SetColumn(columns[1], 2);
+        informationPanel.Children.Add(columns[0]);
+        informationPanel.Children.Add(columns[1]);
+        columns[0].Children.Add(UiKit.Card("Stadium", ItemRows(stadiumItems)));
+        columns[1].Children.Add(UiKit.Card(StadiumLabels.Groups[1].Title, ItemRows(StadiumLabels.Groups[1].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))))));
+        columns[1].Children.Add(UiKit.Card(StadiumLabels.Groups[2].Title, ItemRows(pitchItems)));
+
+        // Section 2: Stadium Details
+        var detailsCard = UiKit.Card("Stadium Details", ItemRows([
+            ("Capacity", FieldControl(StadiumField.Capacity, values.TryGetValue(StadiumField.Capacity, out var capacity) ? capacity : s.StandsTotal)),
+        ]));
+
+        Control StandCard(int index, bool horizontal = false)
         {
-            var headLabel = Label(heads[c], "#94A3B8");
-            headLabel.FontWeight = FontWeight.SemiBold;
-            if (c == 1) headLabel.HorizontalAlignment = HorizontalAlignment.Right;
-            else if (c >= 2) headLabel.HorizontalAlignment = HorizontalAlignment.Center;
-            Cell(headLabel, 0, c);
+            var stand = s.Stands.FirstOrDefault(x => x.Index == index) ?? new StadiumStand(index, 0, false, false, false, 0);
+            var current = draft.Stands.TryGetValue(index, out var d) ? d : (stand.Capacity.ToString(Inv), stand.HasRoof, stand.HasSeats, stand.HasTunnel);
+            var original = (stand.Capacity.ToString(Inv), stand.HasRoof, stand.HasSeats, stand.HasTunnel);
+            void Update((string, bool, bool, bool) next) { if (next == original) draft.Stands.Remove(index); else draft.Stands[index] = next; changed(); }
+
+            string headerColour = index switch
+            {
+                4 => "#0284C7", // Top / North
+                0 => "#EA580C", // Bottom / South
+                2 => "#7C3AED", // Left / West
+                6 => "#16A34A", // Right / East
+                _ => "#475569", // Corners
+            };
+
+            var capacityBox = TextInput(current.Item1, 72, x => { current.Item1 = x; Update(current); }, HorizontalAlignment.Center);
+            capacityBox.FontWeight = FontWeight.Bold;
+            capacityBox.FontSize = 13.5;
+
+            var header = new Border
+            {
+                Background = UiKit.Brush(headerColour), CornerRadius = new CornerRadius(3, 3, 0, 0), Padding = new Thickness(6, 4),
+                Child = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Spacing = 6,
+                    Children =
+                    {
+                        new TextBlock { Text = StadiumLabels.Stands[index], FontSize = 12.5, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#FFFFFF"), VerticalAlignment = VerticalAlignment.Center },
+                        capacityBox,
+                    },
+                },
+            };
+
+            var roof = new CheckBox { Content = "Has Roof", IsChecked = current.Item2, FontSize = 12.5 };
+            roof.IsCheckedChanged += (_, _) => { current.Item2 = roof.IsChecked == true; Update(current); };
+            var seats = new CheckBox { Content = "Has seats", IsChecked = current.Item3, FontSize = 12.5 };
+            seats.IsCheckedChanged += (_, _) => { current.Item3 = seats.IsChecked == true; Update(current); };
+            var tunnel = new CheckBox { Content = "Has Tunnel", IsChecked = current.Item4, FontSize = 12.5 };
+            tunnel.IsCheckedChanged += (_, _) => { current.Item4 = tunnel.IsChecked == true; Update(current); };
+
+            Control checks = horizontal
+                ? new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Spacing = 12, Children = { roof, seats, tunnel } }
+                : new StackPanel { Orientation = Orientation.Vertical, Spacing = 2, Children = { roof, seats, tunnel } };
+
+            var body = new Border
+            {
+                Background = UiKit.Brush("#141824"), BorderBrush = UiKit.BorderSubtle, BorderThickness = new Thickness(1, 0, 1, 1),
+                CornerRadius = new CornerRadius(0, 0, 3, 3), Padding = new Thickness(8, 6), Child = checks,
+            };
+            return new StackPanel { Spacing = 0, Children = { header, body } };
         }
-        foreach (var t in s.Stands)
+
+        var pitch = PitchSurface.CreateHorizontal(380, 240);
+        var layout = new Grid
         {
-            int row = stands.RowDefinitions.Count; stands.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var cur = draft.Stands.TryGetValue(t.Index, out var d) ? d : (t.Capacity.ToString(Inv), t.HasRoof, t.HasSeats, t.HasTunnel);
-            var original = (t.Capacity.ToString(Inv), t.HasRoof, t.HasSeats, t.HasTunnel);
-            void Update((string, bool, bool, bool) next) { if (next == original) draft.Stands.Remove(t.Index); else draft.Stands[t.Index] = next; Changed(); }
-            var cap = Box(cur.Item1, 88, x => { cur.Item1 = x; Update(cur); });
-            var roof = new CheckBox { IsChecked = cur.Item2, HorizontalAlignment = HorizontalAlignment.Center }; roof.IsCheckedChanged += (_, _) => { cur.Item2 = roof.IsChecked == true; Update(cur); };
-            var seats = new CheckBox { IsChecked = cur.Item3, HorizontalAlignment = HorizontalAlignment.Center }; seats.IsCheckedChanged += (_, _) => { cur.Item3 = seats.IsChecked == true; Update(cur); };
-            var tunnel = new CheckBox { IsChecked = cur.Item4, HorizontalAlignment = HorizontalAlignment.Center }; tunnel.IsCheckedChanged += (_, _) => { cur.Item4 = tunnel.IsChecked == true; Update(cur); };
-            Cell(Label(StadiumLabels.Stands[t.Index]), row, 0); Cell(cap, row, 1); Cell(roof, row, 2); Cell(seats, row, 3); Cell(tunnel, row, 4);
-        }
-        int total = stands.RowDefinitions.Count; stands.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        var totalValue = Label(s.StandsTotal.ToString("N0", Inv), "#F8FAFC");
-        totalValue.FontWeight = FontWeight.Bold;
-        totalValue.HorizontalAlignment = HorizontalAlignment.Right;
-        var totalLabel = Label("Total", "#94A3B8");
-        totalLabel.FontWeight = FontWeight.SemiBold;
-        Cell(totalLabel, total, 0); Cell(totalValue, total, 1);
-        col[1].Children.Add(UiKit.Card("Stands", stands));
-        stadiumEditor.Children.Add(columns);
+            HorizontalAlignment = HorizontalAlignment.Center,
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("150,Auto,150"),
+            RowSpacing = 8, ColumnSpacing = 8, Margin = new Thickness(8, 12),
+        };
+        void Place(Control control, int row, int column) { Grid.SetRow(control, row); Grid.SetColumn(control, column); layout.Children.Add(control); }
+
+        Place(StandCard(3), 0, 0);
+        var top = StandCard(4, horizontal: true); top.HorizontalAlignment = HorizontalAlignment.Center; Place(top, 0, 1);
+        Place(StandCard(5), 0, 2);
+        var west = StandCard(2); west.VerticalAlignment = VerticalAlignment.Center; Place(west, 1, 0);
+        Place(pitch, 1, 1);
+        var east = StandCard(6); east.VerticalAlignment = VerticalAlignment.Center; Place(east, 1, 2);
+        Place(StandCard(1), 2, 0);
+        var bottom = StandCard(0, horizontal: true); bottom.HorizontalAlignment = HorizontalAlignment.Center; Place(bottom, 2, 1);
+        Place(StandCard(7), 2, 2);
+
+        var detailsPanel = new StackPanel { Spacing = 12, Children = { detailsCard, UiKit.Card("Stands", layout) } };
+        var sections = new SectionHost.Section[]
+        {
+            new("Information", "Information", informationPanel),
+            new("Stadium Details", "Stadium Details", detailsPanel),
+        };
+        Editor.Children.Add(SectionHost.Build("stadium", sections, sectionKey, key => sectionKey = key, RailHost));
     }
 
-    void SaveStadium(StadiumRecord s, StadiumDraft draft, IReadOnlyDictionary<StadiumField, long> snapshot)
+    /// <summary>A value with a Change button, as FMRTE shows Owner and Location (a link to the owner when there is one).</summary>
+    Control PickerRow(string text, Action? open, bool pending, Action change)
     {
+        Control value = open is null
+            ? new TextBlock { Text = text, FontSize = 13, Foreground = UiKit.Brush(pending ? "#C4B5FD" : "#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }
+            : UiKit.MetaLinkButton(text, highlight: true);
+        if (open is not null && value is Button link) link.Click += (_, _) => open();
+        var button = new Button { Content = "Change", Margin = new Thickness(8, 0, 0, 0) };
+        button.Click += (_, _) => change();
+        return new StackPanel { Orientation = Orientation.Horizontal, Children = { value, button } };
+    }
+
+    Task<Fm27Editor.Core.Clubs.ClubEntry?> ChooseClubAsync() => PickerDialog.Show(Host.Window, "Change Owner", q =>
+    {
+        string folded = Fold(q);
+        return Host.Clubs().Where(c => c.FirstTeam is not null && (Fold(c.Name ?? "").Contains(folded, StringComparison.Ordinal) || Fold(c.ShortName ?? "").Contains(folded, StringComparison.Ordinal)))
+            .OrderBy(c => c.DisplayName, StringComparer.OrdinalIgnoreCase).Take(200).Select(c => (c.Name ?? c.DisplayName, c)).ToList();
+    });
+
+    Task<StadiumRecord?> ChooseStadiumAsync(StadiumRecord self) => PickerDialog.Show(Host.Window, "Change Nearby Stadium", q =>
+    {
+        string folded = Fold(q);
+        return Rows.Select(r => r.Stadium).Where(x => x.Address != self.Address && Fold(x.DisplayName).Contains(folded, StringComparison.Ordinal))
+            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).Take(200).Select(x => (x.DisplayName, x)).ToList();
+    });
+
+    IReadOnlyList<Fm27Editor.Core.Players.CityRecord>? cities;
+
+    async Task<Fm27Editor.Core.Players.CityRecord?> ChooseCityAsync()
+    {
+        var session = Host.Backend.Session;
+        var all = cities ??= await Task.Run(() => session.Cities.LoadAll());
+        var nations = Host.NationCatalogue.GroupBy(n => n.Address).ToDictionary(g => g.Key, g => g.First().DisplayName);
+        return await PickerDialog.Show(Host.Window, "Change Stadium Location", q =>
+        {
+            string folded = Fold(q);
+            return all.Where(c => Fold(c.Name).Contains(folded, StringComparison.Ordinal)).Take(200)
+                .Select(c => (nations.TryGetValue(c.Nation, out var nation) ? $"{c.Name}, {nation}" : c.Name, c)).ToList();
+        });
+    }
+
+    protected override string? Validate(StadiumRecord s, StadiumDraft draft, out Func<int> write)
+    {
+        write = () => 0;
+        int count = draft.Count;
         var fields = new Dictionary<StadiumField, long>();
         foreach (var (f, text) in draft.Fields)
         {
-            if (!StadiumLabels.TryParse(f, text, out long v, out var error)) { status.Text = error; return; }
+            if (!StadiumLabels.TryParse(f, text, out long v, out var error)) return error;
             fields[f] = v;
         }
         var stands = new Dictionary<int, (int, bool, bool, bool)>();
         foreach (var (i, (cap, roof, seats, tunnel)) in draft.Stands)
         {
             if (!int.TryParse(cap.Trim(), System.Globalization.NumberStyles.Integer, Inv, out int c) || c is < 0 or > 200_000)
-            { status.Text = $"{StadiumLabels.Stands[i]}: enter a capacity 0–200000"; return; }
+                return $"{StadiumLabels.Stands[i]}: enter a capacity 0–200000";
             stands[i] = (c, roof, seats, tunnel);
         }
         (bool On, int Length, int Width)? intSize = null;
-        if (draft.IntSize is { } pendingSize)
+        if (draft.IntSize is { } pending)
         {
-            if (!pendingSize.On) intSize = (false, 0, 0);
-            else if (int.TryParse(pendingSize.Length.Trim(), System.Globalization.NumberStyles.Integer, Inv, out int il) && int.TryParse(pendingSize.Width.Trim(), System.Globalization.NumberStyles.Integer, Inv, out int iw)
+            if (!pending.On) intSize = (false, 0, 0);
+            else if (int.TryParse(pending.Length.Trim(), System.Globalization.NumberStyles.Integer, Inv, out int il)
+                && int.TryParse(pending.Width.Trim(), System.Globalization.NumberStyles.Integer, Inv, out int iw)
                 && il is >= 80 and <= 130 && iw is >= 40 and <= 100) intSize = (true, il, iw);
-            else { status.Text = "Int. Length / Width: enter 80–130 and 40–100"; return; }
+            else return "Int. Length / Width: enter 80–130 and 40–100";
         }
-        try
+        uint? seatColour = null;
+        if (draft.SeatColour is { } colourText)
         {
-            var w = backend.Session.StadiumWriter;
-            int count = draft.Count;
-            uint? seatColour = null;
-            if (draft.SeatColour is { } colourText)
-            {
-                if (!uint.TryParse(colourText.Trim().TrimStart('#'), System.Globalization.NumberStyles.HexNumber, Inv, out uint argb))
-                { status.Text = "Seat Colour: enter #AARRGGBB"; return; }
-                seatColour = argb;
-            }
-            backend.Edits.Execute(() =>
-            {
-                foreach (var (f, v) in fields) w.SetField(s.Address, f, snapshot[f], v);
-                if (seatColour is { } colour) w.SetSeatColour(s, colour);
-                var current = s;
-                foreach (var (flag, on) in draft.Flags) { w.SetFlag(current, flag, on); current = backend.Session.Stadiums.Reload(s.Address)!; }
-                if (intSize is { } requested) { w.SetInternationalSize(current, requested.On ? (requested.Length, requested.Width) : null); current = backend.Session.Stadiums.Reload(s.Address)!; }
-                foreach (var (i, (c, roof, seats, tunnel)) in stands) w.SetStand(current, i, c, roof, seats, tunnel);
-            });
-            stadiumDrafts.Remove(s.Address);
-            if (backend.Session.Stadiums.Reload(s.Address) is { } fresh)
-            {
-                selectedStadium = fresh;
-                stadiumRows = stadiumRows.Select(r => r.Stadium.Address == s.Address ? r with { Stadium = fresh } : r).ToList();
-            }
-            RenderStadiumEditor();
-            status.Text = $"Saved {count} change{(count == 1 ? "" : "s")} to {s.DisplayName}. Continue in FM to see updates.";
+            if (!uint.TryParse(colourText.Trim().TrimStart('#'), System.Globalization.NumberStyles.HexNumber, Inv, out uint argb))
+                return "Seat Colour: enter #AARRGGBB";
+            seatColour = argb;
         }
-        catch (Exception ex) { status.Text = ex.Message; }
+
+        float? latitude = null, longitude = null;
+        if (draft.Latitude is { } latText)
+        {
+            if (!float.TryParse(latText.Trim(), System.Globalization.NumberStyles.Float, Inv, out float lat) || lat is < -90 or > 90) return "Latitude: enter -90 to 90";
+            latitude = lat;
+        }
+        if (draft.Longitude is { } lonText)
+        {
+            if (!float.TryParse(lonText.Trim(), System.Globalization.NumberStyles.Float, Inv, out float lon) || lon is < -180 or > 180) return "Longitude: enter -180 to 180";
+            longitude = lon;
+        }
+
+        var session = Host.Backend.Session;
+        var writer = session.StadiumWriter;
+        var before = snapshot;
+        var flags = draft.Flags.ToArray();
+        var pendingOwner = draft.Owner;
+        var pendingLocation = draft.Location;
+        var pendingNearby = draft.Nearby;
+        ulong locationBefore = session.Stadiums.LocationPointer(s.Address), nearbyBefore = session.Stadiums.NearbyPointer(s.Address);
+        write = () =>
+        {
+            foreach (var (f, v) in fields) writer.SetField(s.Address, f, before[f], v);
+            if (seatColour is { } colour) writer.SetSeatColour(s, colour);
+            if (latitude is not null || longitude is not null) writer.SetCoordinates(s, latitude, longitude);
+            var current = s;
+            foreach (var (flag, on) in flags) { writer.SetFlag(current, flag, on); current = session.Stadiums.Reload(s.Address)!; }
+            if (intSize is { } requested) { writer.SetInternationalSize(current, requested.On ? (requested.Length, requested.Width) : null); current = session.Stadiums.Reload(s.Address)!; }
+            foreach (var (i, (c, roof, seats, tunnel)) in stands) writer.SetStand(current, i, c, roof, seats, tunnel);
+            if (pendingLocation is { } city) { writer.SetLocation(current, locationBefore, city.Address); current = session.Stadiums.Reload(s.Address)!; }
+            if (pendingNearby is { } near) { writer.SetNearby(current, nearbyBefore, near.Address); current = session.Stadiums.Reload(s.Address)!; }
+            if (pendingOwner is { } club) writer.SetOwner(current, club.Address);
+            return count;
+        };
+        return null;
     }
 }

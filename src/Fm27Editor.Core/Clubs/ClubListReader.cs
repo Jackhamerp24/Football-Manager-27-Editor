@@ -12,7 +12,11 @@ public sealed record ClubListClub(ulong Address, int? Id, string? Name, string? 
 /// <summary>Confirmed culture fields only. Source, Value, ForCompetition and unverified objective records are omitted.</summary>
 public sealed record ClubVisionEntry(ulong Address, byte TypeCode, byte Importance, DateOnly? StartDate,
     DateOnly? EndDate, short? ItemIndex, ClubListClub? ClubItem, ClubVisionSnapshot? Snapshot = null,
-    int? Target = null, byte? Status = null);
+    int? Target = null, byte? Status = null, int? SourceType = null,
+    string? ItemName = null, ClubVisionItemKind ItemKind = ClubVisionItemKind.Unknown);
+
+/// <summary>What a vision row's item reference points at. The marker word at +0xA selects the table the index uses.</summary>
+public enum ClubVisionItemKind { Unknown, Club, Competition, Nation, Continent }
 
 public sealed record ClubVisionSnapshot(ulong Team, ulong Detail, ulong Holder, ulong Vector, ulong Begin, ulong End,
     ulong Capacity, ulong Slot, string Bytes);
@@ -49,7 +53,10 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
     /// club team 0x4C90A78, holder 0x4D6AF68, culture record 0x4D79198), so this walk validates the pointer chain and
     /// the record layout instead of pinning one vtable per build.
     /// </summary>
-    public IReadOnlyList<ClubVisionEntry> ReadClubVision(ulong teamAddress, IReadOnlyList<ClubEntry>? clubs = null)
+    public IReadOnlyList<ClubVisionEntry> ReadClubVision(ulong teamAddress, IReadOnlyList<ClubEntry>? clubs = null,
+        IReadOnlyDictionary<int, string>? competitionNames = null,
+        IReadOnlyDictionary<int, string>? nationNames = null,
+        IReadOnlyDictionary<int, string>? continentNames = null)
     {
         if (Layout is not { } l || profile.Team is not { } t || !Vtable(teamAddress, t.VtableRva)
             || !Fits(l.CultureSize, (0, 8), (l.VisionType, 1), (l.Importance, 1), (l.VisionStart, 4),
@@ -66,15 +73,41 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
             ulong address = vector.Pointers[row];
             if (address == 0 || !l.AcceptsCultureVtable(Rva(Q(address)))
                 || Bytes(address, l.CultureSize) is not { } b) continue;
-            // 00/03 was observed on all four independently named club-item references; other marker kinds stay unresolved.
-            short? index = BitConverter.ToUInt16(b, l.ItemMarker) == 0x0300
-                && BitConverter.ToInt16(b, l.ItemIndex) is >= 0 and var i ? i : null;
+            // Marker word at +0xA selects the table the index at +0x8 belongs to:
+            // 0x0300 club, 0x1900 competition id, 0x0900 nation id, 0x0500 continent id (0xFF7F = no item).
+            ushort marker = l.ItemMarker >= 0 && l.ItemMarker + 2 <= b.Length
+                ? BitConverter.ToUInt16(b, l.ItemMarker) : (ushort)0;
+            int rawIndex = l.ItemIndex >= 0 && l.ItemIndex + 2 <= b.Length
+                ? BitConverter.ToInt16(b, l.ItemIndex) : -1;
+            short? index = rawIndex >= 0 && marker is 0x0300 or 0x1900 or 0x0900 or 0x0500 ? (short)rawIndex : null;
+            var clubItem = marker == 0x0300 && index is { } clubIndex ? FindClub(clubIndex, clubs) : null;
+            var itemKind = marker switch
+            {
+                0x0300 => ClubVisionItemKind.Club,
+                0x1900 => ClubVisionItemKind.Competition,
+                0x0900 => ClubVisionItemKind.Nation,
+                0x0500 => ClubVisionItemKind.Continent,
+                _ => ClubVisionItemKind.Unknown,
+            };
+            string? Look(IReadOnlyDictionary<int, string>? table) =>
+                index is { } key && table is not null && table.TryGetValue(key, out var name) ? name : null;
+            string? itemName = itemKind switch
+            {
+                ClubVisionItemKind.Club => clubItem?.DisplayName,
+                ClubVisionItemKind.Competition => Look(competitionNames),
+                ClubVisionItemKind.Nation => Look(nationNames),
+                ClubVisionItemKind.Continent => Look(continentNames),
+                _ => null,
+            };
             result.Add(new(address, b[l.VisionType], b[l.Importance], Date(b, l.VisionStart), Date(b, l.VisionEnd),
-                index, index is { } idx ? FindClub(idx, clubs) : null,
+                index, clubItem,
                 new(teamAddress, detail, holder, header, vector.Begin, vector.End, vector.Capacity,
                     vector.Begin + (ulong)row * 8, Convert.ToHexString(b)),
                 l.VisionTarget >= 0 && l.VisionTarget + 4 <= b.Length ? BitConverter.ToInt32(b, l.VisionTarget) : null,
-                l.VisionStatus >= 0 && l.VisionStatus < b.Length ? b[l.VisionStatus] : null));
+                l.VisionStatus >= 0 && l.VisionStatus < b.Length ? b[l.VisionStatus] : null,
+                l.VisionSource >= 0 && l.VisionSource + 2 <= b.Length
+                    ? BitConverter.ToUInt16(b, l.VisionSource) & 0x1FF : null,
+                itemName, itemKind));
         }
         return result.AsReadOnly();
     }

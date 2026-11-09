@@ -246,12 +246,16 @@ public sealed class CareerPlanWriter(IProcessMemory memory, OffsetProfile profil
         if (container == 0) throw new InvalidOperationException("The player has no career plan container");
         var h = memory.Read(container, 24);
         ulong begin = BitConverter.ToUInt64(h, 0), end = BitConverter.ToUInt64(h, 8), cap = BitConverter.ToUInt64(h, 16);
-        if (current is not CareerPlanSnapshotList snapshot || snapshot.Owner != player.Address || snapshot.Shift != player.Shift
-            || snapshot.Container != container || snapshot.Begin != begin || snapshot.End != end || snapshot.Capacity != cap
-            || end < begin || cap < end || (end - begin) % 8 != 0 || (cap - begin) % 8 != 0
-            || (end - begin) / 8 != (ulong)current.Count || (current.Count > 0 && (current[0].Begin != begin || current[0].End != end))
-            || current.Select((p, i) => memory.ReadUInt64(begin + (ulong)i * 8) != p.Address || ((only is null || p == only) && !memory.Read(p.Address, o.RecordSize).AsSpan().SequenceEqual(Convert.FromHexString(p.Snapshot)))).Any(bad => bad))
-            throw new StaleObjectException("The player's career plans changed since they were read");
+        string? why = null;
+        if (current is not CareerPlanSnapshotList snapshot) why = "the list was not read by the editor";
+        else if (snapshot.Owner != player.Address || snapshot.Shift != player.Shift) why = "another player";
+        else if (snapshot.Container != container) why = "the container moved";
+        else if (snapshot.Begin != begin || snapshot.End != end || snapshot.Capacity != cap) why = "the vector changed";
+        else if (end < begin || cap < end || (end - begin) % 8 != 0 || (cap - begin) % 8 != 0) why = "the vector is not valid";
+        else if ((end - begin) / 8 != (ulong)current.Count || (current.Count > 0 && (current[0].Begin != begin || current[0].End != end))) why = "the number of plans changed";
+        else if (current.Select((p, i) => memory.ReadUInt64(begin + (ulong)i * 8) != p.Address).Any(bad => bad)) why = "a plan moved";
+        else if (current.Any(p => (only is null || p == only) && !memory.Read(p.Address, o.RecordSize).AsSpan().SequenceEqual(Convert.FromHexString(p.Snapshot)))) why = "a plan's bytes changed";
+        if (why is not null) throw new StaleObjectException($"The player's career plans changed since they were read ({why})");
         return (o, container, end, cap);
     }
 

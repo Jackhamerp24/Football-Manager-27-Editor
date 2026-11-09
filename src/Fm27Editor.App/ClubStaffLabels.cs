@@ -20,8 +20,8 @@ public static class ClubStaffLabels
         ClubFieldInfo.SectionTitle(ClubSection.Staff),
         HasReader: true,
         UsesTeamRoot: false,
-        [new("Job", 1.3, IsStar: true), new("Name", 1.5, IsStar: true), new("Age", 44, RightAlign: true),
-         new("Team", 1.3, IsStar: true), new("Nation", 1.2, IsStar: true), new("Current Ability", 110, RightAlign: true), new("PA", 50, RightAlign: true)],
+        [new("Job", 1.3, IsStar: true), new("Name", 1.5, IsStar: true), new("Age", 51, RightAlign: true),
+         new("Team", 1.3, IsStar: true), new("Nation", 1.2, IsStar: true), new("Current Ability", 126, RightAlign: true), new("PA", 57, RightAlign: true)],
         staff.Select(s => new ClubListRowModel(
             [new(s.JobCode is { } j ? CareerPlanLabels.Name(CareerPlanLabels.Jobs, j) : ""), new(s.DisplayName),
              new(Age(s.DateOfBirth, today)?.ToString(Inv) ?? "", RightAlign: true), new(s.TeamName ?? ""), new(s.Nationality?.DisplayName ?? ""),

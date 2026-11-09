@@ -41,6 +41,75 @@ public class InjuryReaderTests
         new InjuryReader(_w.Memory, _w.Profile, TestWorld.ModuleBase).Read(new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!);
 
     [Fact]
+    public void SetTypeWritesFmrtePointerAndDurationOnly()
+    {
+        var player = new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
+        var injury = Read()[0];
+        var expected = _w.Bytes(Rec1, 0x38);
+        BitConverter.GetBytes(Type2).CopyTo(expected, 8);
+        Convert.FromHexString("1C000E00").CopyTo(expected, 0x28);
+        var writer = new InjuryWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase);
+        writer.SetType(player, injury, new InjuryType(Type2, 27, "torn anterior cruciate ligament", 28, 14));
+        Assert.Equal(expected, _w.Bytes(Rec1, 0x38));
+        Assert.Throws<StaleObjectException>(() => writer.SetType(player, injury, new InjuryType(Type2, 27, null, 28, 14)));
+    }
+
+    [Fact]
+    public void AddToFullVectorCopiesTemplateAndMovesHeaderToNewBuffer()
+    {
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x294, BitConverter.GetBytes(2000123586)));
+        var player = new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
+        var template = Read()[0];
+        var expected = _w.Bytes(Rec1, 0x38);
+        BitConverter.GetBytes(Type2).CopyTo(expected, 8);
+        Convert.FromHexString("4A01EA07").CopyTo(expected, 0x20); // 26/11/2026
+        Convert.FromHexString("1C000E00").CopyTo(expected, 0x28);
+        expected[0x30] = (byte)((expected[0x30] & 0xF0) | 1);
+        const ulong record = 0x7400_0000, buffer = 0x7401_0000;
+        var alloc = new Queue<ulong>([record, buffer]);
+        ulong Allocate(int size) { ulong at = alloc.Dequeue(); _w.Memory.Map(at, size); return at; }
+        var added = new InjuryWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase).Add(player, template,
+            new InjuryType(Type2, 27, null, 28, 14), new DateOnly(2026, 11, 26), InjuryTreatment.Physio, Allocate);
+        Assert.Equal(record, added.Address);
+        Assert.Equal(expected, _w.Bytes(record, 0x38));
+        Assert.Equal(new[] { Rec1, Rec2, record }, Enumerable.Range(0, 3).Select(i => BitConverter.ToUInt64(_w.Bytes(buffer + (ulong)(i * 8), 8))));
+        Assert.Equal(new[] { buffer, buffer + 24, buffer + 24 }, Enumerable.Range(0, 3).Select(i => BitConverter.ToUInt64(_w.Bytes(Holder + (ulong)(i * 8), 8))));
+    }
+
+    [Fact]
+    public void RemoveLastInjuryChangesOnlyVectorEnd()
+    {
+        var player = new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
+        var injury = Read()[1];
+        var header = _w.Bytes(Holder, 24);
+        var records = _w.Bytes(Vector, 16);
+        new InjuryWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase).Remove(player, injury);
+        BitConverter.GetBytes(Vector + 8).CopyTo(header, 8);
+        Assert.Equal(header, _w.Bytes(Holder, 24));
+        Assert.Equal(records, _w.Bytes(Vector, 16));
+        Assert.Throws<StaleObjectException>(() => new InjuryWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase).Remove(player, injury));
+    }
+
+    [Fact]
+    public void AddWithSpareCapacityKeepsTheBufferAndAppendsOnePointer()
+    {
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x294, BitConverter.GetBytes(2000123586)));
+        const ulong buffer = 0x7600_0000, record = 0x7601_0000;
+        var pointers = _w.Memory.Map(buffer, 24);
+        TestWorld.Set64(pointers, 0, Rec1); TestWorld.Set64(pointers, 8, Rec2);
+        Assert.True(_w.Memory.TryWrite(Holder, [.. BitConverter.GetBytes(buffer), .. BitConverter.GetBytes(buffer + 16), .. BitConverter.GetBytes(buffer + 24)]));
+        var player = new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
+        var injury = Read()[0];
+        int allocations = 0;
+        ulong Allocate(int size) { allocations++; _w.Memory.Map(record, size); return record; }
+        new InjuryWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase).Add(player, injury, new InjuryType(Type2, 27, null, 28, 14),
+            new DateOnly(2026, 11, 26), InjuryTreatment.Physio, Allocate);
+        Assert.Equal(1, allocations);
+        Assert.Equal(new[] { Rec1, Rec2, record }, Enumerable.Range(0, 3).Select(i => BitConverter.ToUInt64(_w.Bytes(buffer + (ulong)(8 * i), 8))));
+        Assert.Equal(new[] { buffer, buffer + 24, buffer + 24 }, Enumerable.Range(0, 3).Select(i => BitConverter.ToUInt64(_w.Bytes(Holder + (ulong)(8 * i), 8))));
+    }
+
+    [Fact]
     public void Reversible_heal_keeps_records_and_refuses_to_restore_changed_entries()
     {
         Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x294, BitConverter.GetBytes(2000123586)));
@@ -124,8 +193,8 @@ public class InjuryReaderTests
     }
 
     /// <summary>
-    /// User's definition of Heal: no injuries, Condition and Match Sharpness 10000, Jadedness -500. Starts from Harrison
-    /// Burrows' RAM bytes (sharpness 7100, jadedness -178, condition 8500, as FMRTE shows).
+    /// FMRTE 27's Heal: no injuries, Condition and Match Sharpness 10000, Jadedness 0. Starts from Harrison Burrows' RAM
+    /// bytes (sharpness 7100, jadedness -178, condition 8500, as FMRTE shows).
     /// </summary>
     [Fact]
     public void Heal_empties_the_list_and_restores_condition_sharpness_and_jadedness()
@@ -140,31 +209,39 @@ public class InjuryReaderTests
         Assert.Equal(Vector, BitConverter.ToUInt64(_w.Bytes(Holder + 8, 8)));          // end = begin
         Assert.Equal(Vector + 16, BitConverter.ToUInt64(_w.Bytes(Holder + 0x10, 8)));  // capacity untouched
         Assert.Equal(records, _w.Bytes(Rec1, 0x38));                                    // records kept, not freed
-        // 10000 = 0x2710, -500 = 0xFE0C: sharpness +0x258, jadedness +0x25A, condition +0x25C.
-        Assert.Equal(Convert.FromHexString("10270CFE1027"), _w.Bytes(TestWorld.Mainoo + 0x258, 6));
+        // 10000 = 0x2710, 0 = 0x0000: sharpness +0x258, jadedness +0x25A, condition +0x25C.
+        Assert.Equal(Convert.FromHexString("102700001027"), _w.Bytes(TestWorld.Mainoo + 0x258, 6));
     }
 
     [Fact]
     public void Heal_of_a_healthy_player_writes_only_the_fields_that_differ()
     {
         Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0xF8, BitConverter.GetBytes(0UL)));
-        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x258, Convert.FromHexString("10270CFE1027")));
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x258, Convert.FromHexString("102700001027")));
         var player = new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
         int writes = _w.Memory.Writes;
         new PlayerHealer(_w.Memory, _w.Profile, TestWorld.ModuleBase).Heal(player);
         Assert.Equal(writes, _w.Memory.Writes);
     }
 
-    /// <summary>User's definition of Inspire: Morale (byte +0x26C, 1–20) to 20. Burrows' morale was 5 in FMRTE.</summary>
+    /// <summary>
+    /// Inspire without a contract and without a club: Morale (byte +0x26C, 1–20) to 20 and Jadedness (short +0x25A) to 0;
+    /// the contract, unhappiness and cohesion steps have nothing to act on.
+    /// </summary>
     [Fact]
-    public void Inspire_sets_morale_to_20_and_touches_nothing_else()
+    public void Inspire_without_a_contract_or_club_sets_morale_and_jadedness_only()
     {
         Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x26C, [5]));
+        Assert.True(_w.Memory.TryWrite(TestWorld.Mainoo + 0x258, Convert.FromHexString("BC1B4EFF3421")));
         var before = _w.Bytes(TestWorld.Mainoo, 0x3C8);
-        new PlayerInspirer(_w.Memory, _w.Profile, TestWorld.ModuleBase).Inspire(new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!);
+        new PlayerInspirer(_w.Memory, _w.Profile, TestWorld.ModuleBase).Inspire(
+            new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!, new DateOnly(2026, 11, 25));
         var after = _w.Bytes(TestWorld.Mainoo, 0x3C8);
         Assert.Equal(20, after[0x26C]);
+        Assert.Equal(0, BitConverter.ToInt16(after, 0x25A));
         after[0x26C] = before[0x26C];
+        after[0x25A] = before[0x25A];
+        after[0x25B] = before[0x25B];
         Assert.Equal(before, after);
     }
 

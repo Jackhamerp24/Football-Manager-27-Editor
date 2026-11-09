@@ -45,6 +45,9 @@ public sealed record PlayerInjury(ulong Address, int TypeId, string? Name, DateO
     public InjuryTreatment Treatment { get; init; }
 }
 
+/// <summary>One kind of injury the game knows: the object a record's type pointer points at, its id and its lower-case name.</summary>
+public sealed record InjuryType(ulong Address, int Id, string? Name, int DefaultMinimumDays = 0, int DefaultExtraDays = 0);
+
 /// <summary>A reversible removal of the injury-vector entries of one player.</summary>
 public sealed record InjuryRemovalPlan(PlayerRecord Player, ulong Holder, ulong Begin, ulong End, ulong Capacity,
     byte[] Pointers, IReadOnlyList<PlayerInjury> Injuries);
@@ -121,6 +124,117 @@ public sealed class InjuryWriter(IProcessMemory memory, OffsetProfile profile, u
             throw new MemoryAccessException("Could not write injury duration");
     }
 
+    /// <summary>
+    /// Changes the kind of injury: the record's type pointer is pointed at another type object (id, name, vtable re-checked).
+    /// Duration and treatment are left as they are.
+    /// </summary>
+    public void SetType(PlayerRecord player, PlayerInjury injury, InjuryType type)
+    {
+        var o = profile.Injuries ?? throw new InvalidOperationException("Profile has no injury offsets");
+        if (o.Type < 0 || o.Type + 8 > o.RecordSize) throw new InvalidOperationException("Unsupported injury type layout");
+        if (o.ExtraDays != o.MinimumDays + 2 || o.MinimumDays < 0 || o.ExtraDays + 2 > o.RecordSize) throw new InvalidOperationException("Unsupported injury duration layout");
+        Guard(player, injury, o);
+        CheckType(type, o);
+        // As FMRTE does when another kind is picked: the pointer changes and the duration becomes the new kind's own.
+        var next = BitConverter.GetBytes(type.Address);
+        ulong at = injury.Address + (ulong)o.Type;
+        if (!memory.TryWrite(at, next) || !memory.Read(at, 8).AsSpan().SequenceEqual(next))
+            throw new MemoryAccessException("Could not write injury type");
+        byte[] days = [.. BitConverter.GetBytes((ushort)type.DefaultMinimumDays), .. BitConverter.GetBytes((ushort)type.DefaultExtraDays)];
+        ulong daysAt = injury.Address + (ulong)o.MinimumDays;
+        if (!memory.TryWrite(daysAt, days) || !memory.Read(daysAt, 4).AsSpan().SequenceEqual(days))
+            throw new MemoryAccessException("Could not write injury duration");
+    }
+
+    /// <summary>Offsets inside an injury type object of the duration it gives a new injury (read from FMRTE's Duration card).</summary>
+    public const int TypeMinimumDays = 0x38, TypeExtraDays = 0x3A;
+
+    void CheckType(InjuryType type, InjuryOffsets o)
+    {
+        var t = memory.Read(type.Address, Math.Max(o.TypeId + 4, 8));
+        if (BitConverter.ToUInt64(t) != moduleBase + o.TypeVtable || BitConverter.ToInt32(t, o.TypeId) != type.Id)
+            throw new StaleObjectException("That injury type is no longer in memory");
+    }
+
+    /// <summary>
+    /// FMRTE's "+": a new record, built from an existing one (<paramref name="template"/>, any injury in the game) with the chosen
+    /// type, its default duration, the start date and the treatment. The record is a fresh allocation; the player's list gets a
+    /// larger buffer when it is full. Writes happen in the order FMRTE's do: record, list buffer, then the list header.
+    /// </summary>
+    public PlayerInjury Add(PlayerRecord player, PlayerInjury template, InjuryType type, DateOnly start, InjuryTreatment treatment, Func<int, ulong> allocate)
+    {
+        var o = profile.Injuries ?? throw new InvalidOperationException("Profile has no injury offsets");
+        if (o.ExtraDays != o.MinimumDays + 2 || o.Start < 0 || o.Start + 4 > o.RecordSize || o.Treatment < 0 || o.Treatment >= o.RecordSize)
+            throw new InvalidOperationException("Unsupported injury layout");
+        CheckPlayer(player);
+        CheckType(type, o);
+        var record = Convert.FromHexString(template.Snapshot);
+        if (record.Length != o.RecordSize) throw new InvalidOperationException("The template injury has an unexpected size");
+        ulong holder = memory.ReadUInt64(player.Address + (ulong)o.Pointer);
+        if (holder == 0) throw new InvalidOperationException($"{player.DisplayName} has no injury list to add to");
+        var header = memory.Read(holder, 24);
+        ulong begin = BitConverter.ToUInt64(header), end = BitConverter.ToUInt64(header, 8), capacity = BitConverter.ToUInt64(header, 16);
+        if (!(begin == 0 && end == 0 && capacity == 0) && (begin == 0 || end < begin || capacity < end || (end - begin) % 8 != 0 || (end - begin) / 8 > 32))
+            throw new StaleObjectException("The injury list looks invalid");
+
+        BitConverter.GetBytes(type.Address).CopyTo(record, o.Type);
+        BitConverter.GetBytes((ushort)type.DefaultMinimumDays).CopyTo(record, o.MinimumDays);
+        BitConverter.GetBytes((ushort)type.DefaultExtraDays).CopyTo(record, o.ExtraDays);
+        short day = (short)start.DayOfYear;
+        BitConverter.GetBytes(day).CopyTo(record, o.Start);
+        BitConverter.GetBytes((short)start.Year).CopyTo(record, o.Start + 2);
+        record[o.Treatment] = (byte)((record[o.Treatment] & ~0x0F) | (byte)treatment);
+
+        ulong recordAddress = allocate(record.Length);
+        Put(recordAddress, record);
+        int count = (int)((end - begin) / 8);
+        if (begin != 0 && end + 8 <= capacity)
+        {
+            Put(end, BitConverter.GetBytes(recordAddress));
+            Put(holder + 8, BitConverter.GetBytes(end + 8));
+        }
+        else
+        {
+            var pointers = new byte[(count + 1) * 8];
+            if (count > 0) memory.Read(begin, count * 8).CopyTo(pointers, 0);
+            BitConverter.GetBytes(recordAddress).CopyTo(pointers, count * 8);
+            ulong buffer = allocate(pointers.Length);
+            Put(buffer, pointers);
+            Put(holder + 8, BitConverter.GetBytes(buffer + (ulong)pointers.Length));
+            Put(holder + 16, BitConverter.GetBytes(buffer + (ulong)pointers.Length));
+            Put(holder, BitConverter.GetBytes(buffer));
+        }
+        return new InjuryReader(memory, profile, moduleBase).Read(player).Single(i => i.Address == recordAddress);
+    }
+
+    /// <summary>
+    /// FMRTE's "−": the row leaves the list. FMRTE only moved the list's end pointer when the last row was removed; a row in the
+    /// middle is taken out by moving the rows after it up one place (not observed in FMRTE).
+    /// </summary>
+    public void Remove(PlayerRecord player, PlayerInjury injury)
+    {
+        var o = profile.Injuries ?? throw new InvalidOperationException("Profile has no injury offsets");
+        Guard(player, injury, o);
+        int count = (int)((injury.End - injury.Begin) / 8);
+        int index = Enumerable.Range(0, count).First(i => memory.ReadUInt64(injury.Begin + (ulong)i * 8) == injury.Address);
+        if (index < count - 1)
+            Put(injury.Begin + (ulong)index * 8, memory.Read(injury.Begin + (ulong)(index + 1) * 8, (count - 1 - index) * 8));
+        Put(injury.Holder + 8, BitConverter.GetBytes(injury.End - 8));
+    }
+
+    void CheckPlayer(PlayerRecord player)
+    {
+        if (player.Id is not > 0 || profile.Fields.Id is not { } idOffset ||
+            memory.ReadUInt64(player.Address) != moduleBase + player.VtableRva || !profile.PlayerVtableRvas.Contains(player.VtableRva) ||
+            BitConverter.ToInt32(memory.Read(player.Address + (ulong)idOffset, 4)) != player.Id)
+            throw new StaleObjectException("Player changed since it was read");
+    }
+
+    void Put(ulong address, byte[] data)
+    {
+        if (!memory.TryWrite(address, data) || !memory.Read(address, data.Length).AsSpan().SequenceEqual(data))
+            throw new MemoryAccessException($"Could not write {data.Length} bytes at 0x{address:X}");
+    }
     /// <summary>Sets FMRTE's four boxes; the bits the game uses without a box (0x10, 0x20) are kept.</summary>
     public void SetTreatment(PlayerRecord player, PlayerInjury injury, InjuryTreatment treatment)
     {
@@ -202,6 +316,53 @@ public sealed class InjuryReader(IProcessMemory memory, OffsetProfile profile, u
         return result;
     }
 
+    /// <summary>
+    /// Every injury type object in the game (the game keeps one per kind, found by its vtable), one per id, ordered by name.
+    /// A scan of the writable heap, so callers keep the result.
+    /// </summary>
+    public IReadOnlyList<InjuryType> Types(PlayerInjury? sample = null)
+    {
+        if (profile.Injuries is not { } o || memory is not WindowsProcessMemory windows) return [];
+        var found = new Dictionary<int, InjuryType>();
+        var head = new byte[Math.Max(Math.Max(o.TypeId + 4, o.TypeName + 8), InjuryWriter.TypeExtraDays + 2)];
+        void Look(ulong address)
+        {
+            if (!memory.TryRead(address, head)) return;
+            int id = BitConverter.ToInt32(head, o.TypeId);
+            string? name = StringAt(BitConverter.ToUInt64(head, o.TypeName));
+            if (!string.IsNullOrEmpty(name)) found.TryAdd(id, new InjuryType(address, id, name, BitConverter.ToUInt16(head, InjuryWriter.TypeMinimumDays), BitConverter.ToUInt16(head, InjuryWriter.TypeExtraDays)));
+        }
+        // The game allocates its injury types one after another, so a window around a type already in use finds them all quickly.
+        if (sample is not null && Q(sample.Address + (ulong)o.Type, out ulong anchor) && anchor > 0x40000)
+        {
+            const int window = 1 << 18, page = 1 << 12;
+            var pageBytes = new byte[page];
+            for (ulong at = (anchor - window) & ~(ulong)(page - 1); at < anchor + window; at += page)
+            {
+                if (!memory.TryRead(at, pageBytes)) continue;
+                for (int i = 0; i + 8 <= page; i += 8)
+                    if (BitConverter.ToUInt64(pageBytes, i) == moduleBase + o.TypeVtable) Look(at + (ulong)i);
+            }
+            if (found.Count >= 100) return found.Values.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            found.Clear();
+        }
+        var buffer = new byte[1 << 22];
+        foreach (var region in windows.EnumerateWritableRegions())
+        {
+            for (ulong offset = 0; offset + 8 <= region.Size; offset += (ulong)buffer.Length)
+            {
+                int length = (int)Math.Min((ulong)buffer.Length, region.Size - offset);
+                if (!memory.TryRead(region.Start + offset, buffer.AsSpan(0, length))) break;
+                for (int i = 0; i + 8 <= length; i += 8)
+                {
+                    if (BitConverter.ToUInt64(buffer, i) != moduleBase + o.TypeVtable) continue;
+                    Look(region.Start + offset + (ulong)i);
+
+                }
+            }
+        }
+        return found.Values.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
     static DateOnly? Date(ushort raw, short year)
     {
         int day = raw & 0x1FF;
@@ -230,12 +391,12 @@ public sealed class InjuryReader(IProcessMemory memory, OffsetProfile profile, u
 }
 
 /// <summary>
-/// Heal, as the user defined it: remove every injury, Condition (= FMRTE's Match Exercise) and Match Sharpness to 10000,
-/// Jadedness to -500. Each step is guarded; a failure stops before the remaining steps.
+/// Heal, as FMRTE 27's preset defines it: remove every injury, Condition (= FMRTE's Match Exercise) and Match Sharpness
+/// to 10000, Jadedness to 0. Each step is guarded; a failure stops before the remaining steps.
 /// </summary>
 public sealed class PlayerHealer(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
-    public const int FullCondition = 10000, FullSharpness = 10000, FreshJadedness = -500;
+    public const int FullCondition = 10000, FullSharpness = 10000, FreshJadedness = 0;
 
     public void Heal(PlayerRecord player)
     {
@@ -246,36 +407,63 @@ public sealed class PlayerHealer(IProcessMemory memory, OffsetProfile profile, u
     }
 }
 
-/// <summary>Inspire, as the user defined it: Morale to its highest value (20 on the game's 1–20 scale).</summary>
+/// <summary>
+/// Inspire, as FMRTE 27's preset defines it: Morale to 20, Jadedness to 0, End of every unhappiness motive to the game
+/// date, contract Happiness and Playing Time Happiness to 100, and Improve Team Cohesion for the player's club. Each step
+/// is guarded and a field already at its value is not written.
+/// </summary>
 public sealed class PlayerInspirer(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
-    public const int HighestMorale = 20;
+    public const int HighestMorale = 20, FreshJadedness = 0, FullHappiness = 100;
 
-    public void Inspire(PlayerRecord player)
+    public void Inspire(PlayerRecord player, DateOnly gameDate)
     {
         var fields = new PlayerFieldAccess(memory, profile, moduleBase);
-        long current = fields.Read(player, PlayerField.Morale) ?? throw new InvalidOperationException("Morale is not readable for this player");
-        if (current != HighestMorale) fields.Set(player, PlayerField.Morale, current, HighestMorale);
+        foreach (var (field, value) in new[] { (PlayerField.Morale, (long)HighestMorale), (PlayerField.Jadedness, FreshJadedness) })
+            if (fields.Read(player, field) is { } current && current != value) fields.Set(player, field, current, value);
+
+        new UnhappinessWriter(memory, profile, moduleBase).EndMotives(player, gameDate);
+
+        var contracts = new ContractWriter(memory, profile, moduleBase);
+        if (contracts.Read(player) is { Happiness: { } happiness } first && happiness != FullHappiness)
+            contracts.SetHappiness(player, first, FullHappiness);
+        if (contracts.Read(player) is { PlayingTimeHappiness: { } playing } second && playing != FullHappiness)
+            contracts.SetPlayingTimeHappiness(player, second, FullHappiness);
+
+        ulong club = PlayingClub.Of(memory, profile, moduleBase, player);
+        if (club != 0)
+            new TeamCohesionWriter(memory, profile, moduleBase).Set(player, club, TeamCohesionWriter.Improve);
     }
 }
 
 /// <summary>
-/// Destroy: Morale to 0, Condition and Match Sharpness to 5000,
-/// Jadedness (FM26 IGE's "Fatigue") to 1000 — the lowest condition/sharpness and the highest fatigue FM26's official
-/// In-Game Editor allows. Injuries are not added. Each step is guarded; fields already at the target are not written.
+/// Destroy, as FMRTE 27's preset defines it: Morale 0, Condition and Match Sharpness 5000, Jadedness (FM26 IGE's
+/// "Fatigue") 1000 — the lowest condition/sharpness and the highest fatigue FM26's official In-Game Editor allows —
+/// contract happiness and playing-time happiness 0, team cohesion at its lowest. Injuries and tactical familiarity are
+/// not touched. Each step is guarded; fields already at the target are not written.
 /// </summary>
 public sealed class PlayerDestroyer(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
-    public const int LowestMorale = 0, LowestCondition = 5000, LowestSharpness = 5000, MostJaded = 1000;
+    public const int LowestMorale = 0, LowestCondition = 5000, LowestSharpness = 5000, MostJaded = 1000, LowestHappiness = 0;
 
     public void Destroy(PlayerRecord player)
     {
         var fields = new PlayerFieldAccess(memory, profile, moduleBase);
         foreach (var (field, value) in new[]
                  {
-                     (PlayerField.Morale, LowestMorale), (PlayerField.Condition, LowestCondition),
+                     (PlayerField.Morale, (long)LowestMorale), (PlayerField.Condition, LowestCondition),
                      (PlayerField.MatchSharpness, LowestSharpness), (PlayerField.Jadedness, MostJaded),
                  })
             if (fields.Read(player, field) is { } current && current != value) fields.Set(player, field, current, value);
+
+        var contracts = new ContractWriter(memory, profile, moduleBase);
+        if (contracts.Read(player) is { Happiness: { } happiness } first && happiness != LowestHappiness)
+            contracts.SetHappiness(player, first, LowestHappiness);
+        if (contracts.Read(player) is { PlayingTimeHappiness: { } playing } second && playing != LowestHappiness)
+            contracts.SetPlayingTimeHappiness(player, second, LowestHappiness);
+
+        ulong club = PlayingClub.Of(memory, profile, moduleBase, player);
+        if (club != 0)
+            new TeamCohesionWriter(memory, profile, moduleBase).Set(player, club, TeamCohesionWriter.Destroy);
     }
 }

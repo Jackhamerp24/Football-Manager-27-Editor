@@ -57,6 +57,7 @@ public sealed class NationColourAccess(IProcessMemory memory, OffsetProfile prof
         if (BitConverter.ToUInt32(memory.Read(address, 4)) != before)
             throw new StaleObjectException("The colour changed since it was read");
         var bytes = BitConverter.GetBytes(bgra);
+        using var scope = Fm27Editor.Core.History.ChangeContext.Describe(new Fm27Editor.Core.History.ChangeLabel(background ? "Background Colour" : "Foreground Colour", Kind: Fm27Editor.Core.History.ChangeValueKind.Colour));
         if (!memory.TryWrite(address, bytes) || !memory.Read(address, 4).AsSpan().SequenceEqual(bytes))
             throw new MemoryAccessException($"Could not write the nation colour at 0x{address:X}");
     }

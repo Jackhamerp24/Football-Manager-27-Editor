@@ -50,8 +50,8 @@ public sealed partial class MainWindow
             if (groups[i] == "Technical")
             {
                 var picker = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
-                var technical = new Button { Content = "Tec.", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 10.5 };
-                var goalkeeping = new Button { Content = "GK", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 10.5 };
+                var technical = new Button { Content = "Tec.", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
+                var goalkeeping = new Button { Content = "GK", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
                 var selectedColumn = new ContentControl { HorizontalAlignment = HorizontalAlignment.Stretch };
                 void Select(bool keeper)
                 {
@@ -101,7 +101,7 @@ public sealed partial class MainWindow
             var text = new TextBlock
             {
                 Text = label,
-                FontSize = 11.5,
+                FontSize = 13,
                 Foreground = UiKit.TextSecondary,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.NoWrap,
@@ -258,7 +258,7 @@ public sealed partial class MainWindow
             {
                 var plans = retirements.ReadAll();
                 uint person = retirements.PersonId(player);
-                retirementDate = plans.TryGetValue(person, out var plan) ? plan.Date?.ToString("yyyy-MM-dd") ?? "Unknown" : "None";
+                retirementDate = plans.TryGetValue(person, out var plan) ? plan.Date is { } retires ? DateSetting.Format(retires) : "Unknown" : "None";
             }
             catch (Exception ex) when (ex is StaleObjectException or Fm27Editor.Core.Memory.MemoryAccessException)
             {
@@ -306,7 +306,7 @@ public sealed partial class MainWindow
                                : () => new RelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(player, statuses.InternationalRetirement!));
             try
             {
-                backend.Edits.Execute(() => { foreach (var w in writes) w(); });
+                backend.Edits.Execute("Player", player.DisplayName, "Page save", () => { foreach (var w in writes) w(); });
                 status.Text = "Saved information. Continue in FM to see updates.";
                 // The nationality lives on the player record; reload it so the next write checks against the new nation.
                 if (nationBox.SelectedIndex != nationIndex && backend.Players.Reload(player.Address) is { } fresh) { fresh.GameDate = backend.GameDate; selected = fresh; ReplaceRow(fresh); }

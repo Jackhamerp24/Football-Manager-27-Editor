@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -12,6 +13,11 @@ namespace Fm27Editor.App;
 /// </summary>
 static class UiKit
 {
+    /// <summary>True when the event came from a row of a list. A double-tap on a header, a scroll bar or empty space must not open the selected item.</summary>
+    public static bool OnRow(Avalonia.Interactivity.RoutedEventArgs e) =>
+        e.Source is Avalonia.Visual v && (v is DataGridRow || Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<DataGridRow>(v) is not null
+            || v is ListBoxItem || Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<ListBoxItem>(v) is not null);
+
     public static readonly IBrush WindowBg = Brush("#0C0E14");
     public static readonly IBrush Surface = Brush("#131620");
     public static readonly IBrush SurfaceAlt = Brush("#10131C");
@@ -27,7 +33,7 @@ static class UiKit
     public static readonly IBrush TextSecondary = Brush("#CBD5E1");
     public static readonly IBrush TextMuted = Brush("#94A3B8");
 
-    public static IBrush Brush(string hex) => new SolidColorBrush(Color.Parse(hex));
+    public static IBrush Brush(string hex) => AppTheme.Brush(hex);
 
     public static Border Card(string title, Control body, Control? customTitle = null, Control? rightHeader = null)
     {
@@ -53,7 +59,7 @@ static class UiKit
         headerDock.Children.Add(customTitle ?? new TextBlock
         {
             Text = title.ToUpperInvariant(),
-            FontSize = 11,
+            FontSize = 12.5,
             FontWeight = FontWeight.Bold,
             Foreground = Brush("#E2E8F0"),
             VerticalAlignment = VerticalAlignment.Center,
@@ -99,7 +105,7 @@ static class UiKit
         Child = new TextBlock
         {
             Text = text,
-            FontSize = 11.5,
+            FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
             FontWeight = highlight ? FontWeight.SemiBold : FontWeight.Medium,
             Foreground = highlight ? Brush("#E9D5FF") : TextSecondary,
@@ -109,7 +115,7 @@ static class UiKit
     public static TextBlock MetaText(string text, bool highlight = false) => new()
     {
         Text = text,
-        FontSize = 12,
+        FontSize = 13.5,
         FontWeight = highlight ? FontWeight.SemiBold : FontWeight.Normal,
         Foreground = highlight ? Brush("#C084FC") : TextMuted,
         VerticalAlignment = VerticalAlignment.Center,
@@ -118,7 +124,7 @@ static class UiKit
     public static TextBlock MetaDot() => new()
     {
         Text = "·",
-        FontSize = 12,
+        FontSize = 13.5,
         FontWeight = FontWeight.Bold,
         Foreground = Brush("#475569"),
         Margin = new Thickness(6, 0),
@@ -132,7 +138,7 @@ static class UiKit
         MinHeight = 22,
         Padding = new Thickness(0),
         Margin = new Thickness(0),
-        FontSize = 12,
+        FontSize = 13.5,
         FontWeight = highlight ? FontWeight.SemiBold : FontWeight.Normal,
         Background = Brushes.Transparent,
         BorderThickness = new Thickness(0),
@@ -154,7 +160,7 @@ static class UiKit
         row.Children.Add(new TextBlock
         {
             Text = label,
-            FontSize = 11.5,
+            FontSize = 13,
             FontWeight = FontWeight.Bold,
             Foreground = Brush("#A78BFA"),
             VerticalAlignment = VerticalAlignment.Center,
@@ -347,7 +353,7 @@ static class UiKit
         var label = new TextBlock
         {
             Text = caption,
-            FontSize = 11,
+            FontSize = 12.5,
             FontWeight = FontWeight.SemiBold,
             Foreground = TextMuted,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -384,5 +390,129 @@ static class UiKit
 
         Update(0xFFC00020, 0xFFF8F8F8, 0xFF222738, 0xFFF8F8F8, 0xFF10131C, 0xFFF8F8F8, 0xFF151822);
         return new KitPreviewHandle { Control = card, Update = Update };
+    }
+
+    /// <summary>
+    /// Reusable OOP builder for high-density two-column form cards (like Contract Details, Loan Details).
+    /// Standardizes column widths (160,*,24,160,*), typography, field alignments, and spacing.
+    /// </summary>
+    public sealed class TwoColumnFormBuilder
+    {
+        readonly Grid grid = new() { ColumnDefinitions = new ColumnDefinitions("160,*,24,160,*"), RowSpacing = 6 };
+        readonly int[] rowOf = [0, 0];
+
+        public Grid Grid => grid;
+
+        public TwoColumnFormBuilder AddRow(int column, string label, Control? control, Control? extra = null)
+        {
+            if (control is null) return this;
+            int colIndex = column == 0 ? 0 : 1;
+            int row = rowOf[colIndex]++;
+            while (grid.RowDefinitions.Count <= row) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+            var name = new TextBlock
+            {
+                Text = label,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Brush("#CBD5E1")
+            };
+            Grid.SetRow(name, row);
+            Grid.SetColumn(name, colIndex == 0 ? 0 : 3);
+            grid.Children.Add(name);
+
+            if (!double.IsNaN(control.Width) && control.Width > 0)
+                control.MaxWidth = control.Width;
+            control.Width = double.NaN;
+            control.HorizontalAlignment = HorizontalAlignment.Stretch;
+            Control value = control;
+            if (extra is not null)
+            {
+                var pair = new Grid { ColumnDefinitions = new ColumnDefinitions("*,64"), ColumnSpacing = 6 };
+                Grid.SetColumn(extra, 1);
+                pair.Children.Add(control);
+                pair.Children.Add(extra);
+                value = pair;
+            }
+            value.HorizontalAlignment = HorizontalAlignment.Stretch;
+            Grid.SetRow(value, row);
+            Grid.SetColumn(value, colIndex == 0 ? 1 : 4);
+            grid.Children.Add(value);
+            return this;
+        }
+
+        public Border BuildCard(string title)
+        {
+            grid.Margin = new Thickness(12, 10);
+            return Card(title, grid);
+        }
+    }
+
+    /// <summary>
+    /// Reusable OOP card for club financial statements (Summary, Income, Expenditure) matching FMRTE layout.
+    /// </summary>
+    public static class FinancialStatementCard
+    {
+        public static Border Create(
+            string title,
+            IReadOnlyList<string> periodHeaders,
+            IEnumerable<(string Label, IReadOnlyList<long> Values, bool Bold)> rows)
+        {
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("280,140,140,140"), RowSpacing = 1, Margin = new Thickness(0, 4) };
+            int headerRow = grid.RowDefinitions.Count;
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            for (int i = 0; i <= periodHeaders.Count; i++)
+            {
+                var head = new TextBlock
+                {
+                    Text = i == 0 ? "Item" : $"{periodHeaders[i - 1]} (£)",
+                    FontSize = 12.5,
+                    FontWeight = FontWeight.Bold,
+                    Foreground = Brush("#94A3B8"),
+                    Margin = new Thickness(i == 0 ? 8 : 0, 0, i == 0 ? 0 : 12, 4),
+                    HorizontalAlignment = i == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+                };
+                Grid.SetRow(head, headerRow);
+                Grid.SetColumn(head, i);
+                grid.Children.Add(head);
+            }
+
+            foreach (var (label, values, bold) in rows)
+            {
+                int row = grid.RowDefinitions.Count;
+                grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                var name = new TextBlock
+                {
+                    Text = label,
+                    FontSize = 13,
+                    FontWeight = bold ? FontWeight.SemiBold : FontWeight.Normal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 0, 0),
+                    Foreground = Brush(bold ? "#F8FAFC" : "#CBD5E1"),
+                };
+                Grid.SetRow(name, row);
+                Grid.SetColumn(name, 0);
+                grid.Children.Add(name);
+
+                for (int i = 0; i < values.Count && i < periodHeaders.Count; i++)
+                {
+                    long val = values[i];
+                    var value = new TextBlock
+                    {
+                        Text = val.ToString("N0", CultureInfo.InvariantCulture),
+                        FontSize = 13,
+                        FontWeight = bold ? FontWeight.SemiBold : FontWeight.Normal,
+                        TextAlignment = TextAlignment.Right,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Margin = new Thickness(0, 0, 12, 0),
+                        Foreground = Brush(val < 0 ? "#F87171" : "#F8FAFC"),
+                    };
+                    Grid.SetRow(value, row);
+                    Grid.SetColumn(value, i + 1);
+                    grid.Children.Add(value);
+                }
+            }
+            return Card(title, grid);
+        }
     }
 }

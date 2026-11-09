@@ -68,6 +68,32 @@ public class NationTests
     }
 
     [Fact]
+    public void Finds_a_large_nation_vector_that_sits_away_from_the_configured_slot()
+    {
+        // Steam run: the configured slot held five objects of another class; the real 251-nation vector was ~0x19E0 bytes from a neighbouring slot's object.
+        Assert.True(_w.Memory.TryWrite(TestWorld.ModuleBase + 0x56F5078, new byte[8]));
+        const ulong area = 0x7200_0000, vector = 0x7300_0000, nations = 0x7400_0000;
+        const int count = 120;
+        TestWorld.Set64(_w.Memory.Map(TestWorld.ModuleBase + 0x56F5070, 8), 0, area + 0x4000);
+        var memory = _w.Memory.Map(area, 0x10000);
+        TestWorld.Set64(memory, 0x5000, vector); TestWorld.Set64(memory, 0x5008, vector + count * 8); TestWorld.Set64(memory, 0x5010, vector + count * 8);
+        var items = _w.Memory.Map(vector, count * 8);
+        for (int i = 0; i < count; i++)
+        {
+            ulong at = nations + (ulong)i * 0x1000;
+            TestWorld.Set64(items, i * 8, at);
+            var n = _w.Memory.Map(at, 0x200);
+            Convert.FromHexString("58F6E4F0FA7F00005A00000091000000").CopyTo(n, 0);
+            TestWorld.Set64(n, 0, TestWorld.ModuleBase + 0x4CDF658);
+            BitConverter.GetBytes(1000 + i).CopyTo(n, 12);
+        }
+        var found = new NationRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).LoadAll();
+        Assert.Equal(count, found.Count);
+        Assert.Equal(1000, found.Min(x => x.Id));
+        Assert.Equal(1000 + count - 1, found.Max(x => x.Id));
+    }
+
+    [Fact]
     public void Lists_nations_and_reads_Vietnam_as_FMRTE_shows_it()
     {
         var nation = Assert.Single(new NationRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).LoadAll());
@@ -90,6 +116,17 @@ public class NationTests
         ];
         Assert.Equal(Enum.GetValues<NationField>().Length, expected.Length);
         Assert.All(expected, e => Assert.Equal(e.Item2, f[e.Item1]));
+    }
+
+    [Fact]
+    public void History_names_nation_fields_by_their_resolved_addresses()
+    {
+        // Offsets from the dump above: team +0x864 holds 0x07AC = 1964, Vietnam's Year Affiliated To FIFA; +0x87C/+0x87D are the two Importance copies.
+        var label = Fm27Editor.Core.History.EntityChangeLabels.ForNation(Fields(), Vietnam);
+        Assert.Equal("Year Affiliated To Fifa", label(Team + 0x864, 0)?.Name);
+        Assert.Equal("Importance", label(Team + 0x87C, 0)?.Name);
+        Assert.Equal("Importance", label(Team + 0x87D, 0)?.Name);
+        Assert.Null(label(Team + 0x100, 0));
     }
 
     [Fact]

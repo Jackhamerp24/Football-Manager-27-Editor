@@ -57,6 +57,7 @@ public sealed class NationKits(IProcessMemory memory, OffsetProfile profile, ulo
         if (index is < 0 or > 4) throw new ArgumentOutOfRangeException(nameof(index));
         RequireCurrent(snapshot);
         var after = BitConverter.GetBytes(colour);
+        using var scope = ClubKitMapping.Announce(Read(snapshot.Club), snapshot, ClubKitMapping.ColourNames[index], Fm27Editor.Core.History.ChangeValueKind.Colour);
         Write(snapshot.Address + (ulong)(8 + index * 4), after.AsSpan(0, 3));
     }
 
@@ -66,6 +67,7 @@ public sealed class NationKits(IProcessMemory memory, OffsetProfile profile, ulo
     {
         if (snapshot.Style != expected) throw new StaleObjectException("Kit item style changed since it was read");
         RequireCurrent(snapshot);
+        using var scope = ClubKitMapping.Announce(Read(snapshot.Club), snapshot, "Style");
         Write(snapshot.Address + 0x1C, BitConverter.GetBytes(style));
     }
 

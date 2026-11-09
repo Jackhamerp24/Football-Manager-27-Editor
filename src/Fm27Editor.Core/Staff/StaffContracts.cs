@@ -70,6 +70,14 @@ public sealed class StaffContractAccess(IProcessMemory memory, OffsetProfile pro
         return S.Kinds.Any(k => vt == moduleBase + k.PersonVtableRva);
     }
 
+    /// <summary>Moves the expiry by whole years (−1 / +1 Year); a contract with no expiry has nothing to move.</summary>
+    public void ShiftExpiry(StaffRecord staff, OfferContract contract, int years)
+    {
+        var started = contract.Started ?? throw new InvalidOperationException("The staff contract has no start date");
+        var expiry = contract.Expires ?? throw new InvalidOperationException("The staff contract has no expiry to move");
+        Set(staff, contract, new OfferContractFields(contract.Wage, (ContractType)contract.Type, contract.Rolling, started, expiry.AddYears(years)));
+    }
+
     /// <summary>Renew: moves the expiry <paramref name="years"/> years past the later of today and the current expiry.</summary>
     public void Renew(StaffRecord staff, OfferContract contract, int years, DateOnly today)
     {

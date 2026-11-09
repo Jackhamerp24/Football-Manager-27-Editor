@@ -44,7 +44,7 @@ public sealed partial class MainWindow
             running = busy = true; confirm.IsEnabled = cancel.IsEnabled = false;
             try
             {
-                await Task.Run(() => backend.Edits.Execute(() => writer.Apply(plan)));
+                await Task.Run(() => backend.Edits.Execute("Player", player.DisplayName, "Page save", () => writer.Apply(plan)));
                 captainUndo.Push(plan);
                 status.Text = $"{player.DisplayName} is now {TeamCaptainService.Label(role)}. Continue in FM to see updates.";
                 running = false;
@@ -69,7 +69,7 @@ public sealed partial class MainWindow
         try
         {
             busy = true;
-            await Task.Run(() => backend.Edits.Execute(() => CaptainWriter(session).Undo(plan)));
+            await Task.Run(() => backend.Edits.Execute("Player", "Captain change", "Undo", () => CaptainWriter(session).Undo(plan)));
             captainUndo.Pop();
             status.Text = $"Restored {TeamCaptainService.Label(plan.Role)} for {plan.Player.DisplayName}. Continue in FM to see updates.";
             RenderEditor();

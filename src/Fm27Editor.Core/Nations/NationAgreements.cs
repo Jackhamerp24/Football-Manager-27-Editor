@@ -24,12 +24,11 @@ public sealed class NationAgreements(IProcessMemory memory, OffsetProfile profil
     public const int EuVector = 0xA8, NonForeignVector = 0x90;
     public const int RecordSize = 0x30, RegionSlot = 0x18, AgreementSlot = 0x20, FromOffset = 0x28, UntilOffset = 0x2C;
     const int MaxRows = 64, MaxName = 200;
-    const uint GamePassRegionVtable = 0x4D78508;
 
     /// <summary>Region catalogue in the game database; unknown names remain numeric IDs.</summary>
     public IReadOnlyList<AgreementRegion> Regions()
     {
-        if (profile.Build != "27.0.0+2493426 Game Pass" || profile.Nation?.ListRootRva is not { } rootRva) return [];
+        if (profile.AgreementRegionVtable is null || profile.Nation?.ListRootRva is not { } rootRva) return [];
         var holderBytes = new byte[0x810];
         Span<byte> pointer = stackalloc byte[8];
         List<AgreementRegion> best = [];
@@ -60,9 +59,9 @@ public sealed class NationAgreements(IProcessMemory memory, OffsetProfile profil
 
     AgreementRegion? ReadRegion(ulong address)
     {
-        if (profile.Build != "27.0.0+2493426 Game Pass" || address == 0) return null;
+        if (profile.AgreementRegionVtable is null || address == 0) return null;
         var bytes = new byte[24];
-        if (!memory.TryRead(address, bytes) || BitConverter.ToUInt64(bytes) != moduleBase + GamePassRegionVtable) return null;
+        if (!memory.TryRead(address, bytes) || BitConverter.ToUInt64(bytes) != moduleBase + profile.AgreementRegionVtable.Value) return null;
         int id = BitConverter.ToInt32(bytes, 0x10);
         if (id is < 1 or > 255) return null;
         // FMRTE's NativeAOT metadata lists these names in this order. Only UK/Ireland = 14 was
@@ -157,7 +156,7 @@ public sealed class NationAgreements(IProcessMemory memory, OffsetProfile profil
         AgreementKind.ExcludedNation when IsNation(target) => 0x10,
         AgreementKind.Continent when profile.CareerPlans is { } c && target != 0 && memory.TryRead(target, new byte[8]) && memory.ReadUInt64(target) == moduleBase + c.ContinentVtable => 8,
         AgreementKind.Region when ReadRegion(target) is not null => RegionSlot,
-        AgreementKind.Agreement when profile.Build == "27.0.0+2493426 Game Pass" && target != 0 && memory.TryRead(target, new byte[8]) && memory.ReadUInt64(target) == moduleBase + 0x4C608B8 => 0x20,
+        AgreementKind.Agreement when profile.AgreementVtable is { } agreementVtable && target != 0 && memory.TryRead(target, new byte[8]) && memory.ReadUInt64(target) == moduleBase + agreementVtable => 0x20,
         _ => throw new StaleObjectException("Invalid or unsupported agreement target")
     };
 

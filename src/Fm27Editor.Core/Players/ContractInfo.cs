@@ -5,7 +5,7 @@ public sealed record ClubInfo(ulong Address, string? Name, string? ShortName)
     public string DisplayName => ShortName ?? Name ?? "";
 }
 
-public sealed record NationInfo(ulong Address, string? Name, string? ShortName)
+public sealed record NationInfo(ulong Address, string? Name, string? ShortName, int? Id = null)
 {
     public string DisplayName => Name ?? ShortName ?? "";
 }

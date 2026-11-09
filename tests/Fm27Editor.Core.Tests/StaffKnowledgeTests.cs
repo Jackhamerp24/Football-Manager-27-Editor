@@ -14,31 +14,57 @@ public class StaffKnowledgeTests
         TestWorld.Set64(obj, 0, TestWorld.ModuleBase + 0x4D8BE08);
         TestWorld.Set64(obj, 0x100, TestWorld.ModuleBase + 0x4D8BE78);
         TestWorld.Set64(obj, 0xB0, holder);
-        var h = w.Memory.Map(holder, 24); TestWorld.Set64(h, 0, vector); TestWorld.Set64(h, 8, vector + 16);
-        var v = w.Memory.Map(vector, 16); TestWorld.Set64(v, 0, records); TestWorld.Set64(v, 8, records + 40);
-        var bytes = w.Memory.Map(records, 80);
+        var h = w.Memory.Map(holder, 24); TestWorld.Set64(h, 0, vector); TestWorld.Set64(h, 8, vector + 24);
+        var v = w.Memory.Map(vector, 24); TestWorld.Set64(v, 0, records); TestWorld.Set64(v, 8, records + 40); TestWorld.Set64(v, 16, records + 80);
+        var bytes = w.Memory.Map(records, 120);
         Convert.FromHexString("00000000000000000000000000000000000000000000000000000000000000004F01EA0736360000").CopyTo(bytes, 0);
         Convert.FromHexString("00000000000000000000000000000000000000000000000000000000000000004F01EA0749490000").CopyTo(bytes, 40);
-        TestWorld.Set64(bytes, 0, france); TestWorld.Set64(bytes, 40, scotland);
-        const ulong franceTeam = 0x60006000, scotlandTeam = 0x60007000;
-        TestWorld.Set64(bytes, 0, franceTeam); TestWorld.Set64(bytes, 40, scotlandTeam);
-        void Nation(ulong address, ulong team, string name)
+        Convert.FromHexString("00000000000000000000000000000000000000000000000000000000000000004F01EA0764640000").CopyTo(bytes, 80);
+        const ulong franceTeam = 0x60006000, scotlandTeam = 0x60007000, franceWomen = 0x60008000;
+        TestWorld.Set64(bytes, 0, franceTeam); TestWorld.Set64(bytes, 40, scotlandTeam); TestWorld.Set64(bytes, 80, franceWomen);
+        void Nation(ulong address, ulong team, ulong women, string name)
         {
-            var n = w.Memory.Map(address, 0x200); TestWorld.Set64(n, 0, TestWorld.ModuleBase + 0x4CDF658); TestWorld.Set64(n, 0x108, team);
+            var n = w.Memory.Map(address, 0x200); TestWorld.Set64(n, 0, TestWorld.ModuleBase + 0x4CDF658);
+            TestWorld.Set64(n, 0x108, team); TestWorld.Set64(n, 0x110, women);
             TestWorld.Set64(w.Memory.Map(team, 8), 0, TestWorld.ModuleBase + 0x4CEC0B8);
+            TestWorld.Set64(w.Memory.Map(women, 8), 0, TestWorld.ModuleBase + 0x4CEC0B8);
             w.Memory.MapString(address + 0x1000, name); TestWorld.Set64(n, 0x18, address + 0x1000);
         }
-        Nation(france, franceTeam, "France"); Nation(scotland, scotlandTeam, "Scotland");
+        Nation(france, franceTeam, franceWomen, "France"); Nation(scotland, scotlandTeam, 0, "Scotland");
         var person = new StaffRecord { Address = staff + 0x100, StaffAddress = staff, Attributes = new byte[64], Personality = new byte[8], Kind = w.Profile.Staff!.Kinds[0] };
         var access = new StaffKnowledge(w.Memory, w.Profile, TestWorld.ModuleBase);
         var nations = new[] { new Fm27Editor.Core.Nations.NationRecord(france, null, "France", null), new Fm27Editor.Core.Nations.NationRecord(scotland, null, "Scotland", null) };
         var found = access.Read(person, nations);
-        Assert.Equal(new[] { ("France", (byte)54), ("Scotland", (byte)73) }, found.Select(r => (r.Nation, r.Value)));
+        Assert.Equal(new[] { ("France", (byte)54), ("Scotland", (byte)73), ("France (Women)", (byte)100) }, found.Select(r => (r.Nation, r.Value)));
         access.SetValue(person, found[0], 55);
         Assert.Equal((byte)55, w.Bytes(records + 36, 1)[0]);
         Assert.Equal((byte)54, w.Bytes(records + 37, 1)[0]);
         Assert.Equal((byte)73, w.Bytes(records + 40 + 36, 1)[0]);
         Assert.Throws<StaleObjectException>(() => access.SetValue(person, found[0], 54));
+    }
+
+    [Fact]
+    public void UnknownNationalTeamStillThrows()
+    {
+        var w = new TestWorld();
+        const ulong staff = 0x61000000, holder = 0x61001000, vector = 0x61002000, record = 0x61003000, nationAt = 0x61004000;
+        var obj = w.Memory.Map(staff, 0x240);
+        TestWorld.Set64(obj, 0, TestWorld.ModuleBase + 0x4D8BE08);
+        TestWorld.Set64(obj, 0x100, TestWorld.ModuleBase + 0x4D8BE78);
+        TestWorld.Set64(obj, 0xB0, holder);
+        var h = w.Memory.Map(holder, 24); TestWorld.Set64(h, 0, vector); TestWorld.Set64(h, 8, vector + 8);
+        var v = w.Memory.Map(vector, 8); TestWorld.Set64(v, 0, record);
+        var bytes = w.Memory.Map(record, 40);
+        const ulong known = 0x61005000, stranger = 0x61006000;
+        TestWorld.Set64(bytes, 0, stranger);
+        Convert.FromHexString("4F01EA0764640000").CopyTo(bytes, 32);
+        var n = w.Memory.Map(nationAt, 0x200); TestWorld.Set64(n, 0x108, known);
+        TestWorld.Set64(w.Memory.Map(known, 8), 0, TestWorld.ModuleBase + 0x4CEC0B8);
+        TestWorld.Set64(w.Memory.Map(stranger, 8), 0, TestWorld.ModuleBase + 0x4CEC0B8);
+        var person = new StaffRecord { Address = staff + 0x100, StaffAddress = staff, Attributes = new byte[64], Personality = new byte[8], Kind = w.Profile.Staff!.Kinds[0] };
+        var access = new StaffKnowledge(w.Memory, w.Profile, TestWorld.ModuleBase);
+        var nations = new[] { new Fm27Editor.Core.Nations.NationRecord(nationAt, null, "Nowhere", null) };
+        Assert.Throws<Fm27Editor.Core.Memory.MemoryAccessException>(() => access.Read(person, nations));
     }
 
     /// <summary>

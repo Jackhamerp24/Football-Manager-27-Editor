@@ -13,6 +13,8 @@ public sealed record ClubListOffsets(
     /// <summary>Board-objective target (int32) and status (byte); -1 when the profile has no measured offsets.</summary>
     public int VisionTarget { get; init; } = -1;
     public int VisionStatus { get; init; } = -1;
+    /// <summary>Source-type word (+0x30): low 9 bits hold the source id (1 = Board), upper bits a year.</summary>
+    public int VisionSource { get; init; } = -1;
     /// <summary>
     /// Extra class vtables seen for this build, space separated hex. Club culture records and the vision holder use
     /// different classes from national ones, so the reader accepts any listed value; empty means "just the field above".
@@ -48,6 +50,7 @@ public sealed record ClubListOffsets(
             : "";
         var visionTarget = e.TryGetProperty("visionTarget", out _) ? H("visionTarget") : -1;
         var visionStatus = e.TryGetProperty("visionStatus", out _) ? H("visionStatus") : -1;
+        var visionSource = e.TryGetProperty("visionSource", out _) ? H("visionSource") : -1;
         var cultureVtables = e.TryGetProperty("cultureVtables", out _)
             ? string.Join(' ', HexArray("cultureVtables", (uint)H("cultureVtable")).Select(v => v.ToString("X")))
             : "";
@@ -56,7 +59,7 @@ public sealed record ClubListOffsets(
             H("visionEnd"), H("itemIndex"), H("itemMarker"), H("affiliations"), H("affiliationSize"),
             H("parent"), H("feeder"), H("affiliationStart"), H("affiliationType"), H("regionalPointer"), H("regionalSize"), H("level"))
         { VisionHolderVtables = vhVtables, CultureVtables = cultureVtables,
-          VisionTarget = visionTarget, VisionStatus = visionStatus,
+          VisionTarget = visionTarget, VisionStatus = visionStatus, VisionSource = visionSource,
           VisionImportanceEditable = e.TryGetProperty("visionImportanceEditable", out var visionEditable) && visionEditable.GetBoolean(),
           AffiliationAnnualFee = e.TryGetProperty("affiliationAnnualFee", out _) ? H("affiliationAnnualFee") : null,
           AffiliationEnd = e.TryGetProperty("affiliationEnd", out _) ? H("affiliationEnd") : null,
@@ -86,6 +89,7 @@ public sealed record ClubListOffsets(
         if (VisionImportanceEditable) w.WriteBoolean("visionImportanceEditable", true);
         if (VisionTarget >= 0) w.WriteString("visionTarget", $"0x{VisionTarget:X}");
         if (VisionStatus >= 0) w.WriteString("visionStatus", $"0x{VisionStatus:X}");
+        if (VisionSource >= 0) w.WriteString("visionSource", $"0x{VisionSource:X}");
         void WriteVtables(string key, string values)
         {
             if (values.Length == 0) return;

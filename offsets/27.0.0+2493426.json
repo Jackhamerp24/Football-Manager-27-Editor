@@ -1,7 +1,16 @@
 {
   "build": "27.0.0+2493426",
+  "agentPoolSlotRva": "0x57075D0",
+  "agentVtableRva": "0x4E36E08",
   "module": "game_plugin.dll",
   "buildStringRva": "0x4AE3492",
+  "retirementManagerRva": "0x56F7D10",
+  "retirementManagerVtable": "0x4EC38A0",
+  "nationAppointmentVtable": "0x4B03058",
+  "agreementRegionVtable": "0x4DCAC08",
+  "agreementVtable": "0x4CB24E8",
+  "imageSize": "0x1821C000",
+  "peTimestamp": "0x6AE565AF",
   "playerList": {
     "rootRva": "0x57057C0",
     "beginOffset": "0x10",
@@ -243,6 +252,29 @@
       "languageId": "0x8",
       "languageName": "0x18"
     },
+    "tacticalUnderstanding": {
+      "holder": "0x100",
+      "stride": "0x20",
+      "count": "0x6",
+      "roleVector": "0xC0",
+      "roleEntry": "0x10",
+      "roleValue": "0xE"
+    },
+    "promises": {
+      "holder": "0x360",
+      "recordSize": "0x60",
+      "manager": "0x18",
+      "person": "0x20",
+      "club": "0x28",
+      "team": "0x30",
+      "made": "0x38",
+      "deadline": "0x3C",
+      "parameter0": "0x40",
+      "parameter1": "0x44",
+      "type": "0x4E",
+      "globalRootRva": "0x56F4320",
+      "globalVector": "0xF8"
+    },
     "cities": {
       "pointer": "0x308",
       "listRootRva": "0x5705908",
@@ -254,7 +286,10 @@
       "longitude": "0x4C",
       "altitude": "0x50",
       "inhabitants": "0x52",
-      "attraction": "0x54"
+      "attraction": "0x54",
+      "weather": "0x28",
+      "language": "0x30",
+      "region": "0x38"
     },
     "cohesion": {
       "vector": "0x18",
@@ -294,6 +329,7 @@
     },
     "futureTransfers": {
       "playerOffers": "0x328",
+      "currentLoanHolder": "0x338",
       "recordContract": "0x10",
       "recordOfferId": "0x28",
       "dateVector": "0x38",
@@ -387,8 +423,11 @@
       "visionImportanceEditable": true,
       "visionTarget": "0x28",
       "visionStatus": "0x38",
+      "visionSource": "0x30",
       "visionHolderVtable": "0x4DBCC98",
+      "visionHolderVtables": ["0x4DBCC98", "0x4DBCD18"],
       "cultureVtable": "0x4B105C8",
+      "cultureVtables": ["0x4B105C8", "0x4DCBAF8"],
       "cultureSize": "0x50",
       "visionType": "0x2C",
       "importance": "0x2D",
@@ -505,6 +544,16 @@
       "playersSold": "0x32C"
     },
     "fields": {
+      "ForegroundColour": {
+        "root": "club",
+        "path": "0xB0->0xA0",
+        "type": "colour"
+      },
+      "BackgroundColour": {
+        "root": "club",
+        "path": "0xB0->0xA8",
+        "type": "colour"
+      },
       "EmbargoStart": {
         "root": "club",
         "path": "0x150->0x24",
@@ -806,6 +855,7 @@
     "capital": "0xE8",
     "continent": "0xF0",
     "stadium": "0x118",
+    "womenTeam": "0x110",
     "teams": {
       "pointer": "0x108",
       "list": "0x18",
@@ -1025,6 +1075,11 @@
         "staffVtable": "0x4CC286C",
         "staffPart": "0x440",
         "manager": true
+      },
+      {
+        "personVtable": "0x4F77F38",
+        "staffVtable": "0x4F779F0",
+        "staffPart": "0x100"
       }
     ],
     "managerAttributes": {

@@ -2,13 +2,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Game;
+using Fm27Editor.Core.Staff;
 
 namespace Fm27Editor.Core.Players;
 
 /// <summary>Portable freeze data: IDs and values only, never addresses from a previous session.</summary>
 public sealed record SavedFrozenPlayer(int Id, FrozenAttribute[] Fields);
 public sealed record SavedFrozenClub(int Id, long Balance, FreezeMode Mode);
-public sealed record SavedFreezes(SavedFrozenPlayer[] Players, SavedFrozenClub[] Clubs);
+public sealed record SavedFrozenStaff(int Id, FrozenStaffAttribute[] Fields);
+public sealed record SavedFreezes(SavedFrozenPlayer[] Players, SavedFrozenClub[] Clubs, SavedFrozenStaff[]? Staff = null);
 
 [JsonSerializable(typeof(Dictionary<string, SavedFreezes>))]
 internal partial class FreezeJsonContext : JsonSerializerContext;
@@ -25,9 +27,10 @@ public static class FreezeStore
         return store + ":" + string.Join(',', ids);
     }
 
-    public static SavedFreezes Snapshot(IEnumerable<FrozenPlayer> players, IEnumerable<ClubBalanceFreezer> clubs) =>
+    public static SavedFreezes Snapshot(IEnumerable<FrozenPlayer> players, IEnumerable<ClubBalanceFreezer> clubs, IEnumerable<FrozenStaff>? staff = null) =>
         new(players.Select(p => new SavedFrozenPlayer(p.Id, p.Fields.ToArray())).ToArray(),
-            clubs.Select(c => new SavedFrozenClub(c.Id, c.Value, c.Mode)).ToArray());
+            clubs.Select(c => new SavedFrozenClub(c.Id, c.Value, c.Mode)).ToArray(),
+            (staff ?? []).Select(s => new SavedFrozenStaff(s.Id, s.Fields.ToArray())).ToArray());
 
     public static SavedFreezes Load(string path, string key)
     {
@@ -56,19 +59,27 @@ public static class FreezeStore
         ?? throw new InvalidDataException("Freeze data is empty");
 
     /// <summary>Resolve saved IDs against fresh records. A missing or duplicate ID is not rebound.</summary>
-    public static (IReadOnlyList<FrozenPlayer> Players, IReadOnlyList<ClubBalanceFreezer> Clubs) Resolve(
-        SavedFreezes saved, IEnumerable<PlayerRecord> players, IEnumerable<ClubEntry> clubs)
+    public static (IReadOnlyList<FrozenPlayer> Players, IReadOnlyList<ClubBalanceFreezer> Clubs, IReadOnlyList<FrozenStaff> Staff) Resolve(
+        SavedFreezes saved, IEnumerable<PlayerRecord> players, IEnumerable<ClubEntry> clubs, IEnumerable<StaffRecord>? staff = null)
     {
         var playerIds = players.Where(p => p.Id is > 0).GroupBy(p => p.Id!.Value).ToDictionary(g => g.Key, g => g.ToArray());
         var clubIds = clubs.Where(c => c.Id is > 0).GroupBy(c => c.Id!.Value).ToDictionary(g => g.Key, g => g.ToArray());
+        var staffIds = (staff ?? []).Where(s => s.Id > 0).GroupBy(s => s.Id).ToDictionary(g => g.Key, g => g.ToArray());
         var restoredPlayers = new List<FrozenPlayer>();
         var restoredClubs = new List<ClubBalanceFreezer>();
+        var restoredStaff = new List<FrozenStaff>();
         foreach (var p in saved.Players)
             if (playerIds.TryGetValue(p.Id, out var found) && found.Length == 1)
                 restoredPlayers.Add(new FrozenPlayer(p.Id, found[0].Address, p.Fields));
         foreach (var c in saved.Clubs)
             if (clubIds.TryGetValue(c.Id, out var found) && found.Length == 1)
                 restoredClubs.Add(new ClubBalanceFreezer(c.Id, found[0].Address, c.Balance, c.Mode));
-        return (restoredPlayers, restoredClubs);
+        if (saved.Staff is not null)
+        {
+            foreach (var s in saved.Staff)
+                if (staffIds.TryGetValue(s.Id, out var found) && found.Length == 1)
+                    restoredStaff.Add(new FrozenStaff(s.Id, found[0].Address, found[0].StaffAddress, s.Fields));
+        }
+        return (restoredPlayers, restoredClubs, restoredStaff);
     }
 }

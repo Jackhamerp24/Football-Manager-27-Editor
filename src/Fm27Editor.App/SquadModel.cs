@@ -24,6 +24,7 @@ public sealed record SquadPlayerRow(
     public string DisplayCondition => Condition is { } c and >= 0 ? c.ToString(Inv) : "";
     public string DisplayAskingPrice => AskingPrice is { } p and >= 0 ? p.ToString("N0", Inv) : "";
     public string DisplayNat => Player.NationalityName;
+    public string DisplayClub => Player.ClubName;
     public string DisplayName => Player.DisplayName;
 }
 
@@ -54,8 +55,8 @@ public static class SquadFormatters
         return best.Rating > 0 ? best.Label : "";
     }
 
-    public static string FormatInfFlags(PlayerRecord player, bool isInjured = false, bool isBanned = false, bool isUnhappy = false) =>
-        string.Join(", ", new[] { (isInjured, "Inj"), (isBanned, "Ban"), (isUnhappy, "Unh") }.Where(f => f.Item1).Select(f => f.Item2));
+    public static string FormatInfFlags(PlayerRecord player, bool isInjured = false, bool isBanned = false, bool isUnhappy = false, bool isFrozen = false) =>
+        string.Join(", ", new[] { (isInjured, "Inj"), (isBanned, "Ban"), (isUnhappy, "Unh"), (isFrozen, "Frz") }.Where(f => f.Item1).Select(f => f.Item2));
 }
 
 public sealed record PlayerScalarDescriptor(PlayerField Field, string Label, long Min, long Max, double Width);

@@ -17,6 +17,9 @@ public class ProfileLoadingTests
         Assert.Equal("27.0.0+2493426", roundTrip.MatchBuild);
         Assert.Equal(0x175DA000u, roundTrip.ImageSize);
         Assert.Equal(0x6AE563A1u, roundTrip.PeTimestamp);
+        // Game Pass live vector: 8,213 competition objects at [module+0x56743C0]+0x40, 8/11/2026.
+        Assert.Equal(0x56743C0, gamePass.Competition!.ListRootRva);
+        Assert.Equal(0x40, gamePass.Competition.ListOffset);
         const ulong module = 0x10000000;
         var memory = new FakeMemory();
         // PE bytes observed from the running Game Pass module on 4/11/2026.
@@ -63,7 +66,7 @@ public class ProfileLoadingTests
         var profiles = GameSession.LoadProfiles(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
         var updated = Assert.Single(profiles, p => p.Build == "27.0.0+2493426");
         var lists = OffsetProfile.Load(updated.ToJson()).Club!.Lists!;
-        // FM27 2493426: offsets and capability recorded in HANDOVER and re/FM27-findings.md.
+        // FM27 2493426: offsets and capability recorded in re/FM27-findings.md.
         Assert.Equal(0x10, lists.AffiliationAnnualFee);
         Assert.Equal(0x24, lists.AffiliationEnd);
         Assert.True(lists.AffiliationStartEditable);

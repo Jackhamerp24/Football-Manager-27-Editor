@@ -11,7 +11,13 @@ namespace Fm27Editor.App;
 
 public partial class MainWindow
 {
-    Control ColourInput(TextBox box)
+    Control ColourInput(TextBox box) => ColourInputControl.Create(box);
+}
+
+/// <summary>A colour text box with a swatch button that opens the colour picker; used wherever a colour is edited.</summary>
+static class ColourInputControl
+{
+    public static Control Create(TextBox box)
     {
         var button = new Button
         {
@@ -19,7 +25,7 @@ public partial class MainWindow
             Height = 24,
             Padding = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center,
-            BorderBrush = Brush("#3A3F55"),
+            BorderBrush = UiKit.Brush("#3A3F55"),
             BorderThickness = new Thickness(1),
         };
         void UpdateSwatch()
@@ -38,7 +44,7 @@ public partial class MainWindow
             if (text.Length == 6) text = "FF" + text;
             uint.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint initial);
             var picker = new ColourPickerWindow(initial);
-            var result = await picker.ShowDialog<uint?>(this);
+            var result = await picker.ShowDialog<uint?>((Window)TopLevel.GetTopLevel(button)!);
             if (result is { } value) box.Text = rgbOnly ? $"#{value & 0xFFFFFF:X6}" : $"#{value:X8}";
         };
         return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Children = { button, box } };
@@ -49,7 +55,7 @@ sealed class ColourPickerWindow : Window
 {
     const double SpectrumW = 312, SpectrumH = 164;
     double hue, saturation, value, alpha;
-    readonly Border spectrum = new() { Width = SpectrumW, Height = SpectrumH, ClipToBounds = true, BorderBrush = new SolidColorBrush(Color.Parse("#2B3147")), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3) };
+    readonly Border spectrum = new() { Width = SpectrumW, Height = SpectrumH, ClipToBounds = true, BorderBrush = UiKit.Brush("#2B3147"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3) };
     readonly Ellipse cursorOuter = new() { Width = 12, Height = 12, Stroke = Brushes.White, StrokeThickness = 2, IsHitTestVisible = false };
     readonly Ellipse cursorInner = new() { Width = 8, Height = 8, Stroke = Brushes.Black, StrokeThickness = 1, IsHitTestVisible = false };
     readonly Border alphaRamp = new() { Height = 6, Width = SpectrumW, CornerRadius = new CornerRadius(3), IsHitTestVisible = false };
@@ -59,7 +65,7 @@ sealed class ColourPickerWindow : Window
     readonly Slider hueSlider = new() { Minimum = 0, Maximum = 360, Width = SpectrumW };
     readonly Slider alphaSlider = new() { Minimum = 0, Maximum = 255, Width = SpectrumW };
     readonly ComboBox mode = new() { Width = 78, ItemsSource = new[] { "RGB", "HSV", "CMYK" }, SelectedIndex = 0 };
-    readonly TextBlock[] channelLabels = [new() { FontSize = 10, Foreground = new SolidColorBrush(Color.Parse("#94A3B8")), HorizontalAlignment = HorizontalAlignment.Center }, new() { FontSize = 10, Foreground = new SolidColorBrush(Color.Parse("#94A3B8")), HorizontalAlignment = HorizontalAlignment.Center }, new() { FontSize = 10, Foreground = new SolidColorBrush(Color.Parse("#94A3B8")), HorizontalAlignment = HorizontalAlignment.Center }, new() { FontSize = 10, Foreground = new SolidColorBrush(Color.Parse("#94A3B8")), HorizontalAlignment = HorizontalAlignment.Center }];
+    readonly TextBlock[] channelLabels = [new() { FontSize = 11.5, Foreground = UiKit.Brush("#94A3B8"), HorizontalAlignment = HorizontalAlignment.Center }, new() { FontSize = 11.5, Foreground = UiKit.Brush("#94A3B8"), HorizontalAlignment = HorizontalAlignment.Center }, new() { FontSize = 11.5, Foreground = UiKit.Brush("#94A3B8"), HorizontalAlignment = HorizontalAlignment.Center }, new() { FontSize = 11.5, Foreground = UiKit.Brush("#94A3B8"), HorizontalAlignment = HorizontalAlignment.Center }];
     readonly TextBox[] channels = [new() { Width = 52, HorizontalContentAlignment = HorizontalAlignment.Right }, new() { Width = 52, HorizontalContentAlignment = HorizontalAlignment.Right }, new() { Width = 52, HorizontalContentAlignment = HorizontalAlignment.Right }, new() { Width = 52, HorizontalContentAlignment = HorizontalAlignment.Right }];
     readonly StackPanel[] channelColumns = new StackPanel[4];
     bool updating;
@@ -131,10 +137,10 @@ sealed class ColourPickerWindow : Window
 
         var previewFrame = new Border
         {
-            BorderBrush = new SolidColorBrush(Color.Parse("#2B3147")),
+            BorderBrush = UiKit.Brush("#2B3147"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
-            Background = new SolidColorBrush(Color.Parse("#1A1E2E")),
+            Background = UiKit.Brush("#1A1E2E"),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new StackPanel { Orientation = Orientation.Horizontal, Children = { newPreview, oldPreview } },
         };
@@ -144,7 +150,7 @@ sealed class ColourPickerWindow : Window
         var topHexRow = new DockPanel { LastChildFill = false };
         DockPanel.SetDock(previewFrame, Dock.Left);
         topHexRow.Children.Add(previewFrame);
-        var hexGroup = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = "Hex", Foreground = new SolidColorBrush(Color.Parse("#94A3B8")), VerticalAlignment = VerticalAlignment.Center }, hex } };
+        var hexGroup = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = "Hex", Foreground = UiKit.Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center }, hex } };
         DockPanel.SetDock(hexGroup, Dock.Right);
         topHexRow.Children.Add(hexGroup);
 
@@ -179,8 +185,8 @@ sealed class ColourPickerWindow : Window
             Children =
             {
                 spectrum,
-                new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Hue", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#94A3B8")) }, hueRamp, hueSlider } },
-                new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Alpha", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#94A3B8")) }, alphaRamp, alphaSlider } },
+                new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Hue", FontSize = 12.5, Foreground = UiKit.Brush("#94A3B8") }, hueRamp, hueSlider } },
+                new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Alpha", FontSize = 12.5, Foreground = UiKit.Brush("#94A3B8") }, alphaRamp, alphaSlider } },
                 topHexRow,
                 channelRow,
                 new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 4, 0, 0), Children = { cancel, ok } },

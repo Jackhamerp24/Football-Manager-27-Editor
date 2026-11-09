@@ -30,7 +30,7 @@ public sealed partial class MainWindow
             {
                 Text = "No teams available for this club.",
                 Foreground = Brush("#94A3B8"),
-                FontSize = 11.5,
+                FontSize = 13,
                 Margin = new Thickness(4, 12, 0, 0),
             });
             return true;
@@ -42,7 +42,7 @@ public sealed partial class MainWindow
         var teamBar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = 8,
             Margin = new Thickness(0, 0, 0, 10),
         };
 
@@ -85,65 +85,73 @@ public sealed partial class MainWindow
 
         var curTeam = orderedTeams[selectedSquadTeamIndex];
         var allLoadedPlayers = rows.OfType<PlayerRecord>().ToList();
-        var squadPlayers = SquadAdapter.ReadSquad(backend.Session, curTeam.Address, allLoadedPlayers);
-        AddSquadPresetButtons(squadPlayers);
+        Func<IReadOnlyList<PlayerRecord>> getSquad = () =>
+            SquadAdapter.ReadSquad(backend.Session, curTeam.Address, allLoadedPlayers);
 
-        var playerFields = squadPlayers.ToDictionary(
-            p => p.Address,
-            p => SquadAdapter.ReadAllPlayerFields(backend.Session, p));
+        Action? refreshSquad = null;
 
-        DateOnly? gameDate = backend.Session.ReadGameDate();
-        bool hasCondition = playerFields.Values.Any(f => f.ContainsKey(PlayerField.Condition));
-        bool hasAskingPrice = playerFields.Values.Any(f => f.ContainsKey(PlayerField.AskingPrice));
+        // Golden Generation belongs to the youth squads: the U21 and U18 teams only.
+        bool youthTeam = orderedTeams.Count == 3 && selectedSquadTeamIndex >= 1;
+        var layoutGrid = BuildSquadGridAndActions(getSquad, isNation: false, out refreshSquad, allowGoldenGeneration: youthTeam);
+        clubEditorPanel.Children.Add(layoutGrid);
+        return true;
+    }
 
-        var squadRows = new List<SquadPlayerRow>(squadPlayers.Count);
-        foreach (var p in squadPlayers)
+    Control BuildSquadGridAndActions(
+        Func<IReadOnlyList<PlayerRecord>> getSquadPlayers,
+        bool isNation,
+        out Action refreshSquad,
+        bool allowGoldenGeneration = false)
+    {
+        var currentSquadPlayers = getSquadPlayers();
+
+        List<SquadPlayerRow> BuildRows(IReadOnlyList<PlayerRecord> players)
         {
-            var fields = playerFields.GetValueOrDefault(p.Address);
-            long? cond = fields?.TryGetValue(PlayerField.Condition, out long c) == true ? c : null;
-            long? price = fields?.TryGetValue(PlayerField.AskingPrice, out long pr) == true ? pr : null;
+            var playerFields = players.ToDictionary(
+                p => p.Address,
+                p => SquadAdapter.ReadAllPlayerFields(backend.Session, p));
 
-            var injuries = backend.Session.ReadInjuries(p);
-            var bans = backend.Session.ReadBans(p);
-            var unhappy = gameDate is { } today ? backend.Session.ReadUnhappiness(p).Where(m => m.IsActive(today)).ToList() : [];
-            bool isInjured = injuries.Count > 0;
-            bool isBanned = bans.Count > 0;
-            string inf = SquadFormatters.FormatInfFlags(p, isInjured, isBanned, unhappy.Count > 0);
-            var tips = new List<string>();
-            if (isInjured)
+            DateOnly? gameDate = backend.Session.ReadGameDate();
+            var list = new List<SquadPlayerRow>(players.Count);
+            foreach (var p in players)
             {
-                tips.Add(string.Join(", ", injuries.Select(injury => !string.IsNullOrEmpty(injury.Name)
-                    ? char.ToUpper(injury.Name[0]) + injury.Name[1..]
-                    : "Injured")));
-            }
-            if (isBanned)
-            {
-                tips.Add(string.Join(", ", bans.Select(b => b.Matches > 0 ? $"{b.Matches} match ban" : "Ban")));
-            }
-            if (unhappy.Count > 0) tips.Add(string.Join(", ", unhappy.Select(m => UnhappinessLabels.Motive(m.Motive))));
-            string infTip = string.Join("; ", tips);
+                var fields = playerFields.GetValueOrDefault(p.Address);
+                long? cond = fields?.TryGetValue(PlayerField.Condition, out long c) == true ? c : null;
+                long? price = fields?.TryGetValue(PlayerField.AskingPrice, out long pr) == true ? pr : null;
 
-            string pos = SquadFormatters.FormatPositions(p);
-            int? squadNum = SquadAdapter.ReadSquadNumber(backend.Session, p);
-            squadRows.Add(new SquadPlayerRow(p, squadNum, inf, pos, cond, price, "—", infTip));
+                var injuries = backend.Session.ReadInjuries(p);
+                var bans = backend.Session.ReadBans(p);
+                var unhappy = gameDate is { } today ? backend.Session.ReadUnhappiness(p).Where(m => m.IsActive(today)).ToList() : [];
+                bool isInjured = injuries.Count > 0;
+                bool isBanned = bans.Count > 0;
+                bool isFrozen = backend.Freezer?.Players.Any(fp => fp.Id == p.Id) == true;
+                string inf = SquadFormatters.FormatInfFlags(p, isInjured, isBanned, unhappy.Count > 0, isFrozen);
+                var tips = new List<string>();
+                if (isFrozen) tips.Add("Frozen");
+                if (isInjured)
+                {
+                    tips.Add(string.Join(", ", injuries.Select(injury => !string.IsNullOrEmpty(injury.Name)
+                        ? char.ToUpper(injury.Name[0]) + injury.Name[1..]
+                        : "Injured")));
+                }
+                if (isBanned)
+                {
+                    tips.Add(string.Join(", ", bans.Select(b => b.Matches > 0 ? $"{b.Matches} match ban" : "Ban")));
+                }
+                if (unhappy.Count > 0) tips.Add(string.Join(", ", unhappy.Select(m => UnhappinessLabels.Motive(m.Motive))));
+                string infTip = string.Join("; ", tips);
+
+                string pos = SquadFormatters.FormatPositions(p);
+                int? squadNum = SquadAdapter.ReadSquadNumber(backend.Session, p);
+                list.Add(new SquadPlayerRow(p, squadNum, inf, pos, cond, price, "—", infTip));
+            }
+            return list;
         }
 
-        var squadGrid = new DataGrid
-        {
-            IsReadOnly = true,
-            AutoGenerateColumns = false,
-            CanUserResizeColumns = true,
-            CanUserSortColumns = false,
-            SelectionMode = DataGridSelectionMode.Extended,
-            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-            HorizontalGridLinesBrush = Brush("#1D2130"),
-            RowHeight = 29,
-            Background = Brush("#11131C"),
-            BorderBrush = Brush("#252A3D"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            ItemsSource = squadRows,
-        };
+        var squadRows = BuildRows(currentSquadPlayers);
+
+        var squadGrid = ToolGrid.Create();
+        squadGrid.ItemsSource = squadRows;
         squadGrid.PointerMoved += (_, e) =>
         {
             if (!e.KeyModifiers.HasFlag(KeyModifiers.Control) || !e.GetCurrentPoint(squadGrid).Properties.IsLeftButtonPressed)
@@ -153,69 +161,19 @@ public sealed partial class MainWindow
                 squadGrid.SelectedItems.Add(item);
         };
 
-        squadGrid.Styles.Add(new Style(x => x.OfType<DataGridColumnHeader>())
-        {
-            Setters =
-            {
-                new Setter(TemplatedControl.PaddingProperty, new Thickness(4, 0)),
-                new Setter(Layoutable.MinHeightProperty, 26.0),
-            }
-        });
-        squadGrid.Styles.Add(new Style(x => x.OfType<DataGridColumnHeader>().Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>())
-        {
-            Setters =
-            {
-                new Setter(Layoutable.MarginProperty, new Thickness(0)),
-            }
-        });
-        squadGrid.Styles.Add(new Style(x => x.OfType<DataGridCell>())
-        {
-            Setters =
-            {
-                new Setter(TemplatedControl.PaddingProperty, new Thickness(0)),
-            }
-        });
+        Control Header(string text, string tooltip, HorizontalAlignment align = HorizontalAlignment.Center) => ToolGrid.Header(text, tooltip, align);
+        DataGridTemplateColumn NumCol(string title, Func<SquadPlayerRow, string> selector, double width, string tooltip) => ToolGrid.Number(title, selector, width, tooltip);
 
-        Control Header(string text, string tooltip, HorizontalAlignment align = HorizontalAlignment.Center)
-        {
-            var tb = new TextBlock
-            {
-                Text = text,
-                FontSize = 11,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = Brush("#94A3B8"),
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = align,
-                TextTrimming = TextTrimming.None,
-            };
-            ToolTip.SetTip(tb, tooltip);
-            return tb;
-        }
-
-        DataGridTemplateColumn NumCol(string title, Func<SquadPlayerRow, string> selector, double width, string tooltip)
-        {
-            return new DataGridTemplateColumn
-            {
-                Header = Header(title, tooltip, HorizontalAlignment.Right),
-                Width = new DataGridLength(width),
-                CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) => new TextBlock
-                {
-                    Text = selector(row),
-                    Foreground = Brush("#F1F5F9"),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    TextAlignment = TextAlignment.Right,
-                    Margin = new Thickness(0, 0, 5, 0),
-                }),
-            };
-        }
-
-        squadGrid.Columns.Add(NumCol("#", r => r.DisplayNumber, 32, "Squad Number"));
+        // Tools act on every ticked player; all are ticked until the user unticks someone.
+        var excluded = new HashSet<ulong>();
+        Action? updateSelection = null;
+        ToolGrid.AddTick<SquadPlayerRow>(squadGrid, excluded, r => r.Player.Address, () => squadRows, () => updateSelection?.Invoke());
+        squadGrid.Columns.Add(NumCol("#", r => r.DisplayNumber, 37, "Squad Number"));
 
         squadGrid.Columns.Add(new DataGridTemplateColumn
         {
             Header = Header("Inf", "Status / Injuries / Bans"),
-            Width = new DataGridLength(42),
+            Width = new DataGridLength(48),
             CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) =>
             {
                 var tb = new TextBlock
@@ -257,7 +215,7 @@ public sealed partial class MainWindow
         squadGrid.Columns.Add(new DataGridTemplateColumn
         {
             Header = Header("Pos", "Positions", HorizontalAlignment.Left),
-            Width = new DataGridLength(94),
+            Width = new DataGridLength(108),
             CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) =>
             {
                 var tb = new TextBlock
@@ -273,36 +231,60 @@ public sealed partial class MainWindow
             }),
         });
 
-        squadGrid.Columns.Add(new DataGridTemplateColumn
+        if (isNation)
         {
-            Header = Header("Nat", "Nationality", HorizontalAlignment.Left),
-            Width = new DataGridLength(72),
-            CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) =>
+            squadGrid.Columns.Add(new DataGridTemplateColumn
             {
-                var tb = new TextBlock
+                Header = Header("Club", "Club", HorizontalAlignment.Left),
+                Width = new DataGridLength(126),
+                CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) =>
                 {
-                    Text = row.DisplayNat,
-                    Foreground = Brush("#CBD5E1"),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    Margin = new Thickness(4, 0, 4, 0),
-                };
-                ToolTip.SetTip(tb, row.DisplayNat);
-                return tb;
-            }),
-        });
+                    var tb = new TextBlock
+                    {
+                        Text = row.DisplayClub,
+                        Foreground = Brush("#CBD5E1"),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(4, 0, 4, 0),
+                    };
+                    ToolTip.SetTip(tb, row.DisplayClub);
+                    return tb;
+                }),
+            });
+        }
+        else
+        {
+            squadGrid.Columns.Add(new DataGridTemplateColumn
+            {
+                Header = Header("Nat", "Nationality", HorizontalAlignment.Left),
+                Width = new DataGridLength(83),
+                CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) =>
+                {
+                    var tb = new TextBlock
+                    {
+                        Text = row.DisplayNat,
+                        Foreground = Brush("#CBD5E1"),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(4, 0, 4, 0),
+                    };
+                    ToolTip.SetTip(tb, row.DisplayNat);
+                    return tb;
+                }),
+            });
+        }
 
-        squadGrid.Columns.Add(NumCol("CA", r => r.DisplayCa, 36, "Current Ability"));
-        squadGrid.Columns.Add(NumCol("PA", r => r.DisplayPa, 36, "Potential Ability"));
-        squadGrid.Columns.Add(NumCol("Age", r => r.DisplayAge, 36, "Age"));
-        if (hasCondition)
-            squadGrid.Columns.Add(NumCol("Cond", r => r.DisplayCondition, 50, "Condition (0–10000)"));
-        if (hasAskingPrice)
+        squadGrid.Columns.Add(NumCol("CA", r => r.DisplayCa, 41, "Current Ability"));
+        squadGrid.Columns.Add(NumCol("PA", r => r.DisplayPa, 41, "Potential Ability"));
+        squadGrid.Columns.Add(NumCol("Age", r => r.DisplayAge, 41, "Age"));
+        squadGrid.Columns.Add(NumCol("Cond", r => r.DisplayCondition, 57, "Condition (0–10000)"));
+
+        if (!isNation)
         {
             squadGrid.Columns.Add(new DataGridTemplateColumn
             {
                 Header = Header("Price", "Asking Price (£)", HorizontalAlignment.Right),
-                Width = new DataGridLength(84),
+                Width = new DataGridLength(97),
                 CellTemplate = new FuncDataTemplate<SquadPlayerRow>((row, _) =>
                 {
                     var tb = new TextBlock
@@ -321,9 +303,9 @@ public sealed partial class MainWindow
             });
         }
 
-        squadGrid.DoubleTapped += (_, _) =>
+        squadGrid.DoubleTapped += (_, e) =>
         {
-            if (squadGrid.SelectedItem is SquadPlayerRow r)
+            if (UiKit.OnRow(e) && squadGrid.SelectedItem is SquadPlayerRow r)
                 OpenPlayerFromSquad(r.Player);
         };
         squadGrid.KeyDown += (_, e) =>
@@ -335,26 +317,64 @@ public sealed partial class MainWindow
             }
         };
 
-        var actionsHost = new Border();
-
-        void RefreshActionsPanel()
+        // Header click sorts like the Players table: numbers start high to low, text starts A to Z, a second click reverses.
+        // Rows with no value (blank number, no age) stay at the bottom either way.
+        var sortKeys = new Dictionary<string, Func<SquadPlayerRow, IComparable?>>
         {
-            var target = selectedSquadRow?.Player;
-            actionsHost.Child = CreatePlayerActionsPanel(
-                player: target,
-                isSquadMode: true,
-                getSquadPlayers: () => squadPlayers,
-                onStatus: msg => status.Text = msg,
-                getSelectedPlayers: () => squadGrid.SelectedItems.OfType<SquadPlayerRow>().Select(r => r.Player).ToArray());
+            ["#"] = r => r.SquadNumber is > 0 ? r.SquadNumber.Value : null,
+            ["Inf"] = r => r.InfFlags.Length > 0 ? r.InfFlags : null,
+            ["Name"] = r => r.DisplayName.ToLowerInvariant(),
+            ["Pos"] = r => r.FormattedPositions.Length > 0 ? r.FormattedPositions.ToLowerInvariant() : null,
+            ["Club"] = r => r.DisplayClub.ToLowerInvariant(),
+            ["Nat"] = r => r.DisplayNat.ToLowerInvariant(),
+            ["CA"] = r => r.Player.CurrentAbility,
+            ["PA"] = r => r.Player.PotentialAbility,
+            ["Age"] = r => r.Player.Age,
+            ["Cond"] = r => r.Condition is >= 0 ? r.Condition : null,
+            ["Price"] = r => r.AskingPrice is >= 0 ? r.AskingPrice : null,
+        };
+        void SetRows(List<SquadPlayerRow> rows, HashSet<ulong> selected)
+        {
+            squadRows = rows;
+            ToolGrid.SetItems(squadGrid, squadRows);
+            var first = rows.FirstOrDefault(r => selected.Contains(r.Player.Address));
+            if (first is not null)
+            {
+                squadGrid.SelectedItem = first;
+                foreach (var r in rows)
+                {
+                    if (r != first && selected.Contains(r.Player.Address))
+                        squadGrid.SelectedItems.Add(r);
+                }
+            }
+            updateSelection?.Invoke();
         }
+        ToolGrid.EnableSort(squadGrid, sortKeys);
+
+        void RefreshSquadLocal()
+        {
+            var prevSelected = squadGrid.SelectedItems.OfType<SquadPlayerRow>().Select(r => r.Player.Address).ToHashSet();
+            currentSquadPlayers = getSquadPlayers();
+            SetRows(BuildRows(currentSquadPlayers), prevSelected);
+        }
+        refreshSquad = RefreshSquadLocal;
+
+        var actionsHost = new Border();
+        actionsHost.Child = CreatePlayerActionsPanel(
+            player: null,
+            isSquadMode: true,
+            getSquadPlayers: () => currentSquadPlayers,
+            onStatus: msg => status.Text = msg,
+            getSelectedPlayers: () => squadRows.Where(r => !excluded.Contains(r.Player.Address)).Select(r => r.Player).ToArray(),
+            onApplied: RefreshSquadLocal,
+            registerSelectionUpdater: updater => updateSelection = updater,
+            allowGoldenGeneration: allowGoldenGeneration);
 
         squadGrid.SelectionChanged += (_, _) =>
         {
             selectedSquadRow = squadGrid.SelectedItem as SquadPlayerRow;
-            RefreshActionsPanel();
+            updateSelection?.Invoke();
         };
-
-        RefreshActionsPanel();
 
         var layoutGrid = new Grid
         {
@@ -368,8 +388,7 @@ public sealed partial class MainWindow
         Grid.SetColumn(actionsHost, 1);
         layoutGrid.Children.Add(actionsHost);
 
-        clubEditorPanel.Children.Add(layoutGrid);
-        return true;
+        return layoutGrid;
     }
 
     async void OpenPlayerFromSquad(PlayerRecord player)

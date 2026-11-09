@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 
@@ -15,7 +16,9 @@ public sealed class App : Application
 {
     public override void Initialize()
     {
-        RequestedThemeVariant = ThemeVariant.Dark;
+        AppTheme.Load();
+        Fm27Editor.Core.Settings.DateSetting.Load();
+        RequestedThemeVariant = AppTheme.Variant;
         Styles.Add(new FluentTheme());
         Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://Avalonia.Controls.DataGrid")) { Source = new Uri("avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml") });
         InputElement.KeyDownEvent.AddClassHandler<NumericUpDown>((control, e) =>
@@ -49,6 +52,10 @@ public sealed class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        var recorder = FlightRecorder.Start(typeof(App).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "dev");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => recorder?.Log("crash", e.ExceptionObject.ToString() ?? "unhandled exception");
+        TaskScheduler.UnobservedTaskException += (_, e) => recorder?.Log("error", "unobserved task exception: " + e.Exception.GetBaseException());
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             desktop.MainWindow = new MainWindow();
         base.OnFrameworkInitializationCompleted();
@@ -56,31 +63,37 @@ public sealed class App : Application
 
     void ConfigureStyles()
     {
-        var accent = new SolidColorBrush(Color.Parse("#7C3AED"));
-        var accentHover = new SolidColorBrush(Color.Parse("#8B5CF6"));
-        var accentSubtle = new SolidColorBrush(Color.Parse("#241B42"));
-        var windowBg = new SolidColorBrush(Color.Parse("#0C0E14"));
-        var surface = new SolidColorBrush(Color.Parse("#131620"));
-        var surfaceInput = new SolidColorBrush(Color.Parse("#0E1119"));
-        var surfaceElevated = new SolidColorBrush(Color.Parse("#191D2B"));
-        var surfaceHover = new SolidColorBrush(Color.Parse("#22283B"));
-        var surfaceDisabled = new SolidColorBrush(Color.Parse("#141722"));
-        var borderSubtle = new SolidColorBrush(Color.Parse("#222738"));
-        var borderControl = new SolidColorBrush(Color.Parse("#2D344B"));
-        var borderDisabled = new SolidColorBrush(Color.Parse("#1E2333"));
-        var textPrimary = new SolidColorBrush(Color.Parse("#F1F5F9"));
-        var textSecondary = new SolidColorBrush(Color.Parse("#94A3B8"));
-        var textDisabled = new SolidColorBrush(Color.Parse("#525B72"));
+        var accent = UiKit.Brush("#7C3AED");
+        var accentHover = UiKit.Brush("#8B5CF6");
+        var accentSubtle = UiKit.Brush("#241B42");
+        var windowBg = UiKit.Brush("#0C0E14");
+        var surface = UiKit.Brush("#131620");
+        var surfaceInput = UiKit.Brush("#0E1119");
+        var surfaceElevated = UiKit.Brush("#191D2B");
+        var surfaceHover = UiKit.Brush("#22283B");
+        var surfaceDisabled = UiKit.Brush("#141722");
+        var borderSubtle = UiKit.Brush("#222738");
+        var borderControl = UiKit.Brush("#2D344B");
+        var borderDisabled = UiKit.Brush("#1E2333");
+        var textPrimary = UiKit.Brush("#F1F5F9");
+        var textSecondary = UiKit.Brush("#94A3B8");
+        var textDisabled = UiKit.Brush("#525B72");
 
-        Resources["SystemAccentColor"] = Color.Parse("#7C3AED");
-        Resources["SystemAccentColorDark1"] = Color.Parse("#6D28D9");
-        Resources["SystemAccentColorLight1"] = Color.Parse("#8B5CF6");
+        void SetAccent()
+        {
+            // The accent colours Fluent uses for focus rings and toggles follow the theme: purple in dark, blue in light.
+            Resources["SystemAccentColor"] = AppTheme.Resolve(Color.Parse("#7C3AED"), AppTheme.Mode);
+            Resources["SystemAccentColorDark1"] = AppTheme.Resolve(Color.Parse("#6D28D9"), AppTheme.Mode);
+            Resources["SystemAccentColorLight1"] = AppTheme.Resolve(Color.Parse("#8B5CF6"), AppTheme.Mode);
+        }
+        SetAccent();
+        AppTheme.Changed += SetAccent;
         Resources["DataGridRowSelectedBackgroundOpacity"] = 1.0;
         Resources["DataGridRowSelectedHoveredBackgroundOpacity"] = 1.0;
         Resources["DataGridRowSelectedUnfocusedBackgroundOpacity"] = 1.0;
-        Resources["DataGridRowSelectedBackgroundBrush"] = new SolidColorBrush(Color.Parse("#231B42"));
-        Resources["ListBoxItemSelectedBackgroundThemeBrush"] = new SolidColorBrush(Color.Parse("#231B42"));
-        Resources["ListBoxItemSelectedPointerOverBackgroundThemeBrush"] = new SolidColorBrush(Color.Parse("#2B2150"));
+        Resources["DataGridRowSelectedBackgroundBrush"] = UiKit.Brush("#231B42");
+        Resources["ListBoxItemSelectedBackgroundThemeBrush"] = UiKit.Brush("#231B42");
+        Resources["ListBoxItemSelectedPointerOverBackgroundThemeBrush"] = UiKit.Brush("#2B2150");
 
         Styles.Add(new Style(x => x.Is<Window>())
         {
@@ -88,7 +101,7 @@ public sealed class App : Application
             {
                 new Setter(TemplatedControl.BackgroundProperty, windowBg),
                 new Setter(TemplatedControl.ForegroundProperty, textPrimary),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
             }
         });
 
@@ -129,7 +142,7 @@ public sealed class App : Application
             Setters =
             {
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(3)),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(Layoutable.HeightProperty, 24.0),
                 new Setter(Layoutable.MinHeightProperty, 24.0),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 0)),
@@ -159,7 +172,7 @@ public sealed class App : Application
             Setters =
             {
                 new Setter(TemplatedControl.BackgroundProperty, surfaceHover),
-                new Setter(TemplatedControl.BorderBrushProperty, new SolidColorBrush(Color.Parse("#434C6B"))),
+                new Setter(TemplatedControl.BorderBrushProperty, UiKit.Brush("#434C6B")),
             }
         });
 
@@ -234,7 +247,7 @@ public sealed class App : Application
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.ForegroundProperty, textPrimary),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 0)),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(3)),
             }
         });
@@ -244,7 +257,7 @@ public sealed class App : Application
             Setters =
             {
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(3)),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(Layoutable.HeightProperty, 24.0),
                 new Setter(Layoutable.MinHeightProperty, 24.0),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(7, 0)),
@@ -277,7 +290,7 @@ public sealed class App : Application
             Setters =
             {
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(3)),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(Layoutable.HeightProperty, 24.0),
                 new Setter(Layoutable.MinHeightProperty, 24.0),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 0, 0, 0)),
@@ -305,7 +318,7 @@ public sealed class App : Application
             Setters =
             {
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(3)),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(Layoutable.HeightProperty, 24.0),
                 new Setter(Layoutable.MinHeightProperty, 24.0),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 0)),
@@ -362,7 +375,7 @@ public sealed class App : Application
         {
             Setters =
             {
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(TemplatedControl.FontWeightProperty, FontWeight.Medium),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(12, 6)),
                 new Setter(Layoutable.MinHeightProperty, 30.0),
@@ -383,10 +396,10 @@ public sealed class App : Application
         {
             Setters =
             {
-                new Setter(TemplatedControl.FontSizeProperty, 11.0),
+                new Setter(TemplatedControl.FontSizeProperty, 12.5),
                 new Setter(TemplatedControl.FontWeightProperty, FontWeight.SemiBold),
                 new Setter(TemplatedControl.ForegroundProperty, textSecondary),
-                new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Color.Parse("#171B28"))),
+                new Setter(TemplatedControl.BackgroundProperty, UiKit.Brush("#171B28")),
                 new Setter(TemplatedControl.BorderBrushProperty, borderSubtle),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0, 0, 1, 1)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 5)),
@@ -406,7 +419,7 @@ public sealed class App : Application
         {
             Setters =
             {
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 0)),
                 new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center),
             }
@@ -460,7 +473,7 @@ public sealed class App : Application
             {
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 4)),
                 new Setter(Layoutable.MinHeightProperty, 26.0),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
             }
         });
 
@@ -468,7 +481,7 @@ public sealed class App : Application
         {
             Setters =
             {
-                new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, new SolidColorBrush(Color.Parse("#231B42"))),
+                new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, UiKit.Brush("#231B42")),
             }
         });
 
@@ -476,7 +489,7 @@ public sealed class App : Application
         {
             Setters =
             {
-                new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, new SolidColorBrush(Color.Parse("#2B2150"))),
+                new Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, UiKit.Brush("#2B2150")),
             }
         });
 
@@ -484,9 +497,10 @@ public sealed class App : Application
         {
             Setters =
             {
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(0)),
                 new Setter(Layoutable.HeightProperty, 24.0),
                 new Setter(Layoutable.MinHeightProperty, 24.0),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(Layoutable.VerticalAlignmentProperty, VerticalAlignment.Center),
             }
         });
@@ -497,7 +511,7 @@ public sealed class App : Application
             {
                 new Setter(Layoutable.HeightProperty, 24.0),
                 new Setter(Layoutable.MinHeightProperty, 24.0),
-                new Setter(TemplatedControl.FontSizeProperty, 11.5),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
                 new Setter(TemplatedControl.BackgroundProperty, surfaceInput),
                 new Setter(TemplatedControl.BorderBrushProperty, borderControl),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),

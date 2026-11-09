@@ -19,6 +19,7 @@ namespace Fm27Editor.Core.Players;
 public sealed record FutureTransferOffsets(int PlayerOffers, int RecordContract, int RecordOfferId, int DateVector, int DatePerson, int Date, int DateOfferId,
     int Wage, int Type, int Rolling, int RollingMask, int Started, int Expires, uint FullContractVtable, uint LoanContractVtable)
 {
+    public int? CurrentLoanHolder { get; init; }
     static readonly string[] Keys = ["playerOffers", "recordContract", "recordOfferId", "dateVector", "datePerson", "date", "dateOfferId",
         "wage", "type", "rolling", "rollingMask", "started", "expires", "fullContractVtable", "loanContractVtable"];
 
@@ -27,7 +28,9 @@ public sealed record FutureTransferOffsets(int PlayerOffers, int RecordContract,
         long[] v = Keys.Select(key => Convert.ToInt64(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
             ? s[2..] : throw new FormatException($"player.futureTransfers.{key}: expected hex"), 16)).ToArray();
         return new((int)v[0], (int)v[1], (int)v[2], (int)v[3], (int)v[4], (int)v[5], (int)v[6], (int)v[7], (int)v[8], (int)v[9], (int)v[10],
-            (int)v[11], (int)v[12], (uint)v[13], (uint)v[14]);
+            (int)v[11], (int)v[12], (uint)v[13], (uint)v[14]) { CurrentLoanHolder = e.TryGetProperty("currentLoanHolder", out var h)
+                ? Convert.ToInt32(h.GetString() is { } hs && hs.StartsWith("0x") ? hs[2..] : throw new FormatException("player.futureTransfers.currentLoanHolder: expected hex"), 16)
+                : null };
     }
 
     internal void Write(Utf8JsonWriter w)
@@ -36,6 +39,7 @@ public sealed record FutureTransferOffsets(int PlayerOffers, int RecordContract,
             FullContractVtable, LoanContractVtable];
         w.WriteStartObject("futureTransfers");
         for (int i = 0; i < Keys.Length; i++) w.WriteString(Keys[i], $"0x{v[i]:X}");
+        if (CurrentLoanHolder is { } holder) w.WriteString("currentLoanHolder", $"0x{holder:X}");
         w.WriteEndObject();
     }
 }

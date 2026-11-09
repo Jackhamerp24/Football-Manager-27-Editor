@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Reporting problems
+- A bug icon at the bottom right of the window creates a report zip on the Desktop: the player's description, the state of the
+  editor and game, and the run logs. Every write the editor makes to the game is logged to disk as it happens, so a report can
+  also be made after the editor or the game was closed or crashed. Nothing is uploaded.
+
+### Players
+- **Future transfer** from Move to club (untick Move now): a date and every transfer term in FMRTE's order (instalments,
+  league / international / per-appearance and goal payments, sell-on with Of the profit, buy-back fee, wage contribution,
+  friendly), all 0 by default. Game Pass only for now.
+- **Remove future transfer**: a button on the Future Transfer tab takes the agreed transfer back out of the game (on both builds).
+- **Swap Player**, **Promises** (all 68 types, add / edit / remove), **Tactical Understanding** preset.
+- **Favourites**: star a player, then open the favourites table from the toolbar.
+- **Reload** (Ctrl+R) rereads the current screen from the game and keeps unsaved edits.
+
+### Stadiums and cities
+- Stadium nearby stadium and coordinates; owner and location open the club and the city.
+- City nation, region, language and weather.
+
+### Other
+- **Settings** (gear button in the toolbar): the date format for the whole editor, DD-MM-YYYY (default), MM-DD-YYYY or YYYY-MM-DD, remembered between runs. Exports keep ISO dates.
+- **Light theme** (white and blue) next to the dark one: the sun / moon button in the toolbar switches in place and the choice is remembered.
+- Notices: the game runs a supported build but no save is loaded; a newer release exists on GitHub (one check at start); the game loaded another save, which locks every tab and refuses writes until Load Game reads it.
+- Much lower memory use for pictures (smaller decoded images, a capped cache, a compact index of the graphics pack).
+- Smaller download: native libraries for other platforms are left out of the publish folder.
+- New logo and icon.
+- Removed Mass Edit and the club-level Tactical Understanding bars.
+
 ## 0.3.0 (5/11/2026)
 
 ### Game versions

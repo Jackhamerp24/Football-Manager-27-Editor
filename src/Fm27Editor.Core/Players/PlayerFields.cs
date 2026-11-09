@@ -77,6 +77,7 @@ public sealed class PlayerFieldAccess(IProcessMemory memory, OffsetProfile profi
 
     public void Set(PlayerRecord player, PlayerField field, long expected, long value)
     {
+        using var _ = Fm27Editor.Core.History.ChangeContext.Describe(Fm27Editor.Core.History.PlayerChangeLabels.Words(field.ToString()));
         var o = Map.TryGetValue(field, out var x) ? x : throw new InvalidOperationException($"{field} is not mapped in this profile");
         if (!IsPlayer(player.Address)) throw new StaleObjectException($"0x{player.Address:X} is no longer a player object");
         ulong at = Resolve(player.Address, o) ?? throw new StaleObjectException($"{field}: pointer path {o.PathText} is broken");

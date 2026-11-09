@@ -41,7 +41,7 @@ public sealed partial class MainWindow
     IReadOnlyDictionary<int, CompetitionInfo>? competitionCache;
 
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
-    static string D(DateOnly? d) => d?.ToString("yyyy-MM-dd", Inv) ?? "";
+    static string D(DateOnly? d) => DateSetting.Format(d);
 
     /// <summary>The Contract tab; with <paramref name="future"/> the same editor on a future transfer's contract (FMRTE's Future Contract).</summary>
     Control ContractPanel(PlayerRecord player, ulong future = 0)
@@ -81,6 +81,12 @@ public sealed partial class MainWindow
             box.TextChanged += (_, _) => Changed(key, original, box.Text ?? "");
             return box;
         }
+        Control DateText(string key, string original)
+        {
+            var box = new DateBox { Width = 140, Text = draft.Changes.GetValueOrDefault(key, original), HorizontalContentAlignment = HorizontalAlignment.Right };
+            box.TextChanged += (_, _) => Changed(key, original, box.Text ?? "");
+            return box;
+        }
         Control Choice<T>(string key, T original, Func<T, string> label, IEnumerable<T> values) where T : struct, Enum
         {
             var items = values.Select(v => new EnumOption<T>(v, label(v))).ToArray();
@@ -95,71 +101,50 @@ public sealed partial class MainWindow
             return combo;
         }
 
-        // Two columns of label + value, in the order FMRTE's contract screen uses.
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("160,*,24,160,*"), RowSpacing = 6 };
-        int[] rowOf = [0, 0];
-        void Row(int column, string label, Control? control, Control? extra = null)
-        {
-            if (control is null) return;
-            int row = rowOf[column]++;
-            while (grid.RowDefinitions.Count <= row) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var name = new TextBlock { Text = label, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
-            Grid.SetRow(name, row); Grid.SetColumn(name, column == 0 ? 0 : 3); grid.Children.Add(name);
-            // Let the value cell shrink with the editor pane instead of overflowing it.
-            control.MaxWidth = control.Width;
-            control.Width = double.NaN;
-            control.HorizontalAlignment = HorizontalAlignment.Stretch;
-            Control value = control;
-            if (extra is not null)
-            {
-                var pair = new Grid { ColumnDefinitions = new ColumnDefinitions("*,64"), ColumnSpacing = 6 };
-                Grid.SetColumn(extra, 1);
-                pair.Children.Add(control);
-                pair.Children.Add(extra);
-                value = pair;
-            }
-            value.HorizontalAlignment = HorizontalAlignment.Stretch;
-            Grid.SetRow(value, row); Grid.SetColumn(value, column == 0 ? 1 : 4); grid.Children.Add(value);
-        }
-        Row(0, "Type", s.Type is { } t ? Choice("Type", t, ContractLabels.Of, Enum.GetValues<ContractType>()) : null);
-        Row(0, "Started", s.Started is not null || backend.Session.Profile.Contract?.Started is not null ? Text("Started", D(s.Started)) : null);
-        Row(0, "Signed", Text("Signed", D(s.Signed)));
-        Row(0, "Wages (per week)", Text("Wage", s.Wage.ToString(Inv)));
-        Row(0, "Loyalty Bonus (per week)", s.LoyaltyBonus is { } lb ? Text("Loyalty Bonus", lb.ToString(Inv)) : null);
-        Row(0, "Number", s.SquadNumber is { } n ? Text("Number", n.ToString(Inv), 64) : null);
-        Row(1, "Expires", Text("Expires", D(s.Expires)));
-        Row(1, "Joined Club", Text("Joined Club", D(s.JoinedClub)));
-        Row(1, "Agreed Playing Time", s.PlayingTime is { } pt ? Choice("Playing Time", pt, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null);
-        Row(1, "Future Playing Time", s.FuturePlayingTime is { } fp ? Choice("Future Playing Time", fp, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null,
+        // Two columns of label + value using reusable OOP TwoColumnFormBuilder.
+        var form = new UiKit.TwoColumnFormBuilder();
+        form.AddRow(0, "Type", s.Type is { } t ? Choice("Type", t, ContractLabels.Of, Enum.GetValues<ContractType>()) : null);
+        form.AddRow(0, "Started", s.Started is not null || backend.Session.Profile.Contract?.Started is not null ? DateText("Started", D(s.Started)) : null);
+        form.AddRow(0, "Signed", DateText("Signed", D(s.Signed)));
+        form.AddRow(0, "Wages (per week)", Text("Wage", s.Wage.ToString(Inv)));
+        form.AddRow(0, "Loyalty Bonus (per week)", s.LoyaltyBonus is { } lb ? Text("Loyalty Bonus", lb.ToString(Inv)) : null);
+        form.AddRow(0, "Number", s.SquadNumber is { } n ? Text("Number", n < 0 ? "" : n.ToString(Inv), 64) : null);
+        form.AddRow(1, "Expires", DateText("Expires", D(s.Expires)));
+        form.AddRow(1, "Joined Club", DateText("Joined Club", D(s.JoinedClub)));
+        form.AddRow(1, "Agreed Playing Time", s.PlayingTime is { } pt ? Choice("Playing Time", pt, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null);
+        form.AddRow(1, "Future Playing Time", s.FuturePlayingTime is { } fp ? Choice("Future Playing Time", fp, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null,
             s.FuturePlayingTimeYear is { } fy ? Text("Future Year", ContractYearInput.Format(fy), 64) : null);
-        Row(1, "Happiness", s.Happiness is { } h ? Text("Happiness", h.ToString(Inv), 64) : null);
-        Row(1, "Playing Time Happiness", s.PlayingTimeHappiness is { } ph ? Text("Playing Time Happiness", ph.ToString(Inv), 64) : null);
+        form.AddRow(1, "Happiness", s.Happiness is { } h ? Text("Happiness", h.ToString(Inv), 64) : null);
+        form.AddRow(1, "Playing Time Happiness", s.PlayingTimeHappiness is { } ph ? Text("Playing Time Happiness", ph.ToString(Inv), 64) : null);
 
-        grid.Margin = new Thickness(12, 10);
-        panel.Children.Add(UiKit.Card("Contract Details", grid));
+        panel.Children.Add(form.BuildCard("Contract Details"));
 
         if (backend.Session.Profile.Contract?.Clauses is not null)
         {
             var clauseStack = new StackPanel { Spacing = 0 };
 
-            var terms = new Grid { ColumnDefinitions = new ColumnDefinitions("300,60,80,50,130,*"), RowSpacing = 6, Margin = new Thickness(12, 10, 12, 8) };
+            // Name, then up to two label + box pairs on fixed columns, then Remove: every row lines up the same way.
+            var terms = new Grid { ColumnDefinitions = new ColumnDefinitions("*,64,112,64,112,88"), RowSpacing = 6, ColumnSpacing = 8, Margin = new Thickness(12, 10, 12, 8) };
             foreach (var term in s.Terms)
             {
                 int row = terms.RowDefinitions.Count; terms.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                void Cell(Control c, int col) { c.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(c, row); Grid.SetColumn(c, col); terms.Children.Add(c); }
+                void Cell(Control c, int col, HorizontalAlignment align = HorizontalAlignment.Left) { c.HorizontalAlignment = align; Grid.SetRow(c, row); Grid.SetColumn(c, col); terms.Children.Add(c); }
+                TextBlock Unit(string text) => new() { Text = text, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") };
                 var remove = new Button { Content = "Remove" };
                 remove.Click += (_, _) => ChangeTerms(player, draft, () => writer.RemoveTerm(draft.Player, draft.Snapshot, term.Index), $"Removed {ContractLabels.Term(term.Type)}", future);
-                Cell(remove, 5);
-                Cell(new TextBlock { Text = ContractLabels.Term(term.Type), FontSize = 11.5, Foreground = Brush("#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }, 0);
-                if (ContractLabels.TermParameter(term.Type) is { } unit)
-                {
-                    Cell(new TextBlock { Text = unit, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, 1);
-                    Cell(Text(TermParameterKey(term), term.Parameter.ToString(Inv), 64), 2);
-                }
+                Cell(remove, 5, HorizontalAlignment.Right);
+                Cell(new TextBlock { Text = ContractLabels.Term(term.Type), FontSize = 13, Foreground = Brush("#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }, 0);
+                int next = 1;
                 if (ContractLabels.TermHasValue(term.Type))
                 {
-                    Cell(new TextBlock { Text = "Value", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, 3);
-                    Cell(Text(TermValueKey(term), term.Value.ToString(Inv), 116), 4);
+                    Cell(Unit("Value"), next, HorizontalAlignment.Right);
+                    Cell(Text(TermValueKey(term), term.Value.ToString(Inv), 112), next + 1, HorizontalAlignment.Right);
+                    next += 2;
+                }
+                if (ContractLabels.TermParameter(term.Type) is { } unit)
+                {
+                    Cell(Unit(unit), next, HorizontalAlignment.Right);
+                    Cell(Text(TermParameterKey(term), term.Parameter.ToString(Inv), 112), next + 1, HorizontalAlignment.Right);
                 }
             }
             if (s.Terms.Count > 0)
@@ -169,7 +154,7 @@ public sealed partial class MainWindow
             var addType = new ComboBox { Width = 300, ItemsSource = ContractLabels.Terms.Select(kv => new TermOption(kv.Key, kv.Value)).ToArray(), PlaceholderText = "Add bonus or clause" };
             var addParam = new TextBox { Width = 64, Text = "", IsVisible = false, HorizontalContentAlignment = HorizontalAlignment.Right };
             var addValue = new TextBox { Width = 116, Text = "", HorizontalContentAlignment = HorizontalAlignment.Right };
-            var paramLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8"), Width = 52 };
+            var paramLabel = new TextBlock { FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8"), Width = 52 };
             var add = new Button { Content = "Add", IsEnabled = false };
             addType.SelectionChanged += (_, _) =>
             {
@@ -199,7 +184,7 @@ public sealed partial class MainWindow
                 {
                     Orientation = Orientation.Horizontal,
                     Spacing = 8,
-                    Children = { addType, paramLabel, addParam, new TextBlock { Text = "Value", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, addValue, add }
+                    Children = { addType, paramLabel, addParam, new TextBlock { Text = "Value", FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, addValue, add }
                 }
             };
             clauseStack.Children.Add(addBar);
@@ -207,15 +192,9 @@ public sealed partial class MainWindow
             panel.Children.Add(UiKit.Card("Bonuses & Clauses", clauseStack));
         }
 
-        if (future == 0 && TransferClausesPanel(player, draft, (k, original, width) => Text(k, original, width)) is { } transferClauses) panel.Children.Add(transferClauses);
+        if (future == 0 && TransferClausesPanel(player, draft, (k, original, width) => Text(k, original, width), DateText) is { } transferClauses) panel.Children.Add(transferClauses);
         if (future == 0 && UnhappinessPanel(player) is { } unhappiness) panel.Children.Add(unhappiness);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 2, 0, 0) };
-        save = new Button { Content = "Save contract", IsEnabled = draft.Changes.Count > 0, Classes = { "accent" } };
-        discard = new Button { Content = "Discard", IsEnabled = draft.Changes.Count > 0 };
-        save.Click += (_, _) => SaveContract(player, draft, future);
-        discard.Click += (_, _) => { contractDrafts.Remove(key); RenderEditor(); };
-        buttons.Children.Add(save); buttons.Children.Add(discard); panel.Children.Add(buttons);
         return panel;
     }
 
@@ -223,13 +202,13 @@ public sealed partial class MainWindow
     /// Clauses from the player's earlier transfers that his club owes. Value edits go into the contract draft and are
     /// written by Save contract; sell-ons are removed and added at once (beneficiary by club ID). Null for free agents.
     /// </summary>
-    Control? TransferClausesPanel(PlayerRecord player, ContractDraft draft, Func<string, string, double, Control> text)
+    Control? TransferClausesPanel(PlayerRecord player, ContractDraft draft, Func<string, string, double, Control> text, Func<string, string, Control> dateText)
     {
         if (player.Id is not { } id || player.Club is not { } club || backend.Session.Profile.Club?.TransferClauses is null) return null;
         var competitions = competitionCache ??= backend.Session.LoadCompetitions(Players());
         var clauses = draft.TransferClauses ??= backend.Session.ReadTransferClauses(club.Address, competitions).Where(c => c.PlayerId == id).ToList();
 
-        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 13, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
         WrapPanel Line(params Control[] items) { var p = new WrapPanel { Orientation = Orientation.Horizontal }; foreach (var i in items) { i.Margin = new Thickness(0, 0, 6, 0); p.Children.Add(i); } return p; }
 
         var list = new Grid { ColumnDefinitions = new ColumnDefinitions("130,100,110,*,Auto"), RowSpacing = 6, ColumnSpacing = 12, Margin = new Thickness(12, 10, 12, 8) };
@@ -245,9 +224,6 @@ public sealed partial class MainWindow
                 case TransferClauseKind.SellOn:
                     Cell(Line(text(main, $"{c.Percentage}", 52), Label("%")), 2);
                     Cell(Line(Label("Signed for"), text(extra, c.SignedFor?.ToString(Inv) ?? "", 110)), 3);
-                    var remove = new Button { Content = "Remove" };
-                    remove.Click += (_, _) => ClauseChange(player, draft, () => backend.Session.TransferClauses.RemoveSellOn(club.Address, c), "Sell-on removed");
-                    Cell(remove, 4);
                     break;
                 case TransferClauseKind.AppearanceFee:
                     Cell(text(main, $"{c.Amount}", 110), 2);
@@ -255,40 +231,16 @@ public sealed partial class MainWindow
                     break;
                 default:
                     Cell(text(main, $"{c.Amount}", 110), 2);
-                    Cell(Line(Label(ContractLabels.Competition(c), "#CBD5E1"), Label("until"), text(extra, D(c.Ends), 96)), 3);
+                    Cell(Line(Label(ContractLabels.Competition(c), "#CBD5E1"), Label("until"), dateText(extra, D(c.Ends))), 3);
                     break;
             }
+            var removeClause = new Button { Content = "Remove" };
+            string removed = $"{ContractLabels.Of(c.Kind)} removed";
+            removeClause.Click += (_, _) => ClauseChange(player, draft, () => backend.Session.TransferClauses.RemoveClause(club.Address, c), removed);
+            Cell(removeClause, 4);
         }
 
-        // Add a sell-on: beneficiary club by ID, percentage.
-        TextBox Box(double width, string watermark = "") => new() { Width = width, Watermark = watermark, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var addClub = Box(90, "Club ID");
-        var addPercent = Box(52);
-        var add = new Button { Content = "Add sell-on" };
-        add.Click += (_, _) =>
-        {
-            try
-            {
-                int clubId = int.Parse(addClub.Text ?? "", NumberStyles.Integer, Inv), percent = int.Parse(addPercent.Text ?? "", NumberStyles.Integer, Inv);
-                var clubs = clubCache ??= backend.Session.LoadClubs(Players());
-                var beneficiary = clubs.FirstOrDefault(k => k.Id == clubId);
-                if (beneficiary is null) { status.Text = $"No club with ID {clubId}"; return; }
-                ClauseChange(player, draft, () => backend.Session.AddSellOn(club.Address, id, beneficiary.Address, percent), $"Sell-on to {beneficiary.DisplayName} added");
-            }
-            catch (FormatException) { status.Text = "Enter a club ID and a whole percentage"; }
-        };
-        var addBar = new Border
-        {
-            BorderBrush = UiKit.BorderSubtle,
-            BorderThickness = new Thickness(0, clauses.Count > 0 ? 1 : 0, 0, 0),
-            Padding = new Thickness(12, 10),
-            Child = Line(Label("Sell-On", "#F1F5F9"), addClub, addPercent, Label("%"), add)
-        };
-
-        var stack = new StackPanel { Spacing = 0 };
-        if (clauses.Count > 0) stack.Children.Add(list);
-        stack.Children.Add(addBar);
-        return UiKit.Card("Transfer Clauses", stack);
+        return clauses.Count > 0 ? UiKit.Card("Transfer Clauses", list) : null;
     }
 
     /// <summary>Active unhappiness motives (as FMRTE lists them), each removable, plus Remove All. Null when there are none.</summary>
@@ -298,13 +250,13 @@ public sealed partial class MainWindow
         var motives = backend.Session.ReadUnhappiness(player).Where(m => m.IsActive(today)).ToList();
         if (motives.Count == 0) return null;
 
-        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 11.5, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
+        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 13, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
         void Remove(Func<PlayerUnhappiness, bool>? which, string done)
         {
             try
             {
                 int n = 0;
-                backend.Edits.Execute(() => n = backend.Session.RemoveUnhappiness(player, which));
+                backend.Edits.Execute("Player", player.DisplayName, "Page save", () => n = backend.Session.RemoveUnhappiness(player, which));
                 RenderEditor();
                 status.Text = $"{done} ({n}). Continue in FM to see updates.";
             }
@@ -325,7 +277,7 @@ public sealed partial class MainWindow
             remove.Click += (_, _) => Remove(x => x.Index == index, "Unhappiness removed");
             Cell(remove, 4);
         }
-        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), MinHeight = 20, Height = 20, FontSize = 10.5 };
+        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), MinHeight = 20, Height = 20, FontSize = 12 };
         removeAll.Click += (_, _) => Remove(null, "Unhappiness removed");
         return UiKit.Card("Unhappiness", list, rightHeader: removeAll);
     }
@@ -339,7 +291,7 @@ public sealed partial class MainWindow
         { status.Text = "Save or discard the clause edits first"; return; }
         try
         {
-            backend.Edits.Execute(change);
+            backend.Edits.Execute("Player", player.DisplayName, "Contract: Clauses", change);
             draft.TransferClauses = null;
             RenderEditor();
             status.Text = $"{done}. Continue in FM to see updates.";
@@ -354,7 +306,7 @@ public sealed partial class MainWindow
         { status.Text = "Save or discard the clause edits first"; return; }
         try
         {
-            backend.Edits.Execute(change);
+            backend.Edits.Execute("Player", player.DisplayName, "Contract: Clauses", change);
             var pending = draft.Changes;
             ulong key = future == 0 ? player.Address : future;
             contractDrafts.Remove(key);
@@ -382,14 +334,14 @@ public sealed partial class MainWindow
             var c = future == 0 ? backend.Session.Contracts : backend.Session.FutureContract(future); var p = draft.Player; var d = draft.Snapshot;
             void Add<T>(string key, Func<string, T> parse, Action<T> action) { if (draft.Changes.TryGetValue(key, out var value)) { T parsed = parse(value); actions.Add(([key], () => action(parsed))); } }
             int Number(string x) => int.Parse(x, NumberStyles.Integer, Inv);
-            DateOnly Date(string x) { var date = DateOnly.ParseExact(x, "yyyy-MM-dd", Inv); return date.Year is >= 1901 and <= 2300 ? date : throw new ArgumentOutOfRangeException(nameof(x), "Year must be 1901-2300"); }
+            DateOnly Date(string x) { var date = DateSetting.TryParse(x, out var typed) ? typed : throw new FormatException($"Enter the date as {DateSetting.Hint}"); return date.Year is >= 1901 and <= 2300 ? date : throw new ArgumentOutOfRangeException(nameof(x), "Year must be 1901-2300"); }
             int Range(string x, int min, int max) { int n = Number(x); return n >= min && n <= max ? n : throw new ArgumentOutOfRangeException(nameof(x), $"Expected {min}-{max}"); }
             T EnumValue<T>(string x) where T : struct, Enum { if (!Enum.TryParse<T>(x, true, out var v) || !Enum.IsDefined(v)) throw new FormatException($"Invalid {typeof(T).Name}: {x}"); return v; }
             // Parse everything first, so a typo stops the save before anything is written.
             Add("Wage", x => Range(x, 0, 10_000_000), x => c.SetWage(p, x)); Add("Expires", Date, x => c.SetExpiry(p, d, x));
             Add("Started", Date, x => c.SetStarted(p, d, x)); Add("Signed", Date, x => c.SetSigned(p, d, x)); Add("Joined Club", Date, x => c.SetJoinedClub(p, d, x));
             Add("Type", EnumValue<ContractType>, x => c.SetType(p, d, x));
-            Add("Loyalty Bonus", x => Range(x, 0, 10_000_000), x => c.SetLoyaltyBonus(p, d, x)); Add("Number", x => Range(x, -1, 99), x => c.SetSquadNumber(p, d, x));
+            Add("Loyalty Bonus", x => Range(x, 0, 10_000_000), x => c.SetLoyaltyBonus(p, d, x)); Add("Number", x => string.IsNullOrWhiteSpace(x) ? -1 : Range(x, 0, 99), x => c.SetSquadNumber(p, d, x));
             Add("Playing Time", EnumValue<PlayingTime>, x => c.SetPlayingTime(p, d, x));
             Add("Happiness", x => Range(x, -100, 100), x => c.SetHappiness(p, d, x)); Add("Playing Time Happiness", x => Range(x, -100, 100), x => c.SetPlayingTimeHappiness(p, d, x));
             if (draft.Changes.ContainsKey("Future Playing Time") || draft.Changes.ContainsKey("Future Year"))
@@ -421,7 +373,7 @@ public sealed partial class MainWindow
                 }
             }
             int saved = 0;
-            foreach (var action in actions) { backend.Edits.Execute(action.write); foreach (var key in action.keys) draft.Changes.Remove(key); saved++; }
+            foreach (var action in actions) { backend.Edits.Execute("Player", player.DisplayName, "Page save", action.write); foreach (var key in action.keys) draft.Changes.Remove(key); saved++; }
             contractDrafts.Remove(future == 0 ? player.Address : future); selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected); RenderEditor();
             status.Text = $"Saved {saved} contract change(s). Continue in FM to see updates.";
         }
@@ -431,13 +383,13 @@ public sealed partial class MainWindow
     Control MovePanel(PlayerRecord player)
     {
         var from = new DockPanel { LastChildFill = true };
-        var fromLabel = new TextBlock { Text = "Current Club", Width = 78, FontSize = 11.5, Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
+        var fromLabel = new TextBlock { Text = "Current Club", Width = 96, FontSize = 13, Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(fromLabel, Dock.Left);
         from.Children.Add(fromLabel);
         from.Children.Add(new TextBlock
         {
             Text = player.Club?.DisplayName ?? "Free agent",
-            FontSize = 12,
+            FontSize = 13.5,
             FontWeight = FontWeight.SemiBold,
             Foreground = UiKit.TextPrimary,
             VerticalAlignment = VerticalAlignment.Center,
@@ -456,44 +408,170 @@ public sealed partial class MainWindow
         var teams = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         var fee = new NumericUpDown { Minimum = 0, Maximum = int.MaxValue, Value = 0, Increment = 100_000, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
         // Sell-on owed by the buyer to the seller on the next sale; 0 = none.
-        var sellOn = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Increment = 5, FormatString = "0'%'", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
         var preview = new Grid { ColumnDefinitions = new ColumnDefinitions("114,*,*"), RowSpacing = 6, ColumnSpacing = 12 };
-        var warning = new TextBlock { Foreground = Brush("#F59E0B"), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+        var warning = new TextBlock { Foreground = Brush("#F59E0B"), FontSize = 13, TextWrapping = TextWrapping.Wrap, IsVisible = false };
         var apply = new Button { Content = "Confirm transfer", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Height = 28, Classes = { "accent" }, Margin = new Thickness(0, 4, 0, 0) };
         TransferPlan? plan = null;
+        LoanCreatePlan? loanPlan = null;
         IReadOnlyList<ClubEntry> all = clubCache ?? [];
+
+        // Type: a permanent transfer or a loan. A loan has its own fields, which replace Fee and Sell-On.
+        var type = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0,
+            ItemsSource = new[] { "Transfer", "Loan" },
+        };
+        bool canFuture = backend.Session.CanCreateFutureTransfer;
+        var moveNow = new CheckBox { Content = "Move now", IsChecked = true };
+        var gameDate = backend.Session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
+        var futureDate = new DateBox { Text = DateSetting.Format(gameDate.AddMonths(6)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
+        FutureTransferCreator.Plan? futurePlan = null;
+        NumericUpDown Money(decimal increment) => new() { Minimum = 0, Maximum = int.MaxValue, Value = 0, Increment = increment, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var loanWage = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 100, Increment = 5, FormatString = "0'%'", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var loanStart = new DateBox { Text = DateSetting.Format(gameDate), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
+        var loanEnd = new DateBox { Text = DateSetting.Format(gameDate.AddYears(1)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
+        var loanPrice = Money(100_000);
+        var loanBuyBack = Money(100_000);
+        var loanMonthly = Money(1_000);
+        var loanAfter = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Increment = 1, FormatString = "0", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
+        bool IsLoan() => type.SelectedIndex == 1;
+        bool IsFuture() => canFuture && type.SelectedIndex == 0 && moveNow.IsChecked == false;
+
+        // Transfer terms, in FMRTE's order; every value starts at 0 and 0 writes nothing.
+        NumericUpDown Whole(decimal max, string format = "N0") => new() { Minimum = 0, Maximum = max, Value = 0, Increment = 1, FormatString = format, ShowButtonSpinner = false, Width = 64, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
+        NumericUpDown Amount() { var box = Money(10_000); box.Width = 120; box.HorizontalAlignment = HorizontalAlignment.Left; return box; }
+        TextBlock Unit(string text) => new() { Text = text, Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
+        Control TermRow(string label, params Control[] parts)
+        {
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            foreach (var part in parts) panel.Children.Add(part);
+            return Labeled(label, panel);
+        }
+        var instAmount = Amount(); var instMonths = Whole(255);
+        var instPeriod = new ComboBox { ItemsSource = new[] { "Yearly", "Every 6 months" }, SelectedIndex = 0, Width = 130 };
+        var leagueAmount = Amount(); var leagueCount = Whole(255);
+        var intlAmount = Amount(); var intlCount = Whole(255);
+        var perAmount = Amount(); var perCount = Whole(255);
+        var goalsAmount = Amount(); var goalsCount = Whole(255);
+        var termSellOn = Whole(100, "0'%'");
+        var termProfit = new CheckBox { Content = "Of the profit" };
+        var buyBack = Amount();
+        var wageShare = Whole(100, "0'%'");
+        var friendly = new CheckBox();
+        TransferTerms ReadTerms()
+        {
+            static int Int(NumericUpDown box) => (int)(box.Value ?? 0);
+            void NeedCount(string name, NumericUpDown amount, NumericUpDown count)
+            {
+                if (Int(amount) > 0 && Int(count) == 0) throw new InvalidOperationException($"{name}: enter how many as well as the amount");
+            }
+            NeedCount("Instalments", instAmount, instMonths); NeedCount("League apps", leagueAmount, leagueCount);
+            NeedCount("International apps", intlAmount, intlCount); NeedCount("Per league app", perAmount, perCount);
+            NeedCount("League goals", goalsAmount, goalsCount);
+            int wage = 0;
+            if (Int(wageShare) > 0)
+                wage = TransferTermsLayout.WageContribution(backend.Session.Contracts.Read(player)?.Wage ?? throw new InvalidOperationException("The player's contract can't be read"), Int(wageShare));
+            return new TransferTerms(Int(instAmount), (byte)Int(instMonths), Int(leagueAmount), (byte)Int(leagueCount), Int(intlAmount), (byte)Int(intlCount),
+                Int(perAmount), (byte)Int(perCount), Int(goalsAmount), (byte)Int(goalsCount), Int(buyBack), (short)Int(termSellOn), termProfit.IsChecked == true,
+                wage, (byte)(instPeriod.SelectedIndex == 1 ? 6 : 12), friendly.IsChecked == true);
+        }
+        var termRows = new Control[]
+        {
+            TermRow("Instalments", instAmount, instMonths, Unit("months"), instPeriod),
+            TermRow("League apps", leagueAmount, leagueCount, Unit("apps")),
+            TermRow("International apps", intlAmount, intlCount, Unit("apps")),
+            TermRow("Per league app", perAmount, perCount, Unit("max apps")),
+            TermRow("League goals", goalsAmount, goalsCount, Unit("goals")),
+            TermRow("Sell-on", termSellOn, termProfit),
+            TermRow("Buy Back Fee", buyBack),
+            TermRow("Wage contribution", wageShare),
+            TermRow("Arrange a friendly", friendly),
+        };
+
+        // One row per field, seller and buyer side by side: before → after.
+        void Cell(string text, int row, int col, bool head = false)
+        {
+            var tb = new TextBlock
+            {
+                Text = text,
+                FontSize = head ? 11.5 : 11,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                HorizontalAlignment = col == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+                Foreground = col == 0 && !head ? UiKit.TextMuted : UiKit.TextPrimary,
+                FontWeight = head ? FontWeight.SemiBold : FontWeight.Normal
+            };
+            Grid.SetRow(tb, row); Grid.SetColumn(tb, col); preview.Children.Add(tb);
+        }
+        int Row() { preview.RowDefinitions.Add(new RowDefinition(GridLength.Auto)); return preview.RowDefinitions.Count - 1; }
 
         void Invalidate()
         {
             plan = null;
+            loanPlan = null;
+            futurePlan = null;
             apply.IsEnabled = false;
             preview.Children.Clear();
             preview.RowDefinitions.Clear();
             warning.Text = "";
             warning.IsVisible = false;
         }
+        void PreviewLoan(ClubOption chosen)
+        {
+            try
+            {
+                if (teams.SelectedItem is not TeamOption team) return;
+                if (!DateBox.TryParse(loanStart.Text, out var start) || !DateBox.TryParse(loanEnd.Text, out var end))
+                { warning.Text = $"Enter the start and end dates as {DateSetting.Hint}"; warning.IsVisible = true; return; }
+                int contractWage = backend.Session.Contracts.Read(player)?.Wage ?? throw new InvalidOperationException("The player's contract can't be read");
+                int wage = LoanCreator.WageFromPercent(contractWage, (int)(loanWage.Value ?? 0));
+                var offer = new LoanOffer(wage, start, end, (int)(loanPrice.Value ?? 0), (int)(loanBuyBack.Value ?? 0), (int)(loanMonthly.Value ?? 0), (int)(loanAfter.Value ?? 0));
+                loanPlan = backend.Session.PlanLoanCreate(player, team.Team.Address, offer, rows.OfType<PlayerRecord>());
+                int head = Row();
+                Cell(player.Club?.DisplayName ?? "", head, 1, true); Cell(chosen.Club.DisplayName, head, 2, true);
+                int w = Row(); Cell("Wage", w, 0); Cell(wage.ToString("N0", Inv), w, 2);
+                int d = Row(); Cell("Until", d, 0); Cell(DateSetting.Format(end), d, 2);
+                int s = Row(); Cell("Squad", s, 0); Cell($"{team.Team.SquadCount} → {team.Team.SquadCount + 1}", s, 2);
+                if (loanPlan.NeedsAllocation)
+                {
+                    warning.Text = "The squad is full, so a new squad list will be allocated outside the game's allocator; keep a backup of the save.";
+                    warning.IsVisible = true;
+                }
+                apply.IsEnabled = true;
+            }
+            catch (Exception ex) { Invalidate(); warning.Text = UserMessage.For(ex); warning.IsVisible = true; }
+        }
+        void PreviewFuture(ClubOption chosen)
+        {
+            try
+            {
+                if (teams.SelectedItem is not TeamOption team) return;
+                if (!DateBox.TryParse(futureDate.Text, out var date))
+                { warning.Text = $"Enter the transfer date as {DateSetting.Hint}"; warning.IsVisible = true; return; }
+                var terms = ReadTerms();
+                futurePlan = backend.Session.PlanFutureTransfer(player, team.Team.Address, (int)(fee.Value ?? 0), date, terms);
+                int head = Row();
+                Cell(player.Club?.DisplayName ?? "", head, 1, true); Cell(chosen.Club.DisplayName, head, 2, true);
+                int f = Row(); Cell("Fee", f, 0); Cell(futurePlan.Fee.ToString("N0", Inv), f, 2);
+                int d = Row(); Cell("Date", d, 0); Cell(DateSetting.Format(date), d, 2);
+                if (terms.WageContribution > 0) { int w = Row(); Cell("Wage contribution", w, 0); Cell(terms.WageContribution.ToString("N0", Inv), w, 2); }
+                warning.Text = "The offer and its contract are allocated in the game's own heap; keep a backup of the save.";
+                warning.IsVisible = true;
+                apply.IsEnabled = true;
+            }
+            catch (Exception ex) { Invalidate(); warning.Text = UserMessage.For(ex); warning.IsVisible = true; }
+        }
         void Preview()
         {
             Invalidate();
             if (clubs.SelectedItem is not ClubOption chosen) return;
+            if (IsLoan()) { PreviewLoan(chosen); return; }
+            if (IsFuture()) { PreviewFuture(chosen); return; }
             try
             {
+                var now = ReadTerms();
+                if (now.Instalments + now.LeagueApps + now.InternationalApps + now.PerLeagueApp + now.LeagueGoals + now.BuyBackFee + now.WageContribution > 0 || now.Friendly || now.SellOnProfit)
+                { warning.Text = "Move now supports only the Sell-on percentage. Untick Move now to use the other terms."; warning.IsVisible = true; return; }
                 plan = backend.Session.Transfers.Plan(player, all, chosen.Club, (int)(fee.Value ?? 0), (teams.SelectedItem as TeamOption)?.Team);
-                // One row per money field, seller and buyer side by side: before → after.
-                void Cell(string text, int row, int col, bool head = false)
-                {
-                    var tb = new TextBlock
-                    {
-                        Text = text,
-                        FontSize = head ? 11.5 : 11,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        HorizontalAlignment = col == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right,
-                        Foreground = col == 0 && !head ? UiKit.TextMuted : UiKit.TextPrimary,
-                        FontWeight = head ? FontWeight.SemiBold : FontWeight.Normal
-                    };
-                    Grid.SetRow(tb, row); Grid.SetColumn(tb, col); preview.Children.Add(tb);
-                }
-                int Row() { preview.RowDefinitions.Add(new RowDefinition(GridLength.Auto)); return preview.RowDefinitions.Count - 1; }
                 int head = Row();
                 Cell(plan.Seller.DisplayName, head, 1, true); Cell(plan.Buyer.DisplayName, head, 2, true);
                 string Money(byte[] b) => BitConverter.ToInt32(b).ToString("N0", Inv);
@@ -508,7 +586,7 @@ public sealed partial class MainWindow
                 int squad = Row();
                 Cell("Squad", squad, 0);
                 Cell($"{plan.ToTeam.SquadCount} → {plan.ToTeam.SquadCount + 1}", squad, 2);
-                int percent = (int)(sellOn.Value ?? 0);
+                int percent = (int)(termSellOn.Value ?? 0);
                 if (percent > 0)
                 {
                     int s = Row();
@@ -549,15 +627,74 @@ public sealed partial class MainWindow
         };
         teams.SelectionChanged += (_, _) => Preview();
         fee.ValueChanged += (_, _) => Preview();
-        sellOn.ValueChanged += (_, _) => Preview();
+        loanWage.ValueChanged += (_, _) => Preview();
+        loanPrice.ValueChanged += (_, _) => Preview();
+        loanBuyBack.ValueChanged += (_, _) => Preview();
+        loanMonthly.ValueChanged += (_, _) => Preview();
+        loanAfter.ValueChanged += (_, _) => Preview();
+        loanStart.TextChanged += (_, _) => Preview();
+        loanEnd.TextChanged += (_, _) => Preview();
+        futureDate.TextChanged += (_, _) => Preview();
+        foreach (var box in new[] { instAmount, instMonths, leagueAmount, leagueCount, intlAmount, intlCount, perAmount, perCount, goalsAmount, goalsCount, termSellOn, buyBack, wageShare })
+            box.ValueChanged += (_, _) => Preview();
+        foreach (var box in new[] { termProfit, friendly }) box.IsCheckedChanged += (_, _) => Preview();
+        instPeriod.SelectionChanged += (_, _) => Preview();
+        var feeRow = Labeled("Fee", fee);
+        var moveNowRow = Labeled(" ", moveNow);
+        moveNowRow.IsVisible = canFuture;
+        var futureRows = new Control[] { Labeled("Transfer Date", futureDate) };
+        foreach (var row in futureRows) row.IsVisible = false;
+        var loanRows = new Control[]
+        {
+            Labeled("Wage (% of current)", loanWage), Labeled("Start", loanStart), Labeled("Until", loanEnd), Labeled("Agreed Price", loanPrice),
+            Labeled("Buy Back Fee", loanBuyBack), Labeled("Monthly Fee", loanMonthly), Labeled("Purchase After (matches)", loanAfter),
+        };
+        foreach (var row in loanRows) row.IsVisible = false;
+        void ShowRows()
+        {
+            feeRow.IsVisible = !IsLoan();
+            moveNowRow.IsVisible = canFuture && !IsLoan();
+            foreach (var row in futureRows) row.IsVisible = IsFuture();
+            foreach (var row in termRows) row.IsVisible = !IsLoan();
+            foreach (var row in loanRows) row.IsVisible = IsLoan();
+            apply.Content = IsLoan() ? "Confirm loan" : "Confirm transfer";
+        }
+        moveNow.IsCheckedChanged += (_, _) => { ShowRows(); Preview(); };
+        type.SelectionChanged += (_, _) => { ShowRows(); Preview(); };
         apply.Click += (_, _) =>
         {
+            if (loanPlan is { } loan)
+            {
+                try
+                {
+                    backend.Edits.Execute("Player", player.DisplayName, "Page save", () => backend.Session.ApplyLoanCreate(loan));
+                }
+                catch (Exception ex) { Invalidate(); status.Text = $"Loan stopped: {UserMessage.For(ex)}"; return; }
+                clubCache = null; contractDrafts.Remove(player.Address);
+                selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
+                RenderEditor();
+                status.Text = $"Loaned to {(clubs.SelectedItem as ClubOption)?.Club.DisplayName}. Continue in FM to see it.";
+                return;
+            }
+            if (futurePlan is { } future)
+            {
+                try
+                {
+                    backend.Edits.Execute("Player", player.DisplayName, "Page save", () => backend.Session.ApplyFutureTransfer(future));
+                }
+                catch (Exception ex) { Invalidate(); status.Text = $"Future transfer stopped: {UserMessage.For(ex)}"; return; }
+                clubCache = null; contractDrafts.Remove(player.Address);
+                selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
+                pendingSection = "Contract"; RenderEditor();
+                status.Text = $"Future transfer to {(clubs.SelectedItem as ClubOption)?.Club.DisplayName} on {DateSetting.Format(future.Date)} created. Continue in FM to see it.";
+                return;
+            }
             if (plan is null) return;
-            int percent = (int)(sellOn.Value ?? 0);
+            int percent = (int)(termSellOn.Value ?? 0);
             if (percent > 0 && player.Id is null) { status.Text = "This player's ID can't be read, so no sell-on can be added"; return; }
             try
             {
-                backend.Edits.Execute(() => backend.Session.ApplyTransfer(plan));
+                backend.Edits.Execute("Player", player.DisplayName, "Page save", () => backend.Session.ApplyTransfer(plan));
             }
             catch (Exception ex) { Invalidate(); status.Text = $"Transfer stopped: {UserMessage.For(ex)}"; return; }
             clubCache = null; contractDrafts.Remove(player.Address);
@@ -568,7 +705,7 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    backend.Edits.Execute(() => backend.Session.AddSellOn(plan.Buyer.Address, player.Id!.Value, plan.Seller.Address, percent, plan.Fee > 0 ? plan.Fee : null));
+                    backend.Edits.Execute("Player", player.DisplayName, "Page save", () => backend.Session.AddSellOn(plan.Buyer.Address, player.Id!.Value, plan.Seller.Address, percent, plan.Fee > 0 ? plan.Fee : null));
                     RenderEditor();
                     status.Text = $"Moved to {plan.Buyer.DisplayName} with a {percent}% sell-on to {plan.Seller.DisplayName}. Club finances show after Continue in FM.";
                 }
@@ -593,37 +730,28 @@ public sealed partial class MainWindow
         formStack.Children.Add(searchClub);
         formStack.Children.Add(clubs);
         formStack.Children.Add(Labeled("Team", teams));
-        formStack.Children.Add(Labeled("Fee", fee));
-        formStack.Children.Add(Labeled("Sell-On", sellOn));
+        formStack.Children.Add(Labeled("Type", type));
+        formStack.Children.Add(moveNowRow);
+        formStack.Children.Add(feeRow);
+        foreach (var row in futureRows) formStack.Children.Add(row);
+        foreach (var row in termRows) formStack.Children.Add(row);
+        foreach (var row in loanRows) formStack.Children.Add(row);
         formStack.Children.Add(apply);
-
-        var impactBody = new StackPanel { Spacing = 10, Margin = new Thickness(12, 10), MinHeight = 80 };
-        impactBody.Children.Add(preview);
-        impactBody.Children.Add(warning);
+        formStack.Children.Add(warning);
 
         var leftCard = UiKit.Card("Transfer Destination", formStack);
         leftCard.VerticalAlignment = VerticalAlignment.Top;
-        var rightCard = UiKit.Card("Financial & Squad Impact", impactBody);
-        rightCard.VerticalAlignment = VerticalAlignment.Top;
-
-        var layout = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("356,*"),
-            ColumnSpacing = 12,
-            Margin = new Thickness(0, 4, 0, 8),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        Grid.SetColumn(leftCard, 0);
-        Grid.SetColumn(rightCard, 1);
-        layout.Children.Add(leftCard);
-        layout.Children.Add(rightCard);
-        return layout;
+        leftCard.HorizontalAlignment = HorizontalAlignment.Left;
+        leftCard.Width = 660;
+        leftCard.Margin = new Thickness(0, 4, 0, 8);
+        return leftCard;
     }
 
     static Control Labeled(string label, Control control)
     {
-        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("78,*"), ColumnSpacing = 8 };
-        var lbl = new TextBlock { Text = label, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+        if (control is NumericUpDown or DateBox) { control.Width = double.NaN; control.HorizontalAlignment = HorizontalAlignment.Stretch; }
+        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("170,*"), ColumnSpacing = 8 };
+        var lbl = new TextBlock { Text = label, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
         Grid.SetColumn(lbl, 0);
         Grid.SetColumn(control, 1);
         g.Children.Add(lbl);

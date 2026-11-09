@@ -1,6 +1,8 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -10,6 +12,7 @@ namespace Fm27Editor.App;
 
 public sealed class AttributeFilterDialog : Window
 {
+    static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     const string SelectPresetPlaceholder = "Select preset...";
 
     sealed class RowControls
@@ -27,7 +30,10 @@ public sealed class AttributeFilterDialog : Window
     readonly Dictionary<PlayerAttribute, (int Min, int Max)> staged = [];
     readonly HashSet<PlayerPosition> stagedPositions = [];
     readonly Dictionary<PlayerPosition, int> positionRatings = [];
-    readonly Dictionary<PlayerPosition, NumericUpDown> positionInputs = [];
+    readonly Dictionary<PlayerPosition, (int Min, int Max)> positionRanges = [];
+    readonly Dictionary<PlayerPosition, Action> positionUpdaters = [];
+    readonly Dictionary<PlayerPosition, Border> positionRowBorders = [];
+    PlayerPosition selectedPosition = PlayerPosition.Striker;
     readonly Dictionary<PlayerPosition, Button> positionDots = [];
     readonly Dictionary<string, (TextBox Min, TextBox Max)> rangeInputs = [];
     readonly Dictionary<string, ComboBox> choiceInputs = [];
@@ -38,6 +44,15 @@ public sealed class AttributeFilterDialog : Window
     readonly Dictionary<PlayerAttribute, RowControls> rows = [];
     readonly Dictionary<PlayerPosition, Button> positionButtons = [];
     IReadOnlyList<FilterPreset> presets;
+
+    const string AllLeagues = "All Leagues";
+    const string AllClubs = "All Clubs";
+    const string AllNationalities = "All Nationalities";
+
+    readonly IReadOnlyList<PlayerRecord> allPlayers;
+    readonly ComboBox divisionCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, FontSize = 13 };
+    readonly ComboBox clubCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, FontSize = 13 };
+    readonly ComboBox nationCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Height = 28, FontSize = 13 };
 
     readonly ComboBox presetCombo = new() { Width = 220 };
     readonly TextBox presetNameBox = new() { Watermark = "Preset name...", Width = 190 };
@@ -74,7 +89,7 @@ public sealed class AttributeFilterDialog : Window
     };
     readonly TextBlock summaryText = new()
     {
-        FontSize = 11.5,
+        FontSize = 13,
         Foreground = Brush("#CBD5E1"),
         VerticalAlignment = VerticalAlignment.Center,
         Margin = new Thickness(12, 0, 0, 0)
@@ -88,6 +103,8 @@ public sealed class AttributeFilterDialog : Window
     public IReadOnlyList<PlayerPosition> ResultPositions =>
         stagedPositions.OrderBy(p => p).ToArray();
     public IReadOnlyDictionary<PlayerPosition, int> ResultPositionThresholds => new Dictionary<PlayerPosition, int>(positionRatings);
+    public IReadOnlyDictionary<PlayerPosition, NumericRange> ResultPositionRanges =>
+        positionRanges.ToDictionary(kv => kv.Key, kv => new NumericRange(kv.Value.Min, kv.Value.Max));
     public IReadOnlyDictionary<string, NumericRange> ResultNumericRanges
     {
         get
@@ -108,13 +125,17 @@ public sealed class AttributeFilterDialog : Window
     public int? ResultMaxCa => ParseOptInt(maxCaBox.Text);
     public int? ResultMinPa => ParseOptInt(minPaBox.Text);
     public int? ResultMaxPa => ParseOptInt(maxPaBox.Text);
+    public string? ResultDivision => divisionCombo.SelectedItem is string s && s != AllLeagues ? s : null;
+    public string? ResultClub => clubCombo.SelectedItem is string s && s != AllClubs ? s : null;
+    public string? ResultNationality => nationCombo.SelectedItem is string s && s != AllNationalities ? s : null;
     public IReadOnlyList<FilterPreset> UpdatedPresets => presets;
     public string? SelectedPresetName { get; private set; }
 
     public AttributeFilterDialog(
         PlayerFilter initialFilter,
         IReadOnlyList<FilterPreset> currentPresets,
-        string? activePresetName = null)
+        string? activePresetName = null,
+        IReadOnlyList<PlayerRecord>? players = null)
     {
         Title = "Player Filter & Presets";
         Width = 940;
@@ -124,9 +145,49 @@ public sealed class AttributeFilterDialog : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Brush("#0D0F17");
         Foreground = Brush("#F1F5F9");
-        FontSize = 11.5;
+        FontSize = 13;
 
+        allPlayers = players ?? Array.Empty<PlayerRecord>();
         presets = currentPresets;
+
+        var leagues = allPlayers
+            .Select(p => p.DivisionName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.InvariantCultureIgnoreCase)
+            .OrderBy(s => s, StringComparer.InvariantCultureIgnoreCase)
+            .Prepend(AllLeagues)
+            .ToArray();
+
+        var nations = allPlayers
+            .Select(p => p.NationalityName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.InvariantCultureIgnoreCase)
+            .OrderBy(s => s, StringComparer.InvariantCultureIgnoreCase)
+            .Prepend(AllNationalities)
+            .ToArray();
+
+        divisionCombo.ItemsSource = leagues;
+        int divIdx = !string.IsNullOrEmpty(initialFilter.Division)
+            ? Array.FindIndex(leagues, l => string.Equals(l, initialFilter.Division, StringComparison.InvariantCultureIgnoreCase))
+            : 0;
+        divisionCombo.SelectedIndex = divIdx >= 0 ? divIdx : 0;
+
+        nationCombo.ItemsSource = nations;
+        int natIdx = !string.IsNullOrEmpty(initialFilter.Nationality)
+            ? Array.FindIndex(nations, n => string.Equals(n, initialFilter.Nationality, StringComparison.InvariantCultureIgnoreCase))
+            : 0;
+        nationCombo.SelectedIndex = natIdx >= 0 ? natIdx : 0;
+
+        RefreshDialogClubs(initialFilter.Club);
+
+        divisionCombo.SelectionChanged += (_, _) =>
+        {
+            if (updatingControls) return;
+            RefreshDialogClubs(null);
+            UpdateSummary();
+        };
+        clubCombo.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+        nationCombo.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
         foreach (var (key, range) in initialFilter.NumericRanges) initialRanges[key] = range;
         initialPreferredMoves = initialFilter.RequiredPreferredMoves;
         SelectedPresetName = activePresetName;
@@ -135,7 +196,19 @@ public sealed class AttributeFilterDialog : Window
         foreach (var pos in initialFilter.Positions)
         {
             stagedPositions.Add(pos);
-            positionRatings[pos] = initialFilter.PositionThresholds.GetValueOrDefault(pos, initialFilter.PositionMinRating);
+            if (initialFilter.PositionRanges.TryGetValue(pos, out var rng))
+            {
+                int rMin = (int)(rng.Min ?? 1);
+                int rMax = (int)(rng.Max ?? 20);
+                positionRanges[pos] = (rMin, rMax);
+                positionRatings[pos] = rMin;
+            }
+            else
+            {
+                int val = initialFilter.PositionThresholds.GetValueOrDefault(pos, initialFilter.PositionMinRating);
+                positionRanges[pos] = (val, 20);
+                positionRatings[pos] = val;
+            }
         }
 
         minAgeBox.Text = initialFilter.MinAge?.ToString() ?? "";
@@ -196,7 +269,7 @@ public sealed class AttributeFilterDialog : Window
         left.Children.Add(new TextBlock
         {
             Text = "Preset",
-            FontSize = 12,
+            FontSize = 13.5,
             FontWeight = FontWeight.SemiBold,
             Foreground = Brush("#94A3B8"),
             VerticalAlignment = VerticalAlignment.Center
@@ -217,7 +290,7 @@ public sealed class AttributeFilterDialog : Window
         right.Children.Add(new TextBlock
         {
             Text = "Default Attr >=",
-            FontSize = 12,
+            FontSize = 13.5,
             Foreground = Brush("#94A3B8"),
             VerticalAlignment = VerticalAlignment.Center
         });
@@ -235,6 +308,22 @@ public sealed class AttributeFilterDialog : Window
                 deletePresetButton.IsEnabled = true;
 
                 updatingControls = true;
+                if (chosen.Division is { } div && divisionCombo.ItemsSource is IEnumerable<string> divs)
+                {
+                    int dIdx = divs.ToList().FindIndex(l => string.Equals(l, div, StringComparison.InvariantCultureIgnoreCase));
+                    divisionCombo.SelectedIndex = dIdx >= 0 ? dIdx : 0;
+                }
+                else divisionCombo.SelectedIndex = 0;
+
+                RefreshDialogClubs(chosen.Club);
+
+                if (chosen.Nationality is { } nat && nationCombo.ItemsSource is IEnumerable<string> nats)
+                {
+                    int nIdx = nats.ToList().FindIndex(n => string.Equals(n, nat, StringComparison.InvariantCultureIgnoreCase));
+                    nationCombo.SelectedIndex = nIdx >= 0 ? nIdx : 0;
+                }
+                else nationCombo.SelectedIndex = 0;
+
                 minAgeBox.Text = chosen.MinAge?.ToString() ?? "";
                 maxAgeBox.Text = chosen.MaxAge?.ToString() ?? "";
                 minCaBox.Text = chosen.MinCa?.ToString() ?? "";
@@ -246,8 +335,27 @@ public sealed class AttributeFilterDialog : Window
 
                 stagedPositions.Clear();
                 positionRatings.Clear();
+                positionRanges.Clear();
                 if (chosen.Positions is not null)
-                    foreach (var pos in chosen.Positions) { stagedPositions.Add(pos); positionRatings[pos] = chosen.PositionThresholds?.GetValueOrDefault(pos) ?? chosen.PositionMinRating; }
+                {
+                    foreach (var pos in chosen.Positions)
+                    {
+                        stagedPositions.Add(pos);
+                        if (chosen.PositionRanges is { } prs && prs.TryGetValue(pos, out var rng))
+                        {
+                            int rMin = (int)(rng.Min ?? 1);
+                            int rMax = (int)(rng.Max ?? 20);
+                            positionRanges[pos] = (rMin, rMax);
+                            positionRatings[pos] = rMin;
+                        }
+                        else
+                        {
+                            int val = chosen.PositionThresholds?.GetValueOrDefault(pos) ?? chosen.PositionMinRating;
+                            positionRanges[pos] = (val, 20);
+                            positionRatings[pos] = val;
+                        }
+                    }
+                }
                 SyncPositionButtons();
                 foreach (var (key, controls) in rangeInputs)
                 {
@@ -293,7 +401,16 @@ public sealed class AttributeFilterDialog : Window
                 ResultMaxCa,
                 ResultMaxPa,
                 ResultPositions,
-                ResultPositionMinRating) { PositionThresholds = ResultPositionThresholds, NumericRanges = ResultNumericRanges, RequiredPreferredMoves = ResultPreferredMoves };
+                ResultPositionMinRating)
+            {
+                PositionThresholds = ResultPositionThresholds,
+                PositionRanges = ResultPositionRanges,
+                NumericRanges = ResultNumericRanges,
+                RequiredPreferredMoves = ResultPreferredMoves,
+                Division = ResultDivision,
+                Club = ResultClub,
+                Nationality = ResultNationality
+            };
             presets = FilterPresetStore.Upsert(presets, preset);
             try { FilterPresetStore.Save(presets); } catch { }
             SelectedPresetName = preset.Name;
@@ -325,11 +442,57 @@ public sealed class AttributeFilterDialog : Window
         };
     }
 
+    void RefreshDialogClubs(string? preferredClub)
+    {
+        var subset = allPlayers.AsEnumerable();
+        if (divisionCombo.SelectedItem is string selectedLeague && selectedLeague != AllLeagues)
+            subset = subset.Where(p => string.Equals(p.DivisionName, selectedLeague, StringComparison.InvariantCultureIgnoreCase));
+
+        var clubs = subset
+            .Select(p => p.ClubName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.InvariantCultureIgnoreCase)
+            .OrderBy(s => s, StringComparer.InvariantCultureIgnoreCase)
+            .Prepend(AllClubs)
+            .ToArray();
+
+        clubCombo.ItemsSource = clubs;
+        string? target = preferredClub ?? clubCombo.SelectedItem as string;
+        int idx = !string.IsNullOrEmpty(target)
+            ? Array.FindIndex(clubs, c => string.Equals(c, target, StringComparison.InvariantCultureIgnoreCase))
+            : 0;
+        clubCombo.SelectedIndex = idx >= 0 ? idx : 0;
+    }
+
     Control BuildGeneralAndPositionsCard()
     {
-        var stack = new StackPanel { Spacing = 8 };
+        var stack = new StackPanel { Spacing = 10 };
 
-        // Row 1: Age, CA, PA ranges
+        // Row 1: League, Club, Nationality
+        var geoGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*,*"),
+            ColumnSpacing = 8,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        var divStack = new StackPanel { Spacing = 3 };
+        divStack.Children.Add(SectionLabel("LEAGUE"));
+        divStack.Children.Add(divisionCombo);
+        Grid.SetColumn(divStack, 0); geoGrid.Children.Add(divStack);
+
+        var clubStack = new StackPanel { Spacing = 3 };
+        clubStack.Children.Add(SectionLabel("CLUB"));
+        clubStack.Children.Add(clubCombo);
+        Grid.SetColumn(clubStack, 1); geoGrid.Children.Add(clubStack);
+
+        var natStack = new StackPanel { Spacing = 3 };
+        natStack.Children.Add(SectionLabel("NATIONALITY"));
+        natStack.Children.Add(nationCombo);
+        Grid.SetColumn(natStack, 2); geoGrid.Children.Add(natStack);
+
+        stack.Children.Add(geoGrid);
+
+        // Row 2: Age, CA, PA ranges
         var rangesRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         rangesRow.Children.Add(SectionLabel("AGE"));
         rangesRow.Children.Add(minAgeBox);
@@ -386,14 +549,24 @@ public sealed class AttributeFilterDialog : Window
                 MinWidth = 44,
                 Padding = new Thickness(8, 0),
                 Margin = new Thickness(0, 2, 5, 2),
-                FontSize = 11.5,
+                FontSize = 13,
                 FontWeight = FontWeight.SemiBold,
             };
             ToolTip.SetTip(btn, fullName);
             btn.Click += (_, _) =>
             {
                 if (!stagedPositions.Remove(pos))
+                {
                     stagedPositions.Add(pos);
+                    int defMin = Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
+                    positionRanges[pos] = (defMin, 20);
+                    positionRatings[pos] = defMin;
+                }
+                else
+                {
+                    positionRanges.Remove(pos);
+                    positionRatings.Remove(pos);
+                }
                 SyncPositionButtons();
                 UpdateSummary();
             };
@@ -428,7 +601,7 @@ public sealed class AttributeFilterDialog : Window
     static TextBlock SectionLabel(string text) => new()
     {
         Text = text,
-        FontSize = 11,
+        FontSize = 12.5,
         FontWeight = FontWeight.Bold,
         Foreground = Brush("#E2E8F0"),
         VerticalAlignment = VerticalAlignment.Center
@@ -437,7 +610,7 @@ public sealed class AttributeFilterDialog : Window
     static TextBlock MutedLabel(string text) => new()
     {
         Text = text,
-        FontSize = 12,
+        FontSize = 13.5,
         Foreground = Brush("#94A3B8"),
         VerticalAlignment = VerticalAlignment.Center
     };
@@ -451,57 +624,446 @@ public sealed class AttributeFilterDialog : Window
             else btn.Classes.Remove("accent");
         }
         updatingControls = true;
-        foreach (var (pos, input) in positionInputs) input.Value = positionRatings.GetValueOrDefault(pos);
-        foreach (var (pos, dot) in positionDots) PitchSurface.SetRating(dot, positionRatings.GetValueOrDefault(pos));
+        foreach (var (_, updater) in positionUpdaters) updater();
+        foreach (var (pos, dot) in positionDots)
+        {
+            bool active = positionRanges.TryGetValue(pos, out var rng);
+            int rating = active ? rng.Min : 0;
+            PitchSurface.SetRating(dot, rating);
+            var spot = PitchLayout.Positions.First(p => p.Position == pos);
+            ToolTip.SetTip(dot, active ? $"{spot.Label}: {rng.Min}–{rng.Max}" : $"{spot.Label} (Inactive)");
+        }
         updatingControls = false;
     }
 
     Control BuildPositionBoard()
     {
-        const double width = 340, height = 460, dotSize = 26;
+        const double width = 314, height = 428, dotSize = 26;
+        var leftStack = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left };
         var pitch = PitchSurface.Create(width, height);
-        var details = new ContentControl { Width = width };
-        var container = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
-        DockPanel? currentDetails = null;
-        void Select(PitchPosition spot)
+        var selection = new ContentControl { Width = width + 2, HorizontalAlignment = HorizontalAlignment.Left };
+
+        void UpdateSelection(PitchPosition spot)
         {
-            foreach (var (position, dot) in positionDots)
+            selectedPosition = spot.Position;
+            foreach (var (pos, dot) in positionDots)
             {
-                bool active = position == spot.Position;
+                bool active = pos == spot.Position;
                 dot.BorderBrush = active ? Brushes.White : Brush("#1A4339");
                 dot.BorderThickness = new Thickness(active ? 2 : 1);
             }
-            currentDetails?.Children.Clear();
-            var panel = new DockPanel { LastChildFill = true };
-            currentDetails = panel;
-            var input = positionInputs[spot.Position];
-            DockPanel.SetDock(input, Dock.Right); panel.Children.Add(input);
-            panel.Children.Add(new TextBlock { Text = spot.Label, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeight.SemiBold });
-            details.Content = new Border { Background = Brush("#151926"), BorderBrush = Brush("#252A3D"), BorderThickness = new Thickness(1), Padding = new Thickness(12, 8), Child = panel };
-        }
-        foreach (var spot in PitchLayout.Positions)
-        {
-            var position = spot.Position;
-            var input = new NumericUpDown { Minimum = 0, Maximum = 20, Value = positionRatings.GetValueOrDefault(position), Width = 68, Increment = 1 };
-            input.ValueChanged += (_, _) =>
+            foreach (var (pos, rb) in positionRowBorders)
+            {
+                rb.BorderBrush = pos == spot.Position ? UiKit.Accent : Brushes.Transparent;
+            }
+
+            bool isFiltered = positionRanges.TryGetValue(spot.Position, out var currentRange);
+            int curMin = isFiltered ? currentRange.Min : Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
+            int curMax = isFiltered ? currentRange.Max : 20;
+
+            var selPanel = new DockPanel { LastChildFill = true };
+            var title = new TextBlock
+            {
+                Text = PositionLabels.Spaced(spot.Position),
+                FontSize = 13.5,
+                FontWeight = FontWeight.Bold,
+                Foreground = UiKit.TextPrimary,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTip.SetTip(title, spot.Label);
+
+            var controlsStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var activeChk = new CheckBox
+            {
+                IsChecked = isFiltered,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0),
+                MinWidth = 0,
+                Padding = new Thickness(0),
+            };
+            ToolTip.SetTip(activeChk, $"Filter by {PositionLabels.Spaced(spot.Position)}");
+
+            var minBox = new TextBox
+            {
+                Text = curMin.ToString(Inv),
+                Width = 28,
+                MinWidth = 0,
+                MaxWidth = 28,
+                Height = 20,
+                MinHeight = 20,
+                Padding = new Thickness(2, 0),
+                FontSize = 13,
+                FontWeight = FontWeight.Bold,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Foreground = isFiltered ? PitchSurface.PositionFg(curMin) : PitchSurface.PositionFg(0),
+                Background = isFiltered ? PitchSurface.PositionBg(curMin) : PitchSurface.PositionBg(0),
+                BorderBrush = isFiltered ? PitchSurface.PositionBorder(curMin) : PitchSurface.PositionBorder(0),
+            };
+            var sep = new TextBlock
+            {
+                Text = "–",
+                Width = 10,
+                FontSize = 12.5,
+                Foreground = Brush("#64748B"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var maxBox = new TextBox
+            {
+                Text = curMax.ToString(Inv),
+                Width = 28,
+                MinWidth = 0,
+                MaxWidth = 28,
+                Height = 20,
+                MinHeight = 20,
+                Padding = new Thickness(2, 0),
+                FontSize = 13,
+                FontWeight = FontWeight.Bold,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Foreground = isFiltered ? PitchSurface.PositionFg(curMax) : PitchSurface.PositionFg(0),
+                Background = isFiltered ? PitchSurface.PositionBg(curMax) : PitchSurface.PositionBg(0),
+                BorderBrush = isFiltered ? PitchSurface.PositionBorder(curMax) : PitchSurface.PositionBorder(0),
+            };
+
+            void CommitSelection()
             {
                 if (updatingControls) return;
-                int rating = (int)(input.Value ?? 0);
-                if (rating == 0) { positionRatings.Remove(position); stagedPositions.Remove(position); }
-                else { positionRatings[position] = rating; stagedPositions.Add(position); }
-                PitchSurface.SetRating(positionDots[position], rating);
+                bool hasMin = int.TryParse(minBox.Text, out int parsedMin);
+                bool hasMax = int.TryParse(maxBox.Text, out int parsedMax);
+                if (activeChk.IsChecked == true)
+                {
+                    int nMin = hasMin ? Math.Clamp(parsedMin, 1, 20) : Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
+                    int nMax = hasMax ? Math.Clamp(parsedMax, 1, 20) : 20;
+                    if (nMin > nMax) nMax = nMin;
+                    minBox.Text = nMin.ToString(Inv);
+                    maxBox.Text = nMax.ToString(Inv);
+                    positionRanges[spot.Position] = (nMin, nMax);
+                    positionRatings[spot.Position] = nMin;
+                    stagedPositions.Add(spot.Position);
+                }
+                else
+                {
+                    positionRanges.Remove(spot.Position);
+                    positionRatings.Remove(spot.Position);
+                    stagedPositions.Remove(spot.Position);
+                }
+                SyncPositionButtons();
                 UpdateSummary();
+            }
+
+            activeChk.IsCheckedChanged += (_, _) => CommitSelection();
+            minBox.LostFocus += (_, _) => { activeChk.IsChecked = true; CommitSelection(); };
+            maxBox.LostFocus += (_, _) => { activeChk.IsChecked = true; CommitSelection(); };
+            minBox.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+                {
+                    TopLevel.GetTopLevel(minBox)?.FocusManager?.ClearFocus();
+                    e.Handled = true;
+                }
             };
-            positionInputs[position] = input;
-            input.Height = 28; input.ShowButtonSpinner = false;
-            Avalonia.Automation.AutomationProperties.SetName(input, spot.Label);
-            var dot = PitchSurface.CreateDot(spot, positionRatings.GetValueOrDefault(position));
-            Canvas.SetLeft(dot, spot.X * width - dotSize / 2); Canvas.SetTop(dot, spot.Y * height - dotSize / 2);
-            dot.Click += (_, _) => Select(spot); positionDots[position] = dot; pitch.Children.Add(dot);
+            maxBox.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+                {
+                    TopLevel.GetTopLevel(maxBox)?.FocusManager?.ClearFocus();
+                    e.Handled = true;
+                }
+            };
+
+            controlsStack.Children.Add(activeChk);
+            controlsStack.Children.Add(minBox);
+            controlsStack.Children.Add(sep);
+            controlsStack.Children.Add(maxBox);
+
+            DockPanel.SetDock(controlsStack, Dock.Right);
+            selPanel.Children.Add(controlsStack);
+            selPanel.Children.Add(title);
+
+            selection.Content = new Border
+            {
+                Background = UiKit.Surface,
+                BorderBrush = UiKit.BorderSubtle,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 6),
+                Child = selPanel
+            };
         }
-        container.Children.Add(pitch); container.Children.Add(details);
-        Select(PitchLayout.Positions.First());
-        return container;
+
+        foreach (var spot in PitchLayout.Positions)
+        {
+            var pos = spot.Position;
+            bool active = positionRanges.TryGetValue(pos, out var rng);
+            var dot = PitchSurface.CreateDot(spot, active ? rng.Min : 0);
+            Canvas.SetLeft(dot, spot.X * width - dotSize / 2);
+            Canvas.SetTop(dot, spot.Y * height - dotSize / 2);
+            dot.Click += (_, _) => UpdateSelection(spot);
+            positionDots[pos] = dot;
+            pitch.Children.Add(dot);
+        }
+
+        leftStack.Children.Add(new Border
+        {
+            BorderBrush = UiKit.BorderSubtle,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            ClipToBounds = true,
+            Child = pitch
+        });
+        leftStack.Children.Add(selection);
+
+        Border BuildPosCard(string title, IReadOnlyList<PlayerPosition> list)
+        {
+            var stack = new StackPanel { Spacing = 0 };
+            int idx = 0;
+            foreach (var pos in list)
+            {
+                var pitchPos = PitchLayout.Positions.Single(p => p.Position == pos);
+                var toggle = new CheckBox
+                {
+                    Margin = new Thickness(0, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    MinWidth = 0,
+                    Padding = new Thickness(0),
+                };
+                var colorDot = new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 5, 0),
+                };
+                var codeTag = new TextBlock
+                {
+                    Text = PositionLabels.Spaced(pos),
+                    Width = 36,
+                    FontSize = 12,
+                    FontWeight = FontWeight.Bold,
+                    Foreground = UiKit.TextMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var nameLbl = new TextBlock
+                {
+                    Text = pitchPos.Label,
+                    FontSize = 13,
+                    Foreground = UiKit.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.NoWrap,
+                };
+
+                var minBox = new TextBox
+                {
+                    Width = 28,
+                    MinWidth = 0,
+                    MaxWidth = 28,
+                    Height = 20,
+                    MinHeight = 20,
+                    Padding = new Thickness(2, 0),
+                    FontSize = 13,
+                    FontWeight = FontWeight.Bold,
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                var sepLbl = new TextBlock
+                {
+                    Text = "–",
+                    Width = 10,
+                    FontSize = 12.5,
+                    Foreground = Brush("#64748B"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var maxBox = new TextBox
+                {
+                    Width = 28,
+                    MinWidth = 0,
+                    MaxWidth = 28,
+                    Height = 20,
+                    MinHeight = 20,
+                    Padding = new Thickness(2, 0),
+                    FontSize = 13,
+                    FontWeight = FontWeight.Bold,
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+
+                var rangePanel = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 2,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                rangePanel.Children.Add(minBox);
+                rangePanel.Children.Add(sepLbl);
+                rangePanel.Children.Add(maxBox);
+
+                void ApplyVisual()
+                {
+                    bool isAct = positionRanges.TryGetValue(pos, out var r);
+                    int rMin = isAct ? r.Min : Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
+                    int rMax = isAct ? r.Max : 20;
+
+                    toggle.IsChecked = isAct;
+                    minBox.Text = isAct ? rMin.ToString(Inv) : "";
+                    maxBox.Text = isAct ? rMax.ToString(Inv) : "";
+                    minBox.Watermark = isAct ? "" : "–";
+                    maxBox.Watermark = isAct ? "" : "–";
+
+                    minBox.Foreground = isAct ? PitchSurface.PositionFg(rMin) : PitchSurface.PositionFg(0);
+                    minBox.Background = isAct ? PitchSurface.PositionBg(rMin) : PitchSurface.PositionBg(0);
+                    minBox.BorderBrush = isAct ? PitchSurface.PositionBorder(rMin) : PitchSurface.PositionBorder(0);
+
+                    maxBox.Foreground = isAct ? PitchSurface.PositionFg(rMax) : PitchSurface.PositionFg(0);
+                    maxBox.Background = isAct ? PitchSurface.PositionBg(rMax) : PitchSurface.PositionBg(0);
+                    maxBox.BorderBrush = isAct ? PitchSurface.PositionBorder(rMax) : PitchSurface.PositionBorder(0);
+
+                    colorDot.Fill = isAct ? PitchSurface.PositionColor(rMin) : PitchSurface.PositionColor(0);
+                    nameLbl.Foreground = isAct ? UiKit.TextPrimary : UiKit.TextSecondary;
+                }
+                positionUpdaters[pos] = ApplyVisual;
+                ApplyVisual();
+
+                void CommitRowValues()
+                {
+                    if (updatingControls) return;
+                    bool hasMin = int.TryParse(minBox.Text, out int parsedMin);
+                    bool hasMax = int.TryParse(maxBox.Text, out int parsedMax);
+                    if (hasMin || hasMax)
+                    {
+                        int pMin = hasMin ? Math.Clamp(parsedMin, 1, 20) : 1;
+                        int pMax = hasMax ? Math.Clamp(parsedMax, 1, 20) : 20;
+                        if (pMin > pMax) pMax = pMin;
+                        positionRanges[pos] = (pMin, pMax);
+                        positionRatings[pos] = pMin;
+                        stagedPositions.Add(pos);
+                    }
+                    else if (toggle.IsChecked == true)
+                    {
+                        int defMin = Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
+                        positionRanges[pos] = (defMin, 20);
+                        positionRatings[pos] = defMin;
+                        stagedPositions.Add(pos);
+                    }
+                    else
+                    {
+                        positionRanges.Remove(pos);
+                        positionRatings.Remove(pos);
+                        stagedPositions.Remove(pos);
+                    }
+                    SyncPositionButtons();
+                    UpdateSummary();
+                    if (selectedPosition == pos) UpdateSelection(pitchPos);
+                }
+
+                toggle.IsCheckedChanged += (_, _) =>
+                {
+                    if (updatingControls) return;
+                    if (toggle.IsChecked == true)
+                    {
+                        int defMin = Math.Clamp((int)(posMinRatingInput.Value ?? 15), 1, 20);
+                        positionRanges[pos] = (defMin, 20);
+                        positionRatings[pos] = defMin;
+                        stagedPositions.Add(pos);
+                    }
+                    else
+                    {
+                        positionRanges.Remove(pos);
+                        positionRatings.Remove(pos);
+                        stagedPositions.Remove(pos);
+                    }
+                    SyncPositionButtons();
+                    UpdateSummary();
+                    if (selectedPosition == pos) UpdateSelection(pitchPos);
+                };
+
+                minBox.LostFocus += (_, _) => CommitRowValues();
+                maxBox.LostFocus += (_, _) => CommitRowValues();
+                minBox.KeyDown += (_, e) =>
+                {
+                    if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+                    {
+                        TopLevel.GetTopLevel(minBox)?.FocusManager?.ClearFocus();
+                        e.Handled = true;
+                    }
+                };
+                maxBox.KeyDown += (_, e) =>
+                {
+                    if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+                    {
+                        TopLevel.GetTopLevel(maxBox)?.FocusManager?.ClearFocus();
+                        e.Handled = true;
+                    }
+                };
+
+                var rowDock = new DockPanel { LastChildFill = true, MinHeight = 26 };
+                DockPanel.SetDock(rangePanel, Dock.Right);
+                rowDock.Children.Add(rangePanel);
+                DockPanel.SetDock(toggle, Dock.Left);
+                rowDock.Children.Add(toggle);
+                DockPanel.SetDock(colorDot, Dock.Left);
+                rowDock.Children.Add(colorDot);
+                DockPanel.SetDock(codeTag, Dock.Left);
+                rowDock.Children.Add(codeTag);
+                rowDock.Children.Add(nameLbl);
+
+                var rowBorder = new Border
+                {
+                    Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
+                    BorderThickness = new Thickness(2, 0, 0, 0),
+                    BorderBrush = Brushes.Transparent,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    Child = rowDock,
+                };
+                rowBorder.PointerPressed += (_, e) =>
+                {
+                    if (e.Source is TextBox or CheckBox) return;
+                    UpdateSelection(pitchPos);
+                };
+                positionRowBorders[pos] = rowBorder;
+                stack.Children.Add(rowBorder);
+            }
+            return UiKit.Card(title, stack);
+        }
+
+        var rightGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 8,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var defCard = BuildPosCard("Defensive", PitchLayout.DefensivePositions);
+        var attCard = BuildPosCard("Midfield & Attack", PitchLayout.AttackingPositions);
+        Grid.SetColumn(defCard, 0);
+        Grid.SetColumn(attCard, 1);
+        rightGrid.Children.Add(defCard);
+        rightGrid.Children.Add(attCard);
+
+        var initial = PitchLayout.Positions.FirstOrDefault(p => p.Position == selectedPosition)
+            ?? PitchLayout.Positions.First();
+        UpdateSelection(initial);
+
+        var outer = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            ColumnSpacing = 10,
+            Margin = new Thickness(0, 2, 0, 8),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        Grid.SetColumn(leftStack, 0);
+        Grid.SetColumn(rightGrid, 1);
+        outer.Children.Add(leftStack);
+        outer.Children.Add(rightGrid);
+        return outer;
     }
 
     Control BuildAdditionalRanges()
@@ -550,6 +1112,9 @@ public sealed class AttributeFilterDialog : Window
         clearAllBtn.Click += (_, _) =>
         {
             updatingControls = true;
+            divisionCombo.SelectedIndex = 0;
+            RefreshDialogClubs(null);
+            nationCombo.SelectedIndex = 0;
             minAgeBox.Text = "";
             maxAgeBox.Text = "";
             minCaBox.Text = "";
@@ -561,6 +1126,7 @@ public sealed class AttributeFilterDialog : Window
 
             stagedPositions.Clear();
             positionRatings.Clear();
+            positionRanges.Clear();
             foreach (var (_, controls) in rangeInputs) { controls.Min.Text = ""; controls.Max.Text = ""; }
             foreach (var combo in choiceInputs.Values) combo.SelectedIndex = 0;
             foreach (var box in preferredMoveChecks) box.IsChecked = false;
@@ -699,7 +1265,7 @@ public sealed class AttributeFilterDialog : Window
         var nameText = new TextBlock
         {
             Text = label,
-            FontSize = 11.5,
+            FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
             Cursor = new Cursor(StandardCursorType.Hand)
@@ -707,7 +1273,7 @@ public sealed class AttributeFilterDialog : Window
         var rangeText = new TextBlock
         {
             Text = "–",
-            FontSize = 11,
+            FontSize = 12.5,
             Foreground = Brush("#A78BFA"),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4, 0, 4, 0)
@@ -720,7 +1286,7 @@ public sealed class AttributeFilterDialog : Window
             Value = 1,
             ShowButtonSpinner = false,
             Width = 38,
-            FontSize = 11.5,
+            FontSize = 13,
             FontWeight = FontWeight.Bold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
             Background = Brush("#0E1018"),
@@ -729,7 +1295,7 @@ public sealed class AttributeFilterDialog : Window
         var maxInput = new NumericUpDown
         {
             Minimum = 1, Maximum = 20, Increment = 1, Value = 20,
-            ShowButtonSpinner = false, Width = 38, FontSize = 11.5, FontWeight = FontWeight.Bold,
+            ShowButtonSpinner = false, Width = 38, FontSize = 13, FontWeight = FontWeight.Bold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
             Background = Brush("#0E1018"), BorderBrush = Brush("#282E42")
         };
@@ -834,6 +1400,9 @@ public sealed class AttributeFilterDialog : Window
     void UpdateSummary()
     {
         var parts = new List<string>();
+        if (ResultDivision is not null) parts.Add($"League: {ResultDivision}");
+        if (ResultClub is not null) parts.Add($"Club: {ResultClub}");
+        if (ResultNationality is not null) parts.Add($"Nation: {ResultNationality}");
         if (ResultMinAge is not null || ResultMaxAge is not null) parts.Add("Age");
         if (ResultMinCa is not null || ResultMaxCa is not null) parts.Add("CA");
         if (ResultMinPa is not null || ResultMaxPa is not null) parts.Add("PA");
@@ -868,6 +1437,6 @@ public sealed class AttributeFilterDialog : Window
         int.TryParse(text?.Trim(), out int v) ? v : null;
     static long? ParseOptLong(string? text) => long.TryParse(text?.Trim(), out long value) ? value : null;
 
-    static IBrush RatingColor(int value) => new SolidColorBrush(Color.Parse(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8"));
-    static IBrush Brush(string color) => new SolidColorBrush(Color.Parse(color));
+    static IBrush RatingColor(int value) => Brush(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8");
+    static IBrush Brush(string color) => AppTheme.Brush(color);
 }

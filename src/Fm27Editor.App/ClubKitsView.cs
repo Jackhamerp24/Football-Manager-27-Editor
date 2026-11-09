@@ -15,74 +15,19 @@ public sealed partial class MainWindow
     }
     readonly Dictionary<ulong, int> selectedKitTab = [];
     readonly Dictionary<(ulong Club, int Tab), int> selectedKitPart = [];
-    sealed class KitDraft(ClubKitItem snapshot)
-    {
-        public ClubKitItem Snapshot { get; } = snapshot;
-        public Dictionary<int, string> Colours { get; } = [];
-        public string? Style { get; set; }
-    }
     readonly Dictionary<ulong, Dictionary<ulong, KitDraft>> kitDrafts = [];
     readonly Dictionary<ulong, string> clubFamiliarityDrafts = [];
     readonly Dictionary<ulong, ClubAffiliationEntry> pendingAffiliationRemovals = [];
-
-    void SaveClubWithKits(ClubEntry club)
-    {
-        try
-        {
-            bool hadKits = kitDrafts.TryGetValue(club.Address, out var pending) && pending.Count > 0;
-            bool hadRemoval = pendingAffiliationRemovals.TryGetValue(club.Address, out var affiliation);
-            if (hadKits) SaveKitDrafts(backend.Session, club);
-
-            bool hadFamiliarity = clubFamiliarityDrafts.TryGetValue(club.Address, out var familiarityText);
-            if (hadFamiliarity)
-            {
-                if (!int.TryParse(familiarityText, out int familiarityValue) || familiarityValue is < 0 or > 100)
-                    throw new InvalidOperationException("Tactical familiarity must be a whole number from 0 to 100");
-                var familiaritySession = backend.Session;
-                var familiarityAccess = familiaritySession.PlayerFamiliarity;
-                backend.Edits.Execute(() =>
-                {
-                    foreach (var team in club.Teams)
-                        foreach (var squadPlayer in familiaritySession.ReadSquad(team.Address))
-                            if (familiarityAccess.Read(squadPlayer.Address) is { } snapshot)
-                                familiarityAccess.SetTactical(snapshot, familiarityValue);
-                });
-                clubFamiliarityDrafts.Remove(club.Address);
-            }
-            if (hadRemoval)
-            {
-                var session = backend.Session;
-                backend.Edits.Execute(() => new ClubAffiliationWriter(session.Memory, session.Profile, session.Game.ModuleBase)
-                    .Remove(club.Address, affiliation!));
-                pendingAffiliationRemovals.Remove(club.Address);
-            }
-            if (clubDrafts.TryGetValue(club.Address, out var scalar) && scalar.CanSave)
-            {
-                SaveClubDraft();
-                return;
-            }
-            if (hadKits || hadRemoval || hadFamiliarity) { RenderClubEditor(); status.Text = "Saved. Continue in FM to see updates."; }
-        }
-        catch (Exception ex)
-        {
-            // A write can fail after earlier writes succeeded; discard stale drafts and reload.
-            kitDrafts.Remove(club.Address);
-            pendingAffiliationRemovals.Remove(club.Address);
-            RenderClubEditor();
-            status.Text = $"Some changes may have been saved. {UserMessage.For(ex)}";
-        }
-    }
 
     void UpdateKitSaveButtons(ulong club)
     {
         bool pending = (kitDrafts.TryGetValue(club, out var drafts) && drafts.Count > 0) || pendingAffiliationRemovals.ContainsKey(club) || clubFamiliarityDrafts.ContainsKey(club);
         bool scalar = clubDrafts.TryGetValue(club, out var draft) && draft.CanSave;
         bool invalidScalar = draft is not null && draft.InvalidCount > 0;
-        if (clubSaveButton is not null) clubSaveButton.IsEnabled = !invalidScalar && (pending || scalar);
-        if (clubDiscardButton is not null) clubDiscardButton.IsEnabled = pending || scalar || invalidScalar;
+        if (clubScreen.SaveButton is { } save) save.IsEnabled = !invalidScalar && (pending || scalar);
     }
 
-    void SetKitDraft(ClubKitItem item, int? colourIndex, string text)
+    void SetKitDraft(ClubKitItem item, int? colourIndex, string text, Action? onDraftChanged = null)
     {
         if (!kitDrafts.TryGetValue(item.Club, out var drafts)) kitDrafts[item.Club] = drafts = [];
         if (!drafts.TryGetValue(item.Slot, out var draft)) drafts[item.Slot] = draft = new(item);
@@ -95,6 +40,7 @@ public sealed partial class MainWindow
         if (draft.Colours.Count == 0 && draft.Style is null) drafts.Remove(item.Slot);
         if (drafts.Count == 0) kitDrafts.Remove(item.Club);
         UpdateKitSaveButtons(item.Club);
+        onDraftChanged?.Invoke();
     }
 
     void SaveKitDrafts(GameSession session, ClubEntry club)
@@ -125,13 +71,13 @@ public sealed partial class MainWindow
             var snapshot = draft.Snapshot;
             foreach (var (index, value) in colours)
             {
-                backend.Edits.Execute(() => session.ClubKits.SetColour(snapshot, index, value));
+                backend.Edits.Execute("Club", club.DisplayName, "Page save", () => session.ClubKits.SetColour(snapshot, index, value));
                 snapshot = session.ClubKits.Read(club.Address, club.Id!.Value).Single(x => x.Slot == snapshot.Slot);
                 draft.Colours.Remove(index);
             }
             if (style is { } valueStyle)
             {
-                backend.Edits.Execute(() => session.ClubKits.SetStyle(snapshot, valueStyle));
+                backend.Edits.Execute("Club", club.DisplayName, "Page save", () => session.ClubKits.SetStyle(snapshot, valueStyle));
                 draft.Style = null;
             }
             drafts.Remove(draft.Snapshot.Slot);
@@ -143,6 +89,13 @@ public sealed partial class MainWindow
     {
         if (club.Id is not { } id) return;
         var items = session.ClubKits.Read(club.Address, id);
+        if (items.Count == 0) return;
+        var tabs = BuildKitsControl(club.Address, items, () => UpdateKitSaveButtons(club.Address));
+        clubEditorPanel.Children.Add(tabs);
+    }
+
+    Control BuildKitsControl(ulong ownerAddress, IReadOnlyList<ClubKitItem> items, Action onDraftChanged)
+    {
         var options = new List<KitOption>();
         foreach (var item in items.Where(x => x.Kit <= 2))
         {
@@ -174,11 +127,13 @@ public sealed partial class MainWindow
 
         uint EffectiveColour(ClubKitItem item, int index)
         {
-            if (kitDrafts.GetValueOrDefault(club.Address)?.GetValueOrDefault(item.Slot)?.Colours.TryGetValue(index, out var raw) == true)
+            if (kitDrafts.GetValueOrDefault(ownerAddress)?.GetValueOrDefault(item.Slot)?.Colours.TryGetValue(index, out var raw) == true)
             {
                 string hex = raw.Trim().TrimStart('#');
                 if (hex.Length == 8 && uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, Inv, out uint parsed))
                     return parsed;
+                if (hex.Length == 6 && uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, Inv, out uint rgb))
+                    return rgb | 0xFF000000u;
             }
             return item.Colour(index);
         }
@@ -193,13 +148,13 @@ public sealed partial class MainWindow
             {
                 int colourIndex = i;
                 string original = $"#{item.Colour(i):X8}";
-                string text = kitDrafts.GetValueOrDefault(club.Address)?.GetValueOrDefault(item.Slot)?.Colours.GetValueOrDefault(i) ?? original;
+                string text = kitDrafts.GetValueOrDefault(ownerAddress)?.GetValueOrDefault(item.Slot)?.Colours.GetValueOrDefault(i) ?? original;
                 var box = new TextBox { Text = text, Width = 110 };
-                box.TextChanged += (_, _) => { SetKitDraft(item, colourIndex, box.Text ?? ""); onEdited(); };
+                box.TextChanged += (_, _) => { SetKitDraft(item, colourIndex, box.Text ?? "", onDraftChanged); onEdited(); };
                 panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = names[i], Width = 148, VerticalAlignment = VerticalAlignment.Center }, ColourInput(box) } });
             }
-            var style = new TextBox { Text = kitDrafts.GetValueOrDefault(club.Address)?.GetValueOrDefault(item.Slot)?.Style ?? item.Style.ToString(Inv), Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
-            style.TextChanged += (_, _) => SetKitDraft(item, null, style.Text ?? "");
+            var style = new TextBox { Text = kitDrafts.GetValueOrDefault(ownerAddress)?.GetValueOrDefault(item.Slot)?.Style ?? item.Style.ToString(Inv), Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
+            style.TextChanged += (_, _) => SetKitDraft(item, null, style.Text ?? "", onDraftChanged);
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Item Style", Width = 148, VerticalAlignment = VerticalAlignment.Center }, style } });
             host.Children.Add(panel);
         }
@@ -256,10 +211,10 @@ public sealed partial class MainWindow
             {
                 int part = list.SelectedIndex;
                 if (part < 0 || part >= rowOptions.Count || rowOptions[part] is not { } option) return;
-                selectedKitPart[(club.Address, tabIndex)] = part;
+                selectedKitPart[(ownerAddress, tabIndex)] = part;
                 Show(host, option, RefreshPreview);
             };
-            int previous = selectedKitPart.GetValueOrDefault((club.Address, t), 0);
+            int previous = selectedKitPart.GetValueOrDefault((ownerAddress, t), 0);
             int chosen = previous >= 0 && previous < rowOptions.Count && rowOptions[previous] is not null
                 ? previous : rowOptions.FindIndex(x => x is not null);
             if (chosen >= 0) list.SelectedIndex = chosen;
@@ -287,9 +242,17 @@ public sealed partial class MainWindow
         tabs.ItemsSource = tabItems;
         tabs.SelectionChanged += (_, _) =>
         {
-            if (tabs.SelectedIndex >= 0) selectedKitTab[club.Address] = tabs.SelectedIndex;
+            if (tabs.SelectedIndex >= 0) selectedKitTab[ownerAddress] = tabs.SelectedIndex;
         };
-        tabs.SelectedIndex = Math.Clamp(selectedKitTab.GetValueOrDefault(club.Address), 0, tabItems.Count - 1);
-        clubEditorPanel.Children.Add(tabs);
+        tabs.SelectedIndex = Math.Clamp(selectedKitTab.GetValueOrDefault(ownerAddress), 0, tabItems.Count - 1);
+        return tabs;
     }
+}
+
+/// <summary>Pending edits of one kit item: colour texts by index and the style text.</summary>
+internal sealed class KitDraft(ClubKitItem snapshot)
+{
+    public ClubKitItem Snapshot { get; } = snapshot;
+    public Dictionary<int, string> Colours { get; } = [];
+    public string? Style { get; set; }
 }

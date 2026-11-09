@@ -91,6 +91,23 @@ public class CompetitionTests
     }
 
     [Fact]
+    public void WinterBallDateUsesExactEmptySnapshotAndRejectsChangedFlagBits()
+    {
+        Competition(PremierLeague, 7, 11, "Premier League", "Premier League", PremierTail);
+        Assert.True(_m.TryWrite(PremierLeague + 0x150, Convert.FromHexString("01006C07"))); // observed empty date: 1/1/1900
+        var repo = new CompetitionRepository(_m, _w.Profile, TestWorld.ModuleBase);
+        var writer = new CompetitionWriter(_m, _w.Profile, TestWorld.ModuleBase);
+        var empty = repo.Reload(PremierLeague)!;
+        writer.SetWinterBallDate(empty, true, new DateOnly(2026, 10, 20));
+        Assert.Equal("2501EA07", Convert.ToHexString(_m.Read(PremierLeague + 0x150, 4)));
+        var beforeFlagChange = repo.Reload(PremierLeague)!;
+        Assert.True(_m.TryWrite(PremierLeague + 0x150, Convert.FromHexString("2503EA07")));
+        var writes = _m.Writes;
+        Assert.Throws<StaleObjectException>(() => writer.SetWinterBallDate(beforeFlagChange, true, null));
+        Assert.Equal(writes, _m.Writes);
+    }
+
+    [Fact]
     public void SetReputation_writes_both_int16_and_nothing_else()
     {
         var c = Build();

@@ -97,7 +97,7 @@ public sealed class UnhappinessReader(IProcessMemory memory, OffsetProfile profi
         return result;
     }
 
-    static DateOnly? Date(byte[] raw, int at)
+    internal static DateOnly? Date(byte[] raw, int at)
     {
         int day = BitConverter.ToUInt16(raw, at) & 0x1FF, year = BitConverter.ToInt16(raw, at + 2);
         if (year <= 1900 || year > 2300 || day < 1 || day > (DateTime.IsLeapYear(year) ? 366 : 365)) return null;
@@ -112,6 +112,8 @@ public sealed class UnhappinessReader(IProcessMemory memory, OffsetProfile profi
 /// </summary>
 public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
+    const int DayMask = 0x1FF;
+
     /// <summary>Captures active motives and the complete original list for guarded undo.</summary>
     public UnhappinessRemovalPlan? PlanRemoveActive(PlayerRecord player, DateOnly gameDate)
     {
@@ -193,6 +195,40 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
     {
         if (!memory.TryWrite(address, value) || !memory.Read(address, value.Length).AsSpan().SequenceEqual(value))
             throw new MemoryAccessException($"Could not write unhappiness data at 0x{address:X}");
+    }
+
+    /// <summary>
+    /// FMRTE's "end the motive": writes <paramref name="gameDate"/> into End of every record, ended ones included.
+    /// Records and the count stay as they are, and the flag bits above the 9-bit day are kept, the way contract dates
+    /// are written. Measured on Baptiste 28129876 (ended 18/10/2026) and Cooper 29170995 (ended 27/7/2026 and
+    /// 18/10/2026): after FMRTE 27's Inspire both read 25/11/2026.
+    /// A motive whose Start is after the game date keeps its End: writing the game date there would make End earlier
+    /// than Start, which the game never produces. Returns how many records changed.
+    /// </summary>
+    public int EndMotives(PlayerRecord player, DateOnly gameDate)
+    {
+        if (gameDate.Year is < 1901 or > 2300) throw new ArgumentOutOfRangeException(nameof(gameDate), "Year is out of range");
+        var o = profile.Unhappiness ?? throw new InvalidOperationException("Profile has no unhappiness offsets");
+        if (new UnhappinessReader(memory, profile, moduleBase).Locate(player) is not { Count: > 0 } list) return 0;
+
+        var before = memory.Read(list.Records, list.Count * o.RecordSize);
+        var changed = new List<(int At, byte[] Value)>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            int at = i * o.RecordSize + o.End;
+            if (UnhappinessReader.Date(before, i * o.RecordSize + o.Start) is { } start && start > gameDate) continue;
+            // Day word: 9 low bits are the day of the year, the flags above them must survive (contract dates keep them too).
+            ushort day = (ushort)((BitConverter.ToUInt16(before, at) & ~DayMask) | (gameDate.DayOfYear & DayMask));
+            byte[] value = [.. BitConverter.GetBytes(day), .. BitConverter.GetBytes((short)gameDate.Year)];
+            if (!before.AsSpan(at, 4).SequenceEqual(value)) changed.Add((at, value));
+        }
+        if (changed.Count == 0) return 0;
+
+        if (BitConverter.ToInt32(memory.Read(list.Header, 4)) != list.Count || memory.ReadUInt64(list.Header + 8) != list.Records
+            || !memory.Read(list.Records, before.Length).AsSpan().SequenceEqual(before))
+            throw new StaleObjectException("The unhappiness list changed while ending the motives");
+        foreach (var (at, value) in changed) WriteChecked(list.Records + (ulong)at, value);
+        return changed.Count;
     }
 
     /// <summary>Removes the active motives for which <paramref name="which"/> is true (all active ones when null).

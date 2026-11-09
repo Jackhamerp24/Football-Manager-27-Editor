@@ -125,6 +125,12 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
     public void RemoveSellOn(ulong club, TransferClause c)
     {
         Require(c, TransferClauseKind.SellOn);
+        RemoveClause(club, c);
+    }
+
+    /// <summary>Removes any transfer clause (sell-on, appearance fee, competition bonus) from the club's vector; the record stays allocated.</summary>
+    public void RemoveClause(ulong club, TransferClause c)
+    {
         CheckVtable(c);
         if (c.Origin?.Club != club) throw new StaleObjectException("The clause belongs to a different club");
         CheckRecord(c);

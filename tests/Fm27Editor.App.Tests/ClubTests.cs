@@ -123,30 +123,30 @@ public sealed class ClubTests
             [
                 ClubSection.Information,
                 ClubSection.Squads,
-                ClubSection.Finances,
-                ClubSection.Supporters,
                 ClubSection.ClubVision,
                 ClubSection.Affiliations,
-                ClubSection.RegionalDivisions,
                 ClubSection.Kits,
                 ClubSection.TransferCenter,
                 ClubSection.Relationships,
                 ClubSection.Staff,
+                ClubSection.RegionalDivisions,
+                ClubSection.Finances,
+                ClubSection.Supporters,
             ],
             ClubFieldInfo.Sections);
         Assert.Equal(
             [
                 "Information",
                 "Squads",
-                "Finances",
-                "Supporters",
                 "Club Vision",
                 "Affiliations",
-                "Regional Divisions",
                 "Kits and Colours",
                 "Transfer Center",
                 "Relationships",
                 "Staff",
+                "Regional Divisions",
+                "Finances",
+                "Supporters",
             ],
             ClubFieldInfo.Sections.Select(ClubFieldInfo.SectionTitle));
         Assert.Equal(
@@ -978,5 +978,22 @@ public sealed class ClubTests
         // 4. Oxford unknown sponsor income type codes (14, 15, 9, 12) render as plain numbers:
         var oxfordSponsors = provider.ReadSection(ClubSection.Sponsors, coreSession, oxford, null, [oxford], competitions, []);
         Assert.Equal(["14", "15", "9", "12"], oxfordSponsors.Rows.Select(r => r.Cells[0].Text));
+    }
+
+    [Fact]
+    public void Club_vision_builds_with_decoded_names_targets_and_sources()
+    {
+        var model = ClubListBuilder.BuildVision(
+        [
+            new ClubVisionRow(104, 5, StartDate: new DateOnly(2026, 7, 1), EndDate: new DateOnly(2027, 6, 30), TypeName: ClubVisionTypes.DisplayName(104), Target: 23, SourceType: 1),
+            new ClubVisionRow(84, 4, StartDate: new DateOnly(2026, 7, 1), EndDate: new DateOnly(2027, 6, 30), TypeName: ClubVisionTypes.DisplayName(84), Target: 4, SourceType: 2),
+            new ClubVisionRow(2, 8, StartDate: new DateOnly(2026, 7, 1), EndDate: new DateOnly(2027, 6, 30), TypeName: ClubVisionTypes.DisplayName(2), Target: 4, SourceType: 1),
+        ]);
+
+        Assert.Equal(["Type", "Source", "Importance", "Item", "Start", "End"], model.Columns.Select(c => c.Header));
+        Assert.Equal(["Sign players under the age of 23 for the first team", "Board", "5", "", "2026-07-01", "2027-06-30"], model.Rows[0].Cells.Select(c => c.Text));
+        // FMRTE 27 build8 shows a source type other than Board (1) as "Unknown (N)" (Real Madrid: "Unknown (194)"), not as a generic label.
+        Assert.Equal(["Minimum 4-year contracts for first-team players", "Unknown (2)", "4", "", "2026-07-01", "2027-06-30"], model.Rows[1].Cells.Select(c => c.Text));
+        Assert.Equal(["Qualify For Competition", "Board", "8", "", "2026-07-01", "2027-06-30"], model.Rows[2].Cells.Select(c => c.Text));
     }
 }

@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             running = busy = true; confirm.IsEnabled = cancel.IsEnabled = false;
             try
             {
-                await Task.Run(() => backend.Edits.Execute(() => writer.Apply(plan)));
+                await Task.Run(() => backend.Edits.Execute("Player", player.DisplayName, "Page save", () => writer.Apply(plan)));
                 releaseUndo.Push(plan);
                 var fresh = session.Players.Reload(player.Address) ?? throw new InvalidOperationException("Player no longer readable");
                 selected = fresh; ReplaceRow(fresh); RenderEditor();
@@ -68,7 +68,7 @@ public sealed partial class MainWindow
         try
         {
             busy = true;
-            await Task.Run(() => backend.Edits.Execute(() => ReleaseWriter(session).Undo(plan)));
+            await Task.Run(() => backend.Edits.Execute("Player", "Release", "Undo", () => ReleaseWriter(session).Undo(plan)));
             releaseUndo.Pop();
             var fresh = session.Players.Reload(plan.Player.Address) ?? throw new InvalidOperationException("Player no longer readable");
             selected = fresh; ReplaceRow(fresh); RenderEditor();

@@ -68,6 +68,7 @@ public sealed class NationRivalries(IProcessMemory memory, OffsetProfile profile
             throw new StaleObjectException("Nation rivalry changed since it was read");
         ulong at = row.Address + (ulong)l.Value;
         byte[] next = [(byte)value];
+        using var scope = Fm27Editor.Core.History.ChangeContext.Describe($"Rival Nation: {row.Opponent} Value");
         if (!memory.TryWrite(at, next) || !memory.Read(at, 1).AsSpan().SequenceEqual(next))
             throw new MemoryAccessException("Could not write nation rivalry");
     }

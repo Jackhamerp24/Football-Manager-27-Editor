@@ -22,7 +22,7 @@ public sealed partial class MainWindow
     /// <summary>FMRTE 27's Clone Center: Players to Replace (+/−), What to copy, Clone.</summary>
     Control ClonePanel(PlayerRecord player)
     {
-        var all = rows.OfType<PlayerRecord>().ToList();
+        var all = Players().ToList();
         if (!cloneTargets.TryGetValue(player.Address, out var targets)) cloneTargets[player.Address] = targets = [];
         var list = new StackPanel { Spacing = 4 };
         foreach (var t in targets.Select(a => all.FirstOrDefault(p => p.Address == a)).OfType<PlayerRecord>())
@@ -36,18 +36,17 @@ public sealed partial class MainWindow
             });
             DockPanel.SetDock(remove, Dock.Right);
         }
-        var search = new TextBox { Width = 160 };
-        var pick = new ComboBox { Width = 260 };
-        var add = new Button { Content = "Add" };
-        search.TextChanged += (_, _) =>
+        // Type two letters of a name or club, pick from the list, press Add.
+        var pick = new AutoCompleteBox
         {
-            string q = (search.Text ?? "").Trim();
-            if (q.Length < 2) return;
-            pick.ItemsSource = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address) && Matches(p.DisplayName, q)).Take(40)
-                .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToArray();
+            Width = 340, MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300,
+            ItemsSource = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address))
+                .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToList(),
+            ItemFilter = (q, o) => o is RelationTarget t && Matches(t.Label, q ?? ""),
         };
+        var add = new Button { Content = "Add" };
         add.Click += (_, _) => { if (pick.SelectedItem is RelationTarget t) { targets.Add(t.Address); RenderEditor(); } };
-        list.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { search, pick, add } });
+        list.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { pick, add } });
 
         var what = new StackPanel { Spacing = 2 };
         foreach (var (part, name) in CloneGroups)
@@ -66,7 +65,7 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    backend.Edits.Execute(() => fields += backend.Session.ClonePlayer(player, t, cloneParts));
+                    backend.Edits.Execute("Player", player.DisplayName, "Page save", () => fields += backend.Session.ClonePlayer(player, t, cloneParts));
                     done++;
                     if (backend.Players.Reload(t.Address) is { } fresh) { fresh.GameDate = backend.GameDate; ReplaceRow(fresh); }
                 }

@@ -13,7 +13,7 @@ public sealed partial class MainWindow
         var session = backend.Session;
         var access = new PreferredMovesAccess(session.Memory, session.Profile, session.Game.ModuleBase);
         if (access.Read(player) is not { } current) return panel;
-        var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
+        var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Margin = new Thickness(12, 8) };
         var boxes = new CheckBox[PreferredMovesAccess.Count];
@@ -37,7 +37,7 @@ public sealed partial class MainWindow
             try
             {
                 ulong moves = Moves();
-                backend.Edits.Execute(() => access.Set(player, current, moves));
+                backend.Edits.Execute("Player", player.DisplayName, "Page save", () => access.Set(player, current, moves));
                 status.Text = "Saved preferred moves. Continue in FM to see updates.";
                 RenderEditor();
             }

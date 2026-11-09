@@ -16,8 +16,12 @@ public sealed class OffsetProfile
     public required uint BuildStringRva { get; init; }
     /// <summary>Actual game build when Build also identifies a storefront-specific profile.</summary>
     public string? MatchBuild { get; init; }
+    /// <summary>Installed flavour this profile belongs to ("gamepass" for the Microsoft Store image), or null.</summary>
+    public string? Variant { get; init; }
     public uint? ImageSize { get; init; }
     public uint? PeTimestamp { get; init; }
+    public uint? AgentPoolSlotRva { get; init; }
+    public uint? AgentVtableRva { get; init; }
     /// <summary>Experimental layouts must never open the game with write access.</summary>
     public bool ReadOnly { get; init; }
     /// <summary>Individually verified attributes writable even when the rest of the profile is read-only.</summary>
@@ -43,12 +47,22 @@ public sealed class OffsetProfile
     public GameDateOffsets? GameDate { get; init; }
     /// <summary>Address of a packed in-game date stored directly in the module.</summary>
     public uint? DirectGameDateRva { get; init; }
+    /// <summary>The planned-retirement manager: the module slot holding it and its vtable (null when the build was not measured).</summary>
+    public uint? RetirementManagerRva { get; init; }
+    public uint? RetirementManagerVtable { get; init; }
+    /// <summary>The contract object kind used for a national appointment (a staff member's separate job with a national team).</summary>
+    public uint? NationAppointmentVtable { get; init; }
+    /// <summary>Classes of the targets of nation agreement rows: a REGION and an AGREEMENT object.</summary>
+    public uint? AgreementRegionVtable { get; init; }
+    public uint? AgreementVtable { get; init; }
     /// <summary>Player values beyond attributes (profile <c>player.fields</c>, paths from the player object).</summary>
     public IReadOnlyDictionary<Players.PlayerField, Clubs.ClubFieldOffset>? PlayerFields { get; init; }
     public InjuryOffsets? Injuries { get; init; }
     public RelationOffsets? Relations { get; init; }
     public BanOffsets? Bans { get; init; }
     public LanguageOffsets? Languages { get; init; }
+    public PromiseOffsets? Promises { get; init; }
+    public TacticalUnderstandingOffsets? TacticalUnderstanding { get; init; }
     public CityOffsets? Cities { get; init; }
     public CohesionOffsets? Cohesion { get; init; }
     public CareerPlanOffsets? CareerPlans { get; init; }
@@ -76,10 +90,18 @@ public sealed class OffsetProfile
             Module = root.GetProperty("module").GetString() ?? throw new FormatException("module is missing"),
             BuildStringRva = (uint)Hex(root, "buildStringRva"),
             MatchBuild = root.TryGetProperty("matchBuild", out var mb) ? mb.GetString() : null,
+        Variant = root.TryGetProperty("variant", out var va) ? va.GetString() : null,
             ImageSize = root.TryGetProperty("imageSize", out _) ? (uint)Hex(root, "imageSize") : null,
             PeTimestamp = root.TryGetProperty("peTimestamp", out _) ? (uint)Hex(root, "peTimestamp") : null,
+            AgentPoolSlotRva = root.TryGetProperty("agentPoolSlotRva", out _) ? (uint)Hex(root, "agentPoolSlotRva") : null,
+            AgentVtableRva = root.TryGetProperty("agentVtableRva", out _) ? (uint)Hex(root, "agentVtableRva") : null,
             ReadOnly = root.TryGetProperty("readOnly", out var ro) && ro.GetBoolean(),
             DirectGameDateRva = root.TryGetProperty("directGameDateRva", out _) ? (uint)Hex(root, "directGameDateRva") : null,
+            RetirementManagerRva = root.TryGetProperty("retirementManagerRva", out _) ? (uint)Hex(root, "retirementManagerRva") : null,
+            RetirementManagerVtable = root.TryGetProperty("retirementManagerVtable", out _) ? (uint)Hex(root, "retirementManagerVtable") : null,
+            NationAppointmentVtable = root.TryGetProperty("nationAppointmentVtable", out _) ? (uint)Hex(root, "nationAppointmentVtable") : null,
+            AgreementRegionVtable = root.TryGetProperty("agreementRegionVtable", out _) ? (uint)Hex(root, "agreementRegionVtable") : null,
+            AgreementVtable = root.TryGetProperty("agreementVtable", out _) ? (uint)Hex(root, "agreementVtable") : null,
             PlayerListRootRva = (uint)Hex(list, "rootRva"),
             PlayerListBeginOffset = Hex(list, "beginOffset"),
             PlayerListEndOffset = Hex(list, "endOffset"),
@@ -94,6 +116,8 @@ public sealed class OffsetProfile
             Relations = player.TryGetProperty("relations", out var rel) ? RelationOffsets.Load(rel) : null,
             Bans = player.TryGetProperty("bans", out var bans) ? BanOffsets.Load(bans) : null,
             Languages = player.TryGetProperty("languages", out var lang) ? LanguageOffsets.Load(lang) : null,
+            Promises = player.TryGetProperty("promises", out var prom) ? PromiseOffsets.Load(prom) : null,
+            TacticalUnderstanding = player.TryGetProperty("tacticalUnderstanding", out var tu) ? TacticalUnderstandingOffsets.Load(tu) : null,
             Cities = player.TryGetProperty("cities", out var city) ? CityOffsets.Load(city) : null,
             Cohesion = player.TryGetProperty("cohesion", out var coh) ? CohesionOffsets.Load(coh) : null,
             CareerPlans = player.TryGetProperty("careerPlans", out var cp) ? CareerPlanOffsets.Load(cp) : null,
@@ -215,6 +239,7 @@ public sealed class OffsetProfile
                 Continent = OptHex(nat, "continent"),
                 Stadium = OptHex(nat, "stadium"),
                 Teams = nat.TryGetProperty("teams", out var nt) ? new NationTeamOffsets(Hex(nt, "pointer"), Hex(nt, "list"), (uint)Hex(nt, "teamVtable"), Hex(nt, "reputation")) : null,
+                WomenTeam = OptHex(nat, "womenTeam"),
                 Rivalries = nat.TryGetProperty("rivalries", out var nr) ? new NationRivalryOffsets(
                     Hex(nr, "team"), (uint)Hex(nr, "teamVtable"), Hex(nr, "vector"), Hex(nr, "entrySize"),
                     Hex(nr, "type"), Hex(nr, "rivalType"), Hex(nr, "value")) : null,
@@ -310,10 +335,18 @@ public sealed class OffsetProfile
             w.WriteString("module", Module);
             H("buildStringRva", BuildStringRva);
             if (MatchBuild is { } matchBuild) w.WriteString("matchBuild", matchBuild);
+        if (Variant is { } variant) w.WriteString("variant", variant);
             if (ImageSize is { } imageSize) H("imageSize", imageSize);
             if (PeTimestamp is { } timestamp) H("peTimestamp", timestamp);
+            if (AgentPoolSlotRva is { } agentPoolSlot) H("agentPoolSlotRva", agentPoolSlot);
+            if (AgentVtableRva is { } agentVtable) H("agentVtableRva", agentVtable);
             if (ReadOnly) w.WriteBoolean("readOnly", true);
             if (DirectGameDateRva is { } directDate) H("directGameDateRva", directDate);
+            if (RetirementManagerRva is { } retirementRva) H("retirementManagerRva", retirementRva);
+            if (RetirementManagerVtable is { } retirementVtable) H("retirementManagerVtable", retirementVtable);
+            if (NationAppointmentVtable is { } appointmentVtable) H("nationAppointmentVtable", appointmentVtable);
+            if (AgreementRegionVtable is { } agreementRegion) H("agreementRegionVtable", agreementRegion);
+            if (AgreementVtable is { } agreementKind) H("agreementVtable", agreementKind);
             w.WriteStartObject("playerList");
             H("rootRva", PlayerListRootRva); H("beginOffset", PlayerListBeginOffset); H("endOffset", PlayerListEndOffset);
             w.WriteEndObject();
@@ -335,6 +368,8 @@ public sealed class OffsetProfile
             Relations?.Write(w);
             Bans?.Write(w);
             Languages?.Write(w);
+            Promises?.Write(w);
+            TacticalUnderstanding?.Write(w);
             Cities?.Write(w);
             Cohesion?.Write(w);
             CareerPlans?.Write(w);
@@ -489,6 +524,7 @@ public sealed class OffsetProfile
                     H("pointer", nts.Pointer); H("list", nts.List); H("teamVtable", nts.TeamVtable); H("reputation", nts.Reputation);
                     w.WriteEndObject();
                 }
+                if (nat.WomenTeam is { } women) H("womenTeam", women);
                 if (nat.Rivalries is { } nr)
                 {
                     w.WriteStartObject("rivalries");

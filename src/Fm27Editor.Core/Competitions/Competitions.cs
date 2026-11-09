@@ -15,6 +15,9 @@ public sealed record CompetitionRecord(ulong Address, int Index, int Id, string?
     byte SubstitutionRules = 0xFF)
 {
     public string DisplayName => Name ?? ShortName ?? "";
+    /// <summary>Exact game bytes for guarded date writes, including sentinel representation and flag bits.</summary>
+    public uint? WinterBallStartRaw { get; init; }
+    public uint? WinterBallEndRaw { get; init; }
 }
 
 public sealed class CompetitionRepository(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
@@ -26,15 +29,65 @@ public sealed class CompetitionRepository(IProcessMemory memory, OffsetProfile p
     {
         var c = C;
         if (c.ListRootRva is not { } rva || c.ListOffset is not { } off) throw new InvalidOperationException("Profile has no competition list");
-        ulong root = memory.ReadUInt64(moduleBase + (ulong)rva);
-        ulong begin = root == 0 ? 0 : memory.ReadUInt64(root + (ulong)off), end = root == 0 ? 0 : memory.ReadUInt64(root + (ulong)off + 8);
+        ulong root = TryPointer(moduleBase + (ulong)rva) ?? 0;
+        ulong begin = root == 0 ? 0 : TryPointer(root + (ulong)off) ?? 0, end = root == 0 ? 0 : TryPointer(root + (ulong)off + 8) ?? 0;
+        var result = new List<CompetitionRecord>();
+        MemoryAccessException? listProblem = null;
         if (begin == 0 || end < begin || (end - begin) % 8 != 0 || (end - begin) / 8 > MaxCompetitions)
-            throw new MemoryAccessException($"Competition list looks invalid (begin 0x{begin:X}, end 0x{end:X}); is a save loaded?");
-        var raw = memory.Read(begin, (int)(end - begin));
-        var result = new List<CompetitionRecord>(raw.Length / 8);
-        for (int i = 0; i < raw.Length; i += 8)
-            if (Reload(BitConverter.ToUInt64(raw, i)) is { } r) result.Add(r);
-        return result;
+            listProblem = new MemoryAccessException($"Competition list looks invalid (begin 0x{begin:X}, end 0x{end:X}); is a save loaded?");
+        else
+        {
+            var raw = memory.Read(begin, (int)(end - begin));
+            for (int i = 0; i < raw.Length; i += 8)
+                if (Reload(BitConverter.ToUInt64(raw, i)) is { } r) result.Add(r);
+        }
+        if (result.Count > 0) return result;
+        // The list slot is missing or points at something else (the Game Pass slot held squad-rule containers, 502 of them).
+        // FM Studio 1.1.1 does not use a list at all: it takes [team + TeamCompetition] of every team and walks the
+        // competition objects next to each hit at the object size, which found all 8,213 on Game Pass 2493426.
+        var found = DiscoverFromTeams();
+        if (found.Count > 0) return found;
+        return listProblem is null ? result : throw listProblem;
+    }
+
+    /// <summary>Size of one competition object, also the distance between neighbours in the game's arrays.</summary>
+    public const int ObjectStride = 0x1B0;
+
+    /// <summary>Competitions reached from the teams of every loaded player, plus their neighbours in memory, ordered by index.</summary>
+    IReadOnlyList<CompetitionRecord> DiscoverFromTeams()
+    {
+        var c = C;
+        if (profile.Team is not { } team) return [];
+        ulong vtable = moduleBase + c.VtableRva;
+        var teams = new HashSet<ulong>();
+        foreach (var player in new PlayerRepository(memory, profile, moduleBase).LoadAll())
+        {
+            if (TryPointer(player.Address + (ulong)team.PlayerTeam) is { } playing) teams.Add(playing);
+            if (profile.Contract is { } contract && player.Contract is { } k && TryPointer(k.Address + (ulong)contract.Team) is { } contractTeam)
+                teams.Add(contractTeam);
+        }
+        bool IsCompetition(ulong address) => address >= 0x10000 && TryPointer(address) == vtable;
+        var seeds = new HashSet<ulong>();
+        foreach (ulong t in teams)
+            if (TryPointer(t + (ulong)c.TeamCompetition) is { } p && IsCompetition(p)) seeds.Add(p);
+        var all = new HashSet<ulong>(seeds);
+        foreach (ulong seed in seeds)
+            for (int direction = -1; direction <= 1; direction += 2)
+                for (ulong at = seed; ;)
+                {
+                    at = direction > 0 ? at + ObjectStride : at - ObjectStride;
+                    if (!IsCompetition(at) || !all.Add(at)) break;
+                }
+        var found = new List<CompetitionRecord>(all.Count);
+        foreach (ulong address in all)
+            if (Reload(address) is { } record) found.Add(record);
+        return found.OrderBy(r => r.Index).ThenBy(r => r.Id).ToList();
+    }
+
+    ulong? TryPointer(ulong at)
+    {
+        Span<byte> b = stackalloc byte[8];
+        return at >= 0x10000 && memory.TryRead(at, b) && BitConverter.ToUInt64(b) is var v && v != 0 ? v : null;
     }
 
     public CompetitionRecord? Reload(ulong address)
@@ -49,7 +102,8 @@ public sealed class CompetitionRepository(IProcessMemory memory, OffsetProfile p
         return new(address, BitConverter.ToInt32(b, index), BitConverter.ToInt32(b, id), StringAt(BitConverter.ToUInt64(b, c.Name)),
             StringAt(BitConverter.ToUInt64(b, c.ShortName)), BitConverter.ToInt16(b, rep), Colour(b, fg), Colour(b, bg), Colour(b, trim),
             Colour(b, wb), Date(b, ws), Date(b, we),
-            c.SubstitutionRules is { } subs && subs < size ? b[subs] : (byte)0xFF);
+            c.SubstitutionRules is { } subs && subs < size ? b[subs] : (byte)0xFF)
+            { WinterBallStartRaw = BitConverter.ToUInt32(b, ws), WinterBallEndRaw = BitConverter.ToUInt32(b, we) };
     }
 
     static uint Colour(byte[] b, int at) => (uint)(b[at + 3] << 24 | b[at + 2] << 16 | b[at + 1] << 8 | b[at]);
@@ -158,10 +212,11 @@ public sealed class CompetitionWriter(IProcessMemory memory, OffsetProfile profi
     {
         var c = profile.Competition ?? throw new InvalidOperationException("Profile has no competition offsets");
         int offset = (start ? c.WinterBallStart : c.WinterBallEnd) ?? throw new InvalidOperationException("Profile has no winter ball date");
-        DateOnly? before = start ? competition.WinterBallStart : competition.WinterBallEnd;
+        uint raw = (start ? competition.WinterBallStartRaw : competition.WinterBallEndRaw)
+            ?? throw new InvalidOperationException("The competition snapshot has no raw winter ball date");
         RequireSameObject(competition, c);
         ulong at = competition.Address + (ulong)offset;
-        var expected = Encode(before, memory.Read(at, 4));
+        var expected = BitConverter.GetBytes(raw);
         var after = Encode(value, expected);
         if (!memory.Read(at, 4).AsSpan().SequenceEqual(expected)) throw new StaleObjectException("The winter ball date changed since it was read");
         if (!memory.TryWrite(at, after) || !memory.Read(at, 4).AsSpan().SequenceEqual(after))
@@ -172,7 +227,7 @@ public sealed class CompetitionWriter(IProcessMemory memory, OffsetProfile profi
     static byte[] Encode(DateOnly? date, byte[] existing)
     {
         ushort flags = existing.Length == 4 ? (ushort)(BitConverter.ToUInt16(existing, 0) & ~0x1FF) : (ushort)0;
-        if (date is not { } d) return [.. BitConverter.GetBytes(flags), .. BitConverter.GetBytes((short)1900)];
+        if (date is not { } d) return [.. BitConverter.GetBytes((ushort)(flags | 1)), .. BitConverter.GetBytes((short)1900)];
         ushort day = (ushort)(flags | (d.DayOfYear & 0x1FF));
         return [.. BitConverter.GetBytes(day), .. BitConverter.GetBytes((short)d.Year)];
     }

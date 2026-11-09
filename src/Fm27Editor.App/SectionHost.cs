@@ -15,7 +15,14 @@ namespace Fm27Editor.App;
 /// </summary>
 static class SectionHost
 {
-    public sealed record Section(string Key, string Title, Control Body);
+    public sealed record Section(string Key, string Title, Func<Control>? Factory = null, Control? Prebuilt = null)
+    {
+        public Section(string key, string title, Control body) : this(key, title, null, body) { }
+        public Section(string key, string title, Func<Control> factory) : this(key, title, factory, null) { }
+
+        Control? _body = Prebuilt;
+        public Control Body => _body ??= (Factory?.Invoke() ?? new Panel());
+    }
 
     sealed class Entry(Section section)
     {
@@ -48,7 +55,7 @@ static class SectionHost
         list.ItemTemplate = new FuncDataTemplate<Entry>((entry, _) => new TextBlock
         {
             Text = entry.Section.Title,
-            FontSize = 11.5,
+            FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
         }, true);
 

@@ -28,11 +28,30 @@ public sealed partial class WindowsProcessMemory : IProcessMemory, IDisposable
             return ReadProcessMemory(_handle, (nint)address, p, buffer.Length, out var read) && read == buffer.Length;
     }
 
+    /// <summary>
+    /// Called after every successful write with the address, the bytes that were there and the bytes written. Used by the edit
+    /// history; the old bytes are only read when someone listens.
+    /// </summary>
+    public Action<ulong, byte[], byte[]>? OnWrite { get; set; }
+
+    /// <summary>Called with the address and size of each fresh block, so the history can ignore writes into it.</summary>
+    public Action<ulong, int>? OnAllocate { get; set; }
+
     public unsafe bool TryWrite(ulong address, ReadOnlySpan<byte> data)
     {
         if (!CanWrite) throw new InvalidOperationException("Process was opened read-only");
+        var listener = OnWrite;
+        byte[]? before = null;
+        if (listener is not null)
+        {
+            before = new byte[data.Length];
+            if (!TryRead(address, before)) before = null;
+        }
+        bool ok;
         fixed (byte* p = data)
-            return WriteProcessMemory(_handle, (nint)address, p, data.Length, out var written) && written == data.Length;
+            ok = WriteProcessMemory(_handle, (nint)address, p, data.Length, out var written) && written == data.Length;
+        if (ok && listener is not null && before is not null) listener(address, before, data.ToArray());
+        return ok;
     }
 
     /// <summary>Committed regions that are writable data: private heap pages and, inside
@@ -59,13 +78,45 @@ public sealed partial class WindowsProcessMemory : IProcessMemory, IDisposable
     /// Fresh zeroed read/write memory inside the game process (VirtualAllocEx). The game's own allocator does
     /// not know it, so the game may fail when it later frees or regrows a container pointing here.
     /// </summary>
-    public ulong Allocate(int bytes)
+    public ulong Allocate(int bytes) => AllocateWith(bytes, 0x04);
+
+    /// <summary>Executable page as close as possible to <paramref name="near"/> so a rel32 jump can reach it.</summary>
+    public ulong AllocateNear(ulong near, int bytes)
     {
         if (!CanWrite) throw new InvalidOperationException("Process was opened read-only");
-        nint p = VirtualAllocEx(_handle, 0, bytes, 0x3000, 0x04);
+        for (ulong step = 0x10000; step < 0x7F000000; step += 0x10000)
+        {
+            foreach (ulong candidate in new[] { near + step, near - step })
+            {
+                if (candidate < 0x10000) continue;
+                nint p = VirtualAllocEx(_handle, (nint)candidate, bytes, 0x3000, 0x40);
+                if (p != 0) return (ulong)p;
+            }
+        }
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "no executable page within rel32 reach");
+    }
+    /// <summary>Fresh executable page inside the game process, used for a hook trampoline.</summary>
+    public ulong AllocateExecutable(int bytes) => AllocateWith(bytes, 0x40);
+
+    ulong AllocateWith(int bytes, uint protect)
+    {
+        if (!CanWrite) throw new InvalidOperationException("Process was opened read-only");
+        nint p = VirtualAllocEx(_handle, 0, bytes, 0x3000, protect);
         if (p == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "VirtualAllocEx failed");
+        OnAllocate?.Invoke((ulong)p, bytes);
         return (ulong)p;
     }
+
+    /// <summary>Changes page protection and returns the previous value, so a code patch can be made in RAM only.</summary>
+    public uint Protect(ulong address, int bytes, uint protect)
+    {
+        if (!CanWrite) throw new InvalidOperationException("Process was opened read-only");
+        if (!VirtualProtectEx(_handle, (nint)address, bytes, protect, out uint old))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "VirtualProtectEx failed");
+        return old;
+    }
+
+    public void Free(ulong address) => VirtualFreeEx(_handle, (nint)address, 0, 0x8000);
 
     public void Dispose() => CloseHandle(_handle);
 
@@ -81,6 +132,14 @@ public sealed partial class WindowsProcessMemory : IProcessMemory, IDisposable
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial nint VirtualAllocEx(nint process, nint address, nint size, uint type, uint protect);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool VirtualProtectEx(nint process, nint address, nint size, uint protect, out uint old);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool VirtualFreeEx(nint process, nint address, nint size, uint freeType);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial nint VirtualQueryEx(nint process, nint address, out MemoryBasicInformation info, nint length);

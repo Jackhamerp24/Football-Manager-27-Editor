@@ -1,3 +1,4 @@
+using Fm27Editor.Core.History;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -24,7 +25,7 @@ public sealed partial class MainWindow
         if (rows.Count == 0) return outer;
 
         var fields = new List<(StaffTendency Row, ComboBox Type, TextBox Box)>();
-        var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
+        var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
         static byte Code(ComboBox box) => ((TendencyChoice)box.SelectedItem!).Code;
         bool Pending() => fields.Any(f => f.Box.Text != f.Row.Level.ToString(Inv) || Code(f.Type) != f.Row.Type);
@@ -66,7 +67,7 @@ public sealed partial class MainWindow
             try
             {
                 var t = backend.Session.StaffTendencies;
-                backend.Edits.Execute(() =>
+                backend.Edits.Execute("Staff", staff.DisplayName, "Tendencies", () =>
                 {
                     foreach (var (row, type, level) in changes)
                     {
@@ -75,7 +76,7 @@ public sealed partial class MainWindow
                         if (type != row.Type) t.SetType(staff, row with { Level = (byte)level }, type);
                         written++;
                     }
-                });
+                }, StaffChangeLabels.ForTendencies(changes.Select(c => c.Row)));
                 RenderStaffEditor(); status.Text = "Saved tendencies. Continue in FM to see updates.";
             }
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }

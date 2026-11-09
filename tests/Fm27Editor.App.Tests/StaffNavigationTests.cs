@@ -14,9 +14,9 @@ public class StaffNavigationTests
             Address = address, StaffAddress = address + 1, Id = id,
             Attributes = [], Personality = [], Kind = kind,
         };
-        var jim = new MainWindow.StaffRow(Person(0x10000, 5209579), "Same Name", "", "", "", null, 96, 133);
-        var david = new MainWindow.StaffRow(Person(0x20000, 2019010), "Same Name", "", "", "", null, 128, 140);
-        MainWindow.StaffRow[] rows = [jim, david];
+        var jim = new StaffRow(Person(0x10000, 5209579), "Same Name", "", "", "", null, 96, 133);
+        var david = new StaffRow(Person(0x20000, 2019010), "Same Name", "", "", "", null, 128, 140);
+        StaffRow[] rows = [jim, david];
 
         Assert.Same(jim, StaffNavigation.Find(rows, 0x10000, 5209579));
         Assert.Same(david, StaffNavigation.Find(rows, 0x20000, 2019010));
@@ -33,10 +33,10 @@ public class StaffNavigationTests
             Address = address, StaffAddress = address + 1, Id = id,
             Attributes = [], Personality = [], Kind = kind,
         };
-        var ferguson = new MainWindow.StaffRow(Person(0x10000, 2020287), "Alex Ferguson", "Director", "Man Utd", "Scotland", 84, 150, 200);
-        var duong = new MainWindow.StaffRow(Person(0x20000, 2002081897), "Duong Vu", "Manager", "Man Utd", "Vietnam", 30, 160, 180);
-        var pep = new MainWindow.StaffRow(Person(0x30000, 6700222), "Pep Guardiola", "Manager", "Man City", "Spain", 55, 195, 200);
-        MainWindow.StaffRow[] rows = [ferguson, duong, pep];
+        var ferguson = new StaffRow(Person(0x10000, 2020287), "Alex Ferguson", "Director", "Man Utd", "Scotland", 84, 150, 200);
+        var duong = new StaffRow(Person(0x20000, 2002081897), "Duong Vu", "Manager", "Man Utd", "Vietnam", 30, 160, 180);
+        var pep = new StaffRow(Person(0x30000, 6700222), "Pep Guardiola", "Manager", "Man City", "Spain", 55, 195, 200);
+        StaffRow[] rows = [ferguson, duong, pep];
 
         Assert.Equal([ferguson], StaffFilter.Apply(rows, "2020287", null, null));
         Assert.Equal([duong], StaffFilter.Apply(rows, "2002081897", "Man Utd", "Manager"));

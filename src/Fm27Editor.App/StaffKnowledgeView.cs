@@ -1,3 +1,4 @@
+using Fm27Editor.Core.History;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -22,7 +23,7 @@ public sealed partial class MainWindow
         try { rows = session.StaffKnowledge.Read(staff, nationCatalogue); }
         catch (Exception ex) { panel.Children.Add(new TextBlock { Text = ex.Message }); return panel; }
         var fields = new List<(StaffKnowledgeRow Row, TextBox Box)>();
-        var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
+        var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
         bool Pending() => fields.Any(f => f.Box.Text != f.Row.Value.ToString(Inv));
 
@@ -30,7 +31,7 @@ public sealed partial class MainWindow
         void Change(Action change, string done)
         {
             if (Pending()) { status.Text = "Save or discard the knowledge edits first"; return; }
-            try { backend.Edits.Execute(change); status.Text = done; RenderStaffEditor(); }
+            try { backend.Edits.Execute("Staff", staff.DisplayName, "Knowledge: Add/Remove", change, StaffChangeLabels.ForKnowledge(rows)); status.Text = done; RenderStaffEditor(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
 
@@ -105,7 +106,7 @@ public sealed partial class MainWindow
             int written = 0;
             try
             {
-                backend.Edits.Execute(() => { foreach (var (row, value) in changes) { session.StaffKnowledge.SetValue(staff, row, value); written++; } });
+                backend.Edits.Execute("Staff", staff.DisplayName, "Knowledge", () => { foreach (var (row, value) in changes) { session.StaffKnowledge.SetValue(staff, row, value); written++; } }, StaffChangeLabels.ForKnowledge(rows));
                 RenderStaffEditor(); status.Text = "Saved knowledge. Continue in FM to see updates.";
             }
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }

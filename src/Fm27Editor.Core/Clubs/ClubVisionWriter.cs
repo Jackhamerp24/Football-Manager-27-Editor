@@ -62,6 +62,27 @@ public sealed class ClubVisionWriter(IProcessMemory memory, OffsetProfile profil
             throw new MemoryAccessException($"Could not write club vision {what} at 0x{address:X}");
     }
 
+    /// <summary>
+    /// Source-type id of one row: the low 9 bits of the word at the profile's <c>visionSource</c> offset. Measured
+    /// 8/11/2026 by writing 7 into a row FMRTE showed as "Unknown (194)": FMRTE then showed "Unknown (7)", and rows
+    /// whose bits are 1 show "Board".
+    /// </summary>
+    public void SetSourceType(ulong team, ClubVisionEntry entry, int sourceType)
+    {
+        var layout = profile.Club?.Lists ?? throw new InvalidOperationException("Profile has no club vision offsets");
+        if (layout.VisionSource < 0 || layout.VisionSource > layout.CultureSize - 2)
+            throw new InvalidOperationException("Club vision source type is unavailable for this build");
+        if (sourceType is < 0 or > 0x1FF) throw new ArgumentOutOfRangeException(nameof(sourceType));
+        Require(team, entry);
+        ulong address = entry.Address + (ulong)layout.VisionSource;
+        var current = memory.Read(address, 2);
+        if (current.Length < 2) throw new MemoryAccessException($"Could not read the club vision source at 0x{address:X}");
+        ushort raw = BitConverter.ToUInt16(current, 0);
+        byte[] value = BitConverter.GetBytes((ushort)((raw & 0xFE00) | sourceType));
+        if (!memory.TryWrite(address, value) || !memory.Read(address, 2).AsSpan().SequenceEqual(value))
+            throw new MemoryAccessException($"Could not write the club vision source at 0x{address:X}");
+    }
+
     /// <summary>Writes the two dates of one vision row, keeping the flag bits above the 9-bit day.</summary>
     public void SetDates(ulong team, ClubVisionEntry entry, DateOnly start, DateOnly end)
     {
@@ -103,6 +124,72 @@ public sealed class ClubVisionWriter(IProcessMemory memory, OffsetProfile profil
         var end = BitConverter.GetBytes(snapshot.End - 8);
         if (!memory.TryWrite(header + 8, end) || !memory.Read(header + 8, 8).AsSpan().SequenceEqual(end))
             throw new MemoryAccessException($"Could not shrink the club vision vector at 0x{header:X}");
+    }
+
+    /// <summary>
+    /// Creates a new board objective from an existing row used as a template (unknown bytes keep the game's layout),
+    /// then overwrites type, importance, target and both dates and appends it to the club's vector.
+    /// </summary>
+    public ClubVisionEntry Create(ulong team, ClubVisionEntry template, byte type, byte importance, int target,
+        DateOnly startDate, DateOnly endDate, Func<int, ulong>? allocate)
+    {
+        var (layout, snapshot) = Require(team, template);
+        if (allocate is null) throw new StaleObjectException("No allocator is available to add a vision row");
+        if (layout.VisionTarget < 0 || layout.VisionTarget + 4 > layout.CultureSize)
+            throw new InvalidOperationException("Club vision target is unavailable for this build");
+        if (startDate.Year is <= 1900 or > 2300 || endDate.Year is <= 1900 or > 2300)
+            throw new ArgumentOutOfRangeException(nameof(startDate), "Club vision date cannot be read back by this profile");
+
+        var bytes = Convert.FromHexString(snapshot.Bytes);
+        bytes[layout.VisionType] = type;
+        bytes[layout.Importance] = importance;
+        BitConverter.GetBytes(target).CopyTo(bytes, layout.VisionTarget);
+        PutDate(bytes, layout.VisionStart, startDate);
+        PutDate(bytes, layout.VisionEnd, endDate);
+
+        ulong culture = allocate(layout.CultureSize);
+        if (culture == 0) throw new MemoryAccessException("Could not allocate a vision row");
+        if (!memory.TryWrite(culture, bytes) || !memory.Read(culture, bytes.Length).AsSpan().SequenceEqual(bytes))
+            throw new MemoryAccessException($"Could not write the new vision row at 0x{culture:X}");
+
+        ulong header = snapshot.Vector, begin = snapshot.Begin, vecEnd = snapshot.End, cap = snapshot.Capacity;
+        if (vecEnd + 8 <= cap)
+        {
+            WritePointers(vecEnd, culture);
+            var newEnd = BitConverter.GetBytes(vecEnd + 8);
+            if (!memory.TryWrite(header + 8, newEnd) || !memory.Read(header + 8, 8).AsSpan().SequenceEqual(newEnd))
+                throw new MemoryAccessException($"Could not grow the club vision vector at 0x{header:X}");
+        }
+        else
+        {
+            int count = (int)((vecEnd - begin) / 8);
+            int slots = Math.Max(4, count * 2);
+            ulong buffer = allocate(slots * 8);
+            if (buffer == 0) throw new MemoryAccessException("Could not allocate a larger vision vector");
+            if (count > 0)
+            {
+                var pointers = memory.Read(begin, count * 8);
+                if (pointers.Length < count * 8 || !memory.TryWrite(buffer, pointers))
+                    throw new MemoryAccessException("Could not copy the club vision pointers");
+            }
+            WritePointers(buffer + (ulong)(count * 8), culture);
+            byte[] beginBytes = BitConverter.GetBytes(buffer),
+                   endBytes = BitConverter.GetBytes(buffer + (ulong)((count + 1) * 8)),
+                   capBytes = BitConverter.GetBytes(buffer + (ulong)(slots * 8));
+            if (!memory.TryWrite(header, beginBytes) || !memory.TryWrite(header + 8, endBytes) || !memory.TryWrite(header + 16, capBytes))
+                throw new MemoryAccessException($"Could not replace the club vision vector at 0x{header:X}");
+        }
+
+        var after = new ClubListReader(memory, profile, moduleBase).ReadClubVision(team)
+            .FirstOrDefault(r => r.Address == culture);
+        return after ?? throw new MemoryAccessException("The new vision row is not in the list after writing");
+    }
+
+    static void PutDate(byte[] bytes, int offset, DateOnly date)
+    {
+        ushort current = BitConverter.ToUInt16(bytes, offset);
+        BitConverter.GetBytes((ushort)((current & 0xFE00) | date.DayOfYear)).CopyTo(bytes, offset);
+        BitConverter.GetBytes((short)date.Year).CopyTo(bytes, offset + 2);
     }
 
     /// <summary>

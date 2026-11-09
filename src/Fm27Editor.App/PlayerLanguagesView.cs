@@ -17,7 +17,7 @@ public sealed partial class MainWindow
         var panel = new StackPanel { Spacing = 8, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left };
         var languages = backend.Session.ReadLanguages(player);
         var fields = new List<(PlayerLanguage Language, TextBox Value)>();
-        var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
+        var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
         bool Pending() => fields.Any(f => f.Value.Text != f.Language.Value.ToString(Inv));
 
@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         void Change(Action change, string done)
         {
             if (Pending()) { status.Text = "Save or discard the language edits first"; return; }
-            try { backend.Edits.Execute(change); status.Text = done; rerender(); }
+            try { backend.Edits.Execute("Person", player.Name, "Languages", change); status.Text = done; rerender(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
 
@@ -78,7 +78,7 @@ public sealed partial class MainWindow
             try
             {
                 var session = backend.Session;
-                backend.Edits.Execute(() => { var writer = new LanguageWriter(session.Memory, session.Profile, session.Game.ModuleBase); foreach (var c in changes) writer.SetValue(player, c.Language, c.Value); });
+                backend.Edits.Execute("Player", player.Name, "Page save", () => { var writer = new LanguageWriter(session.Memory, session.Profile, session.Game.ModuleBase); foreach (var c in changes) writer.SetValue(player, c.Language, c.Value); });
                 status.Text = "Saved languages. Continue in FM to see updates.";
                 rerender();
             }

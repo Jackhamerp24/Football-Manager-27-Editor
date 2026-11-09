@@ -125,6 +125,83 @@ public class ClubListReaderTests
             if (i is not (>= 0x28 and < 0x2C) and not 0x38) Assert.Equal(before[i], after[i]);
     }
 
+    [Fact]
+    public void Creates_a_vision_row_from_a_template()
+    {
+        const string raw = "C805C41CFB7F0000FFFF7FFF0000000008DD8E9372020000000000000000000001006C0701006C07FFFFFFFF9605000001006C07FFFFFFFF02000000020000000000000000000000D047179600F70590";
+        const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
+        const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000, spare = 0x71000000;
+        const ulong setAside = 0x72000000;
+        var memory = new FakeMemory();
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var teamBytes = memory.Map(team, 0xB8);
+        Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
+        Put64(memory.Map(detail, 0xD0), 0xC8, holder);
+        var holderBytes = memory.Map(holder, 0x80);
+        Put64(holderBytes, 0, module + 0x4DBCC98); Put64(holderBytes, 0x78, header);
+        var headerBytes = memory.Map(header, 24);
+        // Capacity for two pointers so the append stays in place.
+        Put64(headerBytes, 0, vector); Put64(headerBytes, 8, vector + 8); Put64(headerBytes, 16, vector + 16);
+        Put64(memory.Map(vector, 16), 0, record);
+        Convert.FromHexString(raw).CopyTo(memory.Map(record, 0x50), 0);
+        memory.Map(spare, 0x100);
+
+        var reader = new ClubListReader(memory, profile, module);
+        var writer = new ClubVisionWriter(memory, profile, module);
+        var template = reader.ReadClubVision(team).Single();
+
+        var created = writer.Create(team, template, type: 44, importance: 7, target: 5,
+            startDate: new DateOnly(2027, 2, 3), endDate: new DateOnly(2028, 4, 5), allocate: _ => spare);
+
+        var rows = reader.ReadClubVision(team);
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(spare, rows[1].Address);
+        Assert.Equal((byte)44, rows[1].TypeCode);
+        Assert.Equal((byte)7, rows[1].Importance);
+        Assert.Equal(5, rows[1].Target);
+        Assert.Equal(new DateOnly(2027, 2, 3), rows[1].StartDate);
+        Assert.Equal(new DateOnly(2028, 4, 5), rows[1].EndDate);
+        // The template record is untouched.
+        var templateNow = reader.ReadClubVision(team)[0];
+        Assert.Equal(template.TypeCode, templateNow.TypeCode);
+        Assert.Equal(template.Snapshot!.Bytes, templateNow.Snapshot!.Bytes);
+        Assert.NotEqual(0UL, setAside);
+    }
+
+    [Fact]
+    public void Reads_and_writes_the_vision_source_type()
+    {
+        // FMRTE 8/11/2026: rows whose +0x30 low bits are 1 show "Board"; writing 7 into a row shown as "Unknown (194)"
+        // made FMRTE show "Unknown (7)".
+        const string raw = "C805C41CFB7F0000FFFF7FFF0000000008DD8E9372020000000000000000000001006C0701006C07FFFFFFFF9605000001006C07FFFFFFFF02000000020000000000000000000000D047179600F70590";
+        const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
+        const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
+        var memory = new FakeMemory();
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var teamBytes = memory.Map(team, 0xB8);
+        Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
+        Put64(memory.Map(detail, 0xD0), 0xC8, holder);
+        var holderBytes = memory.Map(holder, 0x80);
+        Put64(holderBytes, 0, module + 0x4DBCC98); Put64(holderBytes, 0x78, header);
+        var headerBytes = memory.Map(header, 24);
+        Put64(headerBytes, 0, vector); Put64(headerBytes, 8, vector + 8); Put64(headerBytes, 16, vector + 8);
+        Put64(memory.Map(vector, 8), 0, record);
+        Convert.FromHexString(raw).CopyTo(memory.Map(record, 0x50), 0);
+
+        var reader = new ClubListReader(memory, profile, module);
+        var writer = new ClubVisionWriter(memory, profile, module);
+        var before = memory.Read(record, 0x50);
+        Assert.Equal(BitConverter.ToUInt16(before, 0x30) & 0x1FF, reader.ReadClubVision(team).Single().SourceType);
+
+        writer.SetSourceType(team, reader.ReadClubVision(team).Single(), 7);
+        Assert.Equal(7, reader.ReadClubVision(team).Single().SourceType);
+
+        var after = memory.Read(record, 0x50);
+        Assert.Equal((ushort)7, (ushort)(BitConverter.ToUInt16(after, 0x30) & 0x1FF));
+        // Only the low nine bits changed: the year and flags above them stay as they were.
+        Assert.Equal(BitConverter.ToUInt16(before, 0x30) & 0xFE00, BitConverter.ToUInt16(after, 0x30) & 0xFE00);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -249,11 +326,35 @@ public class ClubListReaderTests
     }
 
     [Fact]
+    public void Competition_and_nation_markers_resolve_the_item_name()
+    {
+        var f = new Fixture(true);
+        // R. Madrid 8/11/2026: marker 0x1900 carries a competition id (51 = Spanish First Division),
+        // 0x0900 a nation id and 0x0500 a continent id. The name comes from the table the caller supplies.
+        Assert.True(f.Memory.TryWrite(Fixture.VisionRecords + 6 * 0x100 + 0x8, BitConverter.GetBytes((short)51)));
+        Assert.True(f.Memory.TryWrite(Fixture.VisionRecords + 6 * 0x100 + 0xA, new byte[] { 0, 0x19 }));
+        var row = f.Reader.ReadClubVision(Fixture.Team, f.Clubs, new Dictionary<int, string> { [51] = "Spanish First Division" })[6];
+        Assert.Equal(ClubVisionItemKind.Competition, row.ItemKind);
+        Assert.Equal("Spanish First Division", row.ItemName);
+        Assert.Null(row.ClubItem);
+
+        Assert.True(f.Memory.TryWrite(Fixture.VisionRecords + 6 * 0x100 + 0xA, new byte[] { 0, 0x09 }));
+        row = f.Reader.ReadClubVision(Fixture.Team, f.Clubs, null, new Dictionary<int, string> { [51] = "Spain" })[6];
+        Assert.Equal(ClubVisionItemKind.Nation, row.ItemKind);
+        Assert.Equal("Spain", row.ItemName);
+
+        Assert.True(f.Memory.TryWrite(Fixture.VisionRecords + 6 * 0x100 + 0xA, new byte[] { 0, 0x05 }));
+        row = f.Reader.ReadClubVision(Fixture.Team, f.Clubs, null, null, new Dictionary<int, string> { [51] = "Europe" })[6];
+        Assert.Equal(ClubVisionItemKind.Continent, row.ItemKind);
+        Assert.Equal("Europe", row.ItemName);
+    }
+
+    [Fact]
     public void Wrong_vtables_short_records_and_unknown_reference_kinds_are_not_decoded()
     {
         var f = new Fixture(true);
         // Unknown item marker must never be resolved to Liverpool merely because its low index is 403.
-        Assert.True(f.Memory.TryWrite(Fixture.VisionRecords + 6 * 0x100 + 0xA, new byte[] { 0, 0x19 }));
+        Assert.True(f.Memory.TryWrite(Fixture.VisionRecords + 6 * 0x100 + 0xA, new byte[] { 0x34, 0x12 }));
         Assert.Null(f.Reader.ReadClubVision(Fixture.Team, f.Clubs)[6].ItemIndex);
         Assert.Null(f.Reader.ReadClubVision(Fixture.Team, f.Clubs)[6].ClubItem);
         Assert.True(f.Memory.TryWrite(Fixture.VisionRecords, BitConverter.GetBytes(Fixture.Module + 0x4DC9AF8)));

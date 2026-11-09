@@ -28,8 +28,8 @@ public sealed partial class MainWindow
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
         };
-        var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextPrimary, FontSize = 12, IsVisible = false };
-        var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#F59E0B"), FontSize = 11.5, IsVisible = false };
+        var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextPrimary, FontSize = 13.5, IsVisible = false };
+        var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#F59E0B"), FontSize = 13, IsVisible = false };
         var apply = new Button { Content = "Confirm transfer", IsEnabled = false, Classes = { "accent" } };
         var undo = new Button { Content = "Undo last staff move", IsEnabled = staffMoveUndo.Count > 0, IsVisible = staffMoveUndo.Count > 0 };
 
@@ -51,16 +51,8 @@ public sealed partial class MainWindow
         void UpdateStaff(StaffRecord before)
         {
             var fresh = session.Staff.Reload(before.Address) ?? throw new InvalidOperationException("Staff no longer readable");
-            staffRows = staffRows.Select(r => r.Staff.Address == before.Address
-                ? r with { Staff = fresh, Club = fresh.Club?.DisplayName ?? "", Job = StaffLabels.Job(fresh.JobCode) } : r).ToList();
-            updatingStaffFilters = true;
-            staffClubFilter.SelectedIndex = 0;
-            updatingStaffFilters = false;
-            PopulateStaffFilters();
-            FilterStaff();
-            selectedStaff = fresh;
-            staffGrid.SelectedItem = staffRows.FirstOrDefault(r => r.Staff.Address == fresh.Address);
-            RenderStaffEditor();
+            staffScreen.ReloadOpen();
+            staffScreen.RefreshFilters(showAllClubs: true);
         }
 
         search.TextChanged += (_, _) => Filter();
@@ -87,7 +79,7 @@ public sealed partial class MainWindow
             if (plan is not { } selectedPlan) return;
             try
             {
-                backend.Edits.Execute(() => service.Apply(selectedPlan));
+                backend.Edits.Execute("Staff", selectedPlan.Staff.DisplayName, "Move", () => service.Apply(selectedPlan));
                 staffMoveUndo.Push(selectedPlan);
                 clubCache = null;
                 UpdateStaff(staff);
@@ -100,7 +92,7 @@ public sealed partial class MainWindow
             if (!staffMoveUndo.TryPeek(out var last)) return;
             try
             {
-                backend.Edits.Execute(() => service.Undo(last));
+                backend.Edits.Execute("Staff", last.Staff.DisplayName, "Move: Undo", () => service.Undo(last));
                 staffMoveUndo.Pop();
                 clubCache = null;
                 UpdateStaff(last.Staff);

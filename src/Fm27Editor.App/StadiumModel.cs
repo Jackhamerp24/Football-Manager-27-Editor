@@ -65,9 +65,14 @@ public static class StadiumLabels
 
     public static bool IsDate(StadiumField f) => f is StadiumField.BuildDate or StadiumField.RebuildDate or StadiumField.PitchLastRelaid or StadiumField.PitchRelayRequired;
 
-    /// <summary>yyyymmdd (0 = none) shown as yyyy-MM-dd, empty for none.</summary>
+    /// <summary>yyyymmdd (0 = none) shown in the chosen date layout, empty for none.</summary>
     public static string Format(StadiumField f, long v) =>
-        IsDate(f) ? v == 0 ? "" : $"{v / 10000:D4}-{v / 100 % 100:D2}-{v % 100:D2}" : v.ToString(CultureInfo.InvariantCulture);
+        IsDate(f) ? v == 0 ? "" : StadiumDay(v) : v.ToString(CultureInfo.InvariantCulture);
+
+    static string StadiumDay(long v) =>
+        v / 10000 is >= 1 and <= 9999 && v / 100 % 100 is >= 1 and <= 12 && v % 100 is >= 1 and <= 31 && v % 100 <= DateTime.DaysInMonth((int)(v / 10000), (int)(v / 100 % 100))
+            ? DateSetting.Format(new DateOnly((int)(v / 10000), (int)(v / 100 % 100), (int)(v % 100)))
+            : $"{v / 10000:D4}-{v / 100 % 100:D2}-{v % 100:D2}";
 
     static (long Min, long Max) Range(StadiumField f) => f switch
     {
@@ -79,7 +84,7 @@ public static class StadiumLabels
         _ => (0, 200_000),
     };
 
-    /// <summary>Parses one pending value; dates take yyyy-MM-dd (empty = none).</summary>
+    /// <summary>Parses one pending value; dates take the chosen date layout (empty = none).</summary>
     public static bool TryParse(StadiumField f, string text, out long value, out string? error)
     {
         error = null;
@@ -87,9 +92,9 @@ public static class StadiumLabels
         if (IsDate(f))
         {
             if (text.Length == 0) { value = 0; return true; }
-            if (DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) && d.Year is > 1900 and <= 2300)
+            if (DateSetting.TryParse(text, out var d) && d.Year is > 1900 and <= 2300)
             { value = d.Year * 10000L + d.Month * 100 + d.Day; return true; }
-            value = 0; error = $"{f}: enter a date as yyyy-MM-dd"; return false;
+            value = 0; error = $"{f}: enter a date as {DateSetting.Hint}"; return false;
         }
         var (min, max) = Range(f);
         if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value) && value >= min && value <= max) return true;

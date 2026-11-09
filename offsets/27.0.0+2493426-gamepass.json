@@ -1,5 +1,9 @@
 {
   "build": "27.0.0+2493426 Game Pass",
+  "agentPoolSlotRva": "0x5685B30",
+  "agentVtableRva": "0x4DDEB18",
+  "matchBuild": "27.0.0+2493426",
+  "variant": "gamepass",
   "module": "game_plugin.dll",
   "buildStringRva": "0x4AA1513",
   "playerList": {
@@ -243,6 +247,29 @@
       "languageId": "0x8",
       "languageName": "0x18"
     },
+    "tacticalUnderstanding": {
+      "holder": "0x100",
+      "stride": "0x20",
+      "count": "0x6",
+      "roleVector": "0xC0",
+      "roleEntry": "0x10",
+      "roleValue": "0xE"
+    },
+    "promises": {
+      "holder": "0x360",
+      "recordSize": "0x60",
+      "manager": "0x18",
+      "person": "0x20",
+      "club": "0x28",
+      "team": "0x30",
+      "made": "0x38",
+      "deadline": "0x3C",
+      "parameter0": "0x40",
+      "parameter1": "0x44",
+      "type": "0x4E",
+      "globalRootRva": "0x5671670",
+      "globalVector": "0xF8"
+    },
     "cities": {
       "pointer": "0x308",
       "listRootRva": "0x5683EF8",
@@ -254,7 +281,10 @@
       "longitude": "0x4C",
       "altitude": "0x50",
       "inhabitants": "0x52",
-      "attraction": "0x54"
+      "attraction": "0x54",
+      "weather": "0x28",
+      "language": "0x30",
+      "region": "0x38"
     },
     "cohesion": {
       "vector": "0x18",
@@ -294,6 +324,7 @@
     },
     "futureTransfers": {
       "playerOffers": "0x328",
+      "currentLoanHolder": "0x338",
       "recordContract": "0x10",
       "recordOfferId": "0x28",
       "dateVector": "0x38",
@@ -387,6 +418,7 @@
       "visionImportanceEditable": true,
       "visionTarget": "0x28",
       "visionStatus": "0x38",
+      "visionSource": "0x30",
       "visionHolderVtable": "0x4D6AEE8",
       "visionHolderVtables": ["0x4D6AEE8", "0x4D6AF68", "0x4DBCC98"],
       "cultureVtable": "0x4ACE098",
@@ -811,6 +843,7 @@
     "capital": "0xE8",
     "continent": "0xF0",
     "stadium": "0x118",
+    "womenTeam": "0x110",
     "teams": {
       "pointer": "0x108",
       "list": "0x18",
@@ -988,7 +1021,7 @@
     "shortName": "0x48",
     "index": "0x8",
     "id": "0xC",
-    "listRootRva": "0x56743C8",
+    "listRootRva": "0x56743C0",
     "listOffset": "0x40",
     "reputation": "0x188",
     "reputationMirror": "0x18A",
@@ -1261,8 +1294,12 @@
       }
     }
   },
-  "matchBuild": "27.0.0+2493426",
   "imageSize": "0x175DA000",
   "peTimestamp": "0x6AE563A1",
-  "directGameDateRva": "0x56257C8"
+  "directGameDateRva": "0x56257C8",
+  "retirementManagerRva": "0x5675060",
+  "retirementManagerVtable": "0x4E6B440",
+  "nationAppointmentVtable": "0x4AC0B68",
+  "agreementRegionVtable": "0x4D78508",
+  "agreementVtable": "0x4C608B8"
 }

@@ -24,7 +24,7 @@ public sealed record NationStaffRow(StaffRecord Staff, NationTeamRecord? Team, b
     public string TeamSuffix => TeamType switch { 0 => "", 10 => " U21", 18 => " U20", 11 => " U19", 12 => " U18", _ => "" };
 }
 
-/// <summary>Reads the men's national staff lists observed on Game Pass build 2493426.</summary>
+/// <summary>Reads the men's national staff lists (measured on Game Pass and Steam 27.0.0+2493426).</summary>
 public sealed class NationStaff(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
     /// <summary>Reads a staff member's separate national appointment, including job and national team.</summary>
@@ -48,14 +48,14 @@ public sealed class NationStaff(IProcessMemory memory, OffsetProfile profile, ul
                     ulong appointment = BitConverter.ToUInt64(ptr);
                     var bytes = new byte[0x28];
                     if (appointment != 0 && memory.TryRead(appointment, bytes) &&
-                        (BitConverter.ToUInt64(bytes) == moduleBase + 0x4AC0B68 || BitConverter.ToUInt64(bytes) == moduleBase + 0x4AC05F8) &&
+                        (BitConverter.ToUInt64(bytes) == moduleBase + profile.NationAppointmentVtable.GetValueOrDefault() || BitConverter.ToUInt64(bytes) == moduleBase + profile.Contract!.ContractVtableRva) &&
                         BitConverter.ToUInt64(bytes, 8) == person.Address && teams.TryGetValue(BitConverter.ToUInt64(bytes, 0x10), out var matched))
                     {
                         team = matched;
                         job = bytes[0x26];
                         var type = new byte[1];
                         if (memory.TryRead(matched.Address + 0x28, type)) teamType = type[0];
-                        if (BitConverter.ToUInt64(bytes) == moduleBase + 0x4AC05F8 && profile.Contract is { } contract)
+                        if (BitConverter.ToUInt64(bytes) == moduleBase + profile.Contract!.ContractVtableRva && profile.Contract is { } contract)
                         {
                             var date = new byte[4];
                             if (memory.TryRead(appointment + (ulong)contract.ExpiryDate, date))
@@ -77,7 +77,7 @@ public sealed class NationStaff(IProcessMemory memory, OffsetProfile profile, ul
 
     public IReadOnlyList<StaffRecord> Read(ulong nation)
     {
-        if (profile.Build != "27.0.0+2493426 Game Pass" || profile.Nation?.Teams is not { } teams || profile.Staff is not { } staff)
+        if (profile.NationAppointmentVtable is null || profile.Contract is null || profile.Nation?.Teams is not { } teams || profile.Staff is not { } staff)
             return [];
         var nationalTeams = new NationTeamReader(memory, profile, moduleBase).Read(nation);
         if (nationalTeams.Count == 0) return [];

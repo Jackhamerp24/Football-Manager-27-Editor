@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Fm27Editor.Core.Clubs;
+using Fm27Editor.Core.Competitions;
 using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Players;
 
@@ -20,29 +21,42 @@ public sealed partial class MainWindow
     {
         Width = 280,
         Height = 26,
-        FontSize = 11.5,
-        Watermark = "Search player, club, nation or ID",
+        FontSize = 13,
+        Watermark = "Search player, club, stadium, award or ID",
     };
     readonly Border searchOverlay = new()
     {
-        Background = new SolidColorBrush(Color.Parse("#E6080A10")),
+        Background = UiKit.Brush("#E6080A10"),
         IsVisible = false,
         ZIndex = 200,
     };
-    readonly TextBlock unifiedResultsLabel = new() { FontSize = 11.5, FontWeight = FontWeight.Bold, Foreground = Brush("#F1F5F9") };
+    readonly TextBlock unifiedResultsLabel = new() { FontSize = 13.5, FontWeight = FontWeight.SemiBold, Foreground = Brush("#F1F5F9"), VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock unifiedResultsCountText = new() { Text = "0", FontSize = 12, FontWeight = FontWeight.Bold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+    readonly Border unifiedCountBadge = new()
+    {
+        Background = UiKit.Accent,
+        CornerRadius = new CornerRadius(9),
+        Padding = new Thickness(6, 1),
+        VerticalAlignment = VerticalAlignment.Center,
+        IsVisible = false,
+    };
+    bool unifiedGroupByType;
+    Button? unifiedGroupToggleBtn;
+    sealed record UnifiedSearchResult(string Kind, string Name, string Meta, int TotalScore, Action Pick);
+    List<UnifiedSearchResult> lastUnifiedResults = [];
 
     Control BuildSearchOverlay()
     {
         unifiedSearch.Width = double.NaN;
         unifiedSearch.Height = 32;
-        unifiedSearch.FontSize = 13;
+        unifiedSearch.FontSize = 14.5;
         unifiedSearch.HorizontalAlignment = HorizontalAlignment.Stretch;
-        unifiedSearch.Watermark = "Search player, club, nation, staff, competition or ID";
+        unifiedSearch.Watermark = "Search player, club, stadium, staff, competition, award or ID";
 
         var closeBtn = new Button
         {
             Content = "Close",
-            FontSize = 11.5,
+            FontSize = 13,
             Padding = new Thickness(12, 3),
             MinHeight = 32,
             Height = 32,
@@ -55,8 +69,61 @@ public sealed partial class MainWindow
         fieldRow.Children.Add(closeBtn);
         fieldRow.Children.Add(unifiedSearch);
 
-        var resultsRow = new DockPanel { LastChildFill = false, Margin = new Thickness(2, 6, 2, 4) };
-        resultsRow.Children.Add(unifiedResultsLabel);
+        var resultsRow = new DockPanel { LastChildFill = false, Margin = new Thickness(2, 6, 2, 6) };
+
+        var leftSummary = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        leftSummary.Children.Add(unifiedResultsLabel);
+        unifiedCountBadge.Child = unifiedResultsCountText;
+        leftSummary.Children.Add(unifiedCountBadge);
+        resultsRow.Children.Add(leftSummary);
+
+        var rightActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        DockPanel.SetDock(rightActions, Dock.Right);
+
+        unifiedGroupToggleBtn = new Button
+        {
+            Content = unifiedGroupByType ? "Grouped ✓" : "Group by type",
+            Classes = { "meta-link" },
+            FontSize = 13,
+            Foreground = unifiedGroupByType ? UiKit.Brush("#C084FC") : UiKit.TextMuted,
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+        unifiedGroupToggleBtn.Click += (_, _) =>
+        {
+            unifiedGroupByType = !unifiedGroupByType;
+            unifiedGroupToggleBtn.Content = unifiedGroupByType ? "Grouped ✓" : "Group by type";
+            unifiedGroupToggleBtn.Foreground = unifiedGroupByType ? UiKit.Brush("#C084FC") : UiKit.TextMuted;
+            RenderCurrentUnifiedResults();
+        };
+
+        var advSearchBtn = new Button
+        {
+            Content = "Advanced search...",
+            Classes = { "meta-link" },
+            FontSize = 13,
+            Foreground = UiKit.Brush("#A78BFA"),
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+        advSearchBtn.Click += (_, _) =>
+        {
+            CloseUnified();
+            SwitchModule("Players");
+            _ = OpenAttributeFilterDialogAsync();
+        };
+
+        rightActions.Children.Add(unifiedGroupToggleBtn);
+        rightActions.Children.Add(advSearchBtn);
+        resultsRow.Children.Add(rightActions);
 
         var panel = new Border
         {
@@ -104,8 +171,10 @@ public sealed partial class MainWindow
 
     void OpenUnified()
     {
+        unifiedReleaseTimer.Stop();
         searchOverlay.IsVisible = true;
         unifiedResultsLabel.Text = "Results";
+        unifiedCountBadge.IsVisible = false;
         unifiedList.Children.Clear();
         unifiedSearch.Focus();
         unifiedSearch.SelectAll();
@@ -114,8 +183,16 @@ public sealed partial class MainWindow
 
     readonly StackPanel unifiedList = new() { Spacing = 2 };
     readonly DispatcherTimer unifiedTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
+    readonly DispatcherTimer unifiedReleaseTimer;
     IReadOnlyList<ClubEntry> unifiedClubs = [];
     IReadOnlyList<NationRecord> unifiedNations = [];
+    IReadOnlyList<CompetitionRecord> unifiedCompetitions = [];
+    IReadOnlyList<Fm27Editor.Core.Staff.StaffRecord> unifiedStaff = [];
+    IReadOnlyList<Fm27Editor.Core.Stadiums.StadiumRecord> unifiedStadiums = [];
+    IReadOnlyList<Fm27Editor.Core.Awards.AwardRecord> unifiedAwards = [];
+    IReadOnlyList<Fm27Editor.Core.Officials.RefereeRecord> unifiedReferees = [];
+    IReadOnlyList<CityRecord> unifiedCities = [];
+    readonly object unifiedCacheLock = new();
     bool unifiedCacheLoaded;
 
     Control BuildTopBar()
@@ -126,13 +203,13 @@ public sealed partial class MainWindow
         {
             Background = UiKit.Accent,
             CornerRadius = new CornerRadius(3),
-            Padding = new Thickness(6, 3),
+            Padding = new Thickness(8, 4),
             Margin = new Thickness(0, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
                 Text = "FM27",
-                FontSize = 10.5,
+                FontSize = 12.5,
                 FontWeight = FontWeight.Black,
                 Foreground = Brushes.White,
                 LetterSpacing = 0.5,
@@ -142,21 +219,23 @@ public sealed partial class MainWindow
         static Border Divider() => new()
         {
             Width = 1,
-            Height = 14,
+            Height = 16,
             Background = UiKit.BorderSubtle,
-            Margin = new Thickness(3, 0),
+            Margin = new Thickness(4, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        Button ToolBtn(string text, string tip, Action action)
+        Button ToolBtn(string iconData, string tip, Action action)
         {
             var b = new Button
             {
-                Content = text,
-                FontSize = 11.5,
-                Padding = new Thickness(8, 0),
-                MinHeight = 25,
-                Height = 25,
+                Content = new Avalonia.Controls.Shapes.Path { Data = Geometry.Parse(iconData), Fill = Brush("#DCE2EE"), Stretch = Stretch.Uniform, Width = 16, Height = 16 },
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Padding = new Thickness(0),
+                MinWidth = 34,
+                Width = 34,
+                MinHeight = 28,
+                Height = 28,
                 Background = Brush("#181C29"),
                 BorderBrush = Brush("#272D42"),
                 BorderThickness = new Thickness(1),
@@ -167,19 +246,23 @@ public sealed partial class MainWindow
             return b;
         }
 
-        left.Children.Add(ToolBtn("⌂", "Return to module list", GoHome));
-        var saveBtn = ToolBtn("Save", "Save changes on current page (Ctrl+S)", SaveCurrentEntity);
+        left.Children.Add(ToolBtn("M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z", "Return to module list", GoHome));
+        var saveBtn = ToolBtn("M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z", "Save changes on current page (Ctrl+S)", SaveCurrentEntity);
         saveBtn.Classes.Add("accent");
         left.Children.Add(saveBtn);
-        left.Children.Add(ToolBtn("History", "Session edit history", () => _ = ShowEditHistoryAsync()));
+        left.Children.Add(ToolBtn("M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z", "Reload current screen (Ctrl+R)", ReloadCurrentScreen));
+        left.Children.Add(ToolBtn("M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3", "Session edit history", () => _ = ShowEditHistoryAsync()));
         left.Children.Add(Divider());
-        left.Children.Add(ToolBtn("Mass", "Mass edit current module", OpenCurrentMassEdit));
-        left.Children.Add(ToolBtn("Freezer", "Freeze current player or club", OpenCurrentFreezer));
-        left.Children.Add(ToolBtn("Graphics", "Choose graphics folder", () => _ = ChooseGraphicsAsync()));
+        left.Children.Add(ToolBtn("M20.79,13.95L18.46,14.57L16.46,13.44V10.56L18.46,9.43L20.79,10.05L21.31,8.12L19.54,7.65L20,5.88L18.07,5.36L17.45,7.69L15.45,8.82L13,7.38V5.12L14.71,3.41L13.29,2L12,3.29L10.71,2L9.29,3.41L11,5.12V7.38L8.55,8.82L6.55,7.69L5.93,5.36L4,5.88L4.46,7.65L2.69,8.12L3.21,10.05L5.54,9.43L7.54,10.56V13.44L5.54,14.57L3.21,13.95L2.69,15.88L4.46,16.35L4,18.12L5.93,18.64L6.55,16.31L8.55,15.18L11,16.62V18.88L9.29,20.59L10.71,22L12,20.71L13.29,22L14.71,20.59L13,18.88V16.62L15.45,15.18L17.45,16.31L18.07,18.64L20,18.12L19.54,16.35L21.31,15.88L20.79,13.95Z", "Freezer Manager", OpenCurrentFreezer));
+        left.Children.Add(ToolBtn("M8.5,13.5L11,16.5L14.5,12L19,18H5M21,19V5C21,3.89 20.1,3 19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19Z", "Choose graphics folder", () => _ = ChooseGraphicsAsync()));
+        left.Children.Add(favouritesFilter);
+        left.Children.Add(BuildThemeToggle());
+        left.Children.Add(BuildSettingsButton());
 
-        modules.Width = 118;
-        modules.MinHeight = 25;
-        modules.FontSize = 11.5;
+        modules.Width = 124;
+        modules.MinHeight = 28;
+        modules.Height = 28;
+        modules.FontSize = 13.5;
         modules.Margin = new Thickness(4, 0, 0, 0);
         modules.IsVisible = false;
         left.Children.Add(modules);
@@ -191,37 +274,41 @@ public sealed partial class MainWindow
             BorderBrush = Brush("#272D42"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(2),
-            Padding = new Thickness(5, 1),
-            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(6, 2),
+            Margin = new Thickness(8, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = "Ctrl+K", FontSize = 10, Foreground = Brush("#94A3B8") },
+            Child = new TextBlock { Text = "Ctrl+K", FontSize = 11.5, Foreground = Brush("#94A3B8") },
         };
         DockPanel.SetDock(shortcutPill, Dock.Right);
         searchRow.Children.Add(shortcutPill);
         searchRow.Children.Add(new TextBlock
         {
-            Text = "Search player, club, nation or ID…",
-            FontSize = 11.5,
+            Text = "Search player, club, stadium, award or ID…",
+            FontSize = 13.5,
             Foreground = Brush("#64748B"),
             VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         });
 
         var searchOpen = new Button
         {
             Content = searchRow,
-            MinWidth = 260,
-            MaxWidth = 340,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Height = 26,
-            MinHeight = 26,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Height = 28,
+            MinHeight = 28,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(9, 0, 5, 0),
+            Padding = new Thickness(10, 0, 6, 0),
             Background = UiKit.SurfaceInput,
             BorderBrush = Brush("#272D42"),
             BorderThickness = new Thickness(1),
         };
         searchOpen.Click += (_, _) => OpenUnified();
-        var searchHost = new Panel { VerticalAlignment = VerticalAlignment.Center };
+        var searchHost = new Panel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(10, 0, 10, 0),
+        };
         searchHost.Children.Add(searchOpen);
 
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
@@ -235,10 +322,10 @@ public sealed partial class MainWindow
                 Width = 15,
                 Height = 15,
             },
-            Width = 28,
-            Height = 25,
-            MinHeight = 25,
-            Padding = new Thickness(5, 3),
+            Width = 32,
+            Height = 28,
+            MinHeight = 28,
+            Padding = new Thickness(7, 4),
             Background = Brush("#181C29"),
             BorderBrush = Brush("#272D42"),
             BorderThickness = new Thickness(1),
@@ -248,32 +335,28 @@ public sealed partial class MainWindow
         var loadGame = new Button
         {
             Content = "Load Game",
-            FontSize = 11.5,
-            Padding = new Thickness(12, 0),
-            MinHeight = 25,
-            Height = 25,
+            FontSize = 13.5,
+            Padding = new Thickness(14, 0),
+            MinHeight = 28,
+            Height = 28,
             Classes = { "accent" },
         };
-        loadGame.Click += async (_, _) =>
-        {
-            unifiedCacheLoaded = false;
-            status.Text = "Loading game…";
-            await ConnectAsync();
-        };
-        retry.Height = 25;
-        retry.MinHeight = 25;
+        loadGame.Click += async (_, _) => await ReloadGameAsync();
         right.Children.Add(github);
         right.Children.Add(loadGame);
-        right.Children.Add(retry);
 
-        var dock = new Grid { Margin = new Thickness(10, 5), ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-        left.HorizontalAlignment = HorizontalAlignment.Left;
-        right.HorizontalAlignment = HorizontalAlignment.Right;
-        searchHost.HorizontalAlignment = HorizontalAlignment.Center;
-        searchHost.Margin = new Thickness(8, 0);
-        Grid.SetColumn(left, 0); dock.Children.Add(left);
-        Grid.SetColumn(searchHost, 1); dock.Children.Add(searchHost);
-        Grid.SetColumn(right, 2); dock.Children.Add(right);
+        var topGrid = new Grid
+        {
+            Margin = new Thickness(12, 7),
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+        };
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(searchHost, 1);
+        Grid.SetColumn(right, 2);
+
+        topGrid.Children.Add(left);
+        topGrid.Children.Add(searchHost);
+        topGrid.Children.Add(right);
 
         unifiedSearch.TextChanged += (_, _) =>
         {
@@ -303,6 +386,11 @@ public sealed partial class MainWindow
                 SaveCurrentEntity();
                 e.Handled = true;
             }
+            else if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                ReloadCurrentScreen();
+                e.Handled = true;
+            }
             else if (e.Key == Key.Escape && searchOverlay.IsVisible)
             {
                 CloseUnified();
@@ -314,7 +402,7 @@ public sealed partial class MainWindow
             Background = UiKit.Surface,
             BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Child = dock,
+            Child = topGrid,
         };
     }
 
@@ -388,11 +476,11 @@ public sealed partial class MainWindow
             var b = new Button
             {
                 Content = glyph,
-                Width = 22,
-                Height = 22,
-                MinHeight = 22,
+                Width = 24,
+                Height = 24,
+                MinHeight = 24,
                 Padding = new Thickness(0),
-                FontSize = 12,
+                FontSize = 13.5,
             };
             b.Click += (_, _) =>
             {
@@ -414,8 +502,8 @@ public sealed partial class MainWindow
             Background = Brush("#0E111A"),
             BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Height = 29,
-            IsVisible = false,
+            Height = 33,
+            IsVisible = true,
             Child = dock,
         };
         row.SizeChanged += (_, _) => UpdateEntityScrollButtons();
@@ -438,32 +526,14 @@ public sealed partial class MainWindow
     void UpdateEntityRow()
     {
         if (entityRowHost is not null)
-            entityRowHost.IsVisible = entityStrip.Children.Count > 0;
+            entityRowHost.IsVisible = true;
         Dispatcher.UIThread.Post(UpdateEntityScrollButtons, DispatcherPriority.Loaded);
     }
 
-    /// <summary>Opens one tab per entity and restores its selection when the tab is activated.</summary>
-    void OpenKindTab(string kind, string title, Control body)
+    /// <summary>Opens one tab for the item at <paramref name="address"/>; <paramref name="restore"/> selects it again when the tab is clicked.</summary>
+    void OpenKindTab(string kind, ulong address, string title, Control body, Action restore)
     {
-        ulong address = kind switch
-        {
-            "club" => selectedClub?.Address ?? 0, "nation" => selectedNation?.Address ?? 0,
-            "staff" => selectedStaff?.Address ?? 0, "city" => selectedCity?.Address ?? 0,
-            "stadium" => selectedStadium?.Address ?? 0, "competition" => selectedCompetition?.Address ?? 0,
-            "award" => selectedAward?.Address ?? 0, _ => 0,
-        };
         if (address == 0) return;
-        Action restore = kind switch
-        {
-            "club" when selectedClub is { } item => () => { selectedClub = item; RenderClubEditor(); },
-            "nation" when selectedNation is { } item => () => { selectedNation = item; RenderNationEditor(); },
-            "staff" when selectedStaff is { } item => () => { selectedStaff = item; RenderStaffEditor(); },
-            "city" when selectedCity is { } item => () => { selectedCity = item; RenderCityEditor(); },
-            "stadium" when selectedStadium is { } item => () => { selectedStadium = item; RenderStadiumEditor(); },
-            "competition" when selectedCompetition is { } item => () => { selectedCompetition = item; RenderCompetitionEditor(); },
-            "award" when selectedAward is { } item => () => { selectedAward = item; RenderAwardEditor(); },
-            _ => () => { },
-        };
         string key = $"{kind}:{address:X}";
         if (kindTabs.TryGetValue(key, out var existing))
         {
@@ -526,7 +596,7 @@ public sealed partial class MainWindow
         var button = new Button
         {
             Content = header,
-            FontSize = 11.5,
+            FontSize = 13,
             Padding = new Thickness(11, 3),
             MinHeight = 25,
             Height = 25,
@@ -601,7 +671,14 @@ public sealed partial class MainWindow
         playerTabs.Add(tab);
         entityStrip.Children.Add(tab.Button);
         UpdateEntityRow();
-        ActivatePlayerTab(tab);
+        selected = tab.Player;
+        editor = tab.Panel;
+        bodyHost.Content = tab.Root;
+        activeEntityButton = tab.Button;
+        HighlightEntityTab();
+        UpdateModuleBarStyles();
+        RenderEditor();
+        Dispatcher.UIThread.Post(() => tab.Button.BringIntoView(), DispatcherPriority.Loaded);
     }
 
     void ActivatePlayerTab(PlayerTab tab)
@@ -612,7 +689,6 @@ public sealed partial class MainWindow
         activeEntityButton = tab.Button;
         HighlightEntityTab();
         UpdateModuleBarStyles();
-        RenderEditor();
         Dispatcher.UIThread.Post(() => tab.Button.BringIntoView(), DispatcherPriority.Loaded);
     }
 
@@ -645,7 +721,7 @@ public sealed partial class MainWindow
         var label = new TextBlock
         {
             Text = title,
-            FontSize = 11.5,
+            FontSize = 13,
             MaxWidth = 148,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
@@ -654,7 +730,7 @@ public sealed partial class MainWindow
         var closeButton = new Button
         {
             Content = "✕",
-            FontSize = 10,
+            FontSize = 11.5,
             Padding = new Thickness(4, 0),
             MinHeight = 16,
             Height = 18,
@@ -672,7 +748,7 @@ public sealed partial class MainWindow
             BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, 2, 1, 0),
             Padding = new Thickness(10, 0, 4, 0),
-            Height = 28,
+            Height = 32,
             Child = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -710,17 +786,88 @@ public sealed partial class MainWindow
         unifiedTimer.Stop();
         searchOverlay.IsVisible = false;
         unifiedList.Children.Clear();
+        unifiedReleaseTimer.Stop();
+        unifiedReleaseTimer.Start();
+    }
+
+    /// <summary>
+    /// The search index holds every club, staff member, city and stadium (about 100 MB). It is dropped once search has been
+    /// closed for a minute; the next search loads it again.
+    /// </summary>
+    void ReleaseUnifiedCache()
+    {
+        lock (unifiedCacheLock)
+        {
+            if (!unifiedCacheLoaded) return;
+            unifiedClubs = [];
+            unifiedNations = [];
+            unifiedCompetitions = [];
+            unifiedStaff = [];
+            unifiedStadiums = [];
+            unifiedAwards = [];
+            unifiedReferees = [];
+            unifiedCities = [];
+            unifiedCacheLoaded = false;
+        }
+    }
+
+    DispatcherTimer CreateUnifiedReleaseTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        timer.Tick += (_, _) => { timer.Stop(); ReleaseUnifiedCache(); };
+        return timer;
     }
 
     void EnsureUnifiedCache()
     {
         if (unifiedCacheLoaded || backend.State.Status != ConnectionStatus.Connected) return;
-        var session = backend.Session;
-        var players = rows.OfType<PlayerRecord>().ToArray();
-        if (players.Length == 0) players = session.Players.LoadAll().ToArray();
-        unifiedClubs = session.LoadClubs(players);
-        unifiedNations = session.Nations.LoadAll();
-        unifiedCacheLoaded = true;
+        lock (unifiedCacheLock)
+        {
+            if (unifiedCacheLoaded || backend.State.Status != ConnectionStatus.Connected) return;
+            var session = backend.Session;
+            var players = rows.OfType<PlayerRecord>().ToArray();
+            if (players.Length == 0)
+            {
+                try { players = session.Players.LoadAll().ToArray(); } catch { }
+            }
+            try { unifiedClubs = session.LoadClubs(players); } catch { }
+            try { unifiedNations = session.Nations.LoadAll(); } catch { }
+            if (session.Profile.Competition is not null)
+            {
+                try
+                {
+                    unifiedCompetitions = session.Competitions.LoadAll();
+                }
+                catch
+                {
+                    var compList = new List<CompetitionRecord>();
+                    var seen = new HashSet<ulong>();
+                    foreach (var p in players)
+                    {
+                        if (p.Division is { Address: > 0 } div && seen.Add(div.Address))
+                        {
+                            try { if (session.Competitions.Reload(div.Address) is { } c) compList.Add(c); } catch { }
+                        }
+                    }
+                    unifiedCompetitions = compList;
+                }
+            }
+            if (session.Profile.Staff is not null)
+            {
+                try { unifiedStaff = session.Staff.LoadAll(); } catch { }
+            }
+            if (session.Profile.Stadium is not null)
+            {
+                try { unifiedStadiums = session.Stadiums.LoadAll(); } catch { }
+            }
+            if (session.Profile.Award is not null)
+            {
+                try { unifiedAwards = session.Awards.LoadAll(); } catch { }
+            }
+            try { unifiedReferees = session.ReadReferees(); } catch { }
+            try { unifiedCities = session.Cities.LoadAll(); } catch { }
+            unifiedCacheLoaded = true;
+        }
     }
 
     static string FoldText(string? text) => string.IsNullOrEmpty(text)
@@ -742,95 +889,376 @@ public sealed partial class MainWindow
         string query = FoldText(raw);
         if (query.Length == 0)
         {
+            lastUnifiedResults.Clear();
             unifiedList.Children.Clear();
             unifiedResultsLabel.Text = "Results";
+            unifiedCountBadge.IsVisible = false;
             return;
         }
         var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         bool numericQuery = int.TryParse(raw, NumberStyles.Integer, Inv, out int idQuery);
         EnsureUnifiedCache();
 
-        var results = new List<(string Kind, string Name, string Meta, Action Pick)>();
-        foreach (var player in rows.OfType<PlayerRecord>())
+        const int MaxTotalResults = 300;
+        const int MaxPerCategory = 120;
+        var results = new List<UnifiedSearchResult>();
+
+        // Clubs are shown with an article the game keeps apart from the name ("Le Havre AC" is stored as "Havre AC"), so a query that
+        // starts with one is also tried without it.
+        string[] articles = ["le", "la", "les", "el", "los", "las", "il", "lo", "the", "de", "do", "da", "os", "as", "al", "das", "der", "die", "den"];
+        string withoutArticle = tokens.Length > 1 && articles.Contains(tokens[0]) ? string.Join(' ', tokens.Skip(1)) : query;
+        string[] tokensWithoutArticle = withoutArticle.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        int ScoreQuery(string? text, string q, string[] qTokens)
         {
-            if (results.Count >= 6) break;
-            if ((numericQuery && player.Id == idQuery) || FoldText(player.DisplayName).Contains(query, StringComparison.Ordinal) || FoldText(player.FullName).Contains(query, StringComparison.Ordinal))
-                results.Add(("PLAYER", player.DisplayName, $"ID {player.Id?.ToString(Inv) ?? "—"} · {player.Club?.DisplayName ?? "Free agent"}", () => PickPlayer(player)));
+            if (string.IsNullOrWhiteSpace(text)) return -1;
+            string folded = FoldText(text);
+            if (folded == q) return 100;
+            if (folded.StartsWith(q, StringComparison.Ordinal)) return 85;
+            var words = folded.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Any(w => w.StartsWith(q, StringComparison.Ordinal))) return 65;
+            if (words.Any(w => w == q)) return 55;
+            if (qTokens.Length > 1 && MatchesLoose(text, qTokens)) return 45;
+            if (folded.Contains(q, StringComparison.Ordinal)) return 20;
+            return -1;
         }
-        foreach (var club in unifiedClubs)
+        int ScoreText(string? text)
         {
-            if (results.Count >= 10) break;
-            string name = club.Name ?? club.DisplayName;
-            if ((numericQuery && club.Id == idQuery) || MatchesLoose(name, tokens) || MatchesLoose(club.ShortName, tokens))
-                results.Add(("CLUB", name, $"ID {club.Id?.ToString(Inv) ?? "—"}", () => PickClub(club)));
-        }
-        foreach (var nation in unifiedNations)
-        {
-            if (results.Count >= 14) break;
-            if ((numericQuery && nation.Id == idQuery) || FoldText(nation.DisplayName).Contains(query, StringComparison.Ordinal))
-                results.Add(("NATION", nation.DisplayName, $"ID {nation.Id?.ToString(Inv) ?? "—"}", () => PickNation(nation)));
-        }
-        foreach (var staffRow in staffRows)
-        {
-            if (results.Count >= 17) break;
-            if ((numericQuery && staffRow.Staff.Id == idQuery) || FoldText(staffRow.Name).Contains(query, StringComparison.Ordinal))
-                results.Add(("STAFF", staffRow.Name, $"ID {staffRow.Staff.Id.ToString(Inv)} · {staffRow.Job}", () => PickStaff(staffRow.Staff)));
-        }
-        foreach (var compRow in competitionRows)
-        {
-            if (results.Count >= 19) break;
-            if ((numericQuery && compRow.Id == idQuery) || FoldText(compRow.Name).Contains(query, StringComparison.Ordinal))
-                results.Add(("COMP", compRow.Name, $"ID {compRow.Id.ToString(Inv)}", () =>
-                {
-                    SwitchModule("Competitions");
-                    selectedCompetition = compRow.Competition;
-                    RenderCompetitionEditor();
-                    OpenKindTab("competition", compRow.Competition.DisplayName, competitionDetailRoot);
-                }));
+            int score = ScoreQuery(text, query, tokens);
+            if (withoutArticle != query) score = Math.Max(score, ScoreQuery(text, withoutArticle, tokensWithoutArticle));
+            return score;
         }
 
-        unifiedList.Children.Clear();
-        if (results.Count == 0)
+        int MatchScore(string? name, string? secondaryName, int? id, int categoryWeight)
         {
-            unifiedResultsLabel.Text = "Results 0";
-            searchOverlay.IsVisible = true;
-            return;
+            if (numericQuery && id == idQuery) return 1000 + categoryWeight;
+            int score = ScoreText(name);
+            if (secondaryName is not null)
+            {
+                int sec = ScoreText(secondaryName);
+                if (sec > score) score = sec;
+            }
+            if (score < 0) return -1;
+            return score * 100 + categoryWeight;
         }
-        unifiedResultsLabel.Text = $"Results {results.Count}";
-        foreach (var (kind, name, meta, pick) in results)
+
+        // 1. Competitions (Weight 15)
+        int catCount = 0;
+        var compSource = competitionScreen.Rows.Count > 0
+            ? competitionScreen.Rows.Select(r => r.Competition).ToList()
+            : unifiedCompetitions;
+        foreach (var comp in compSource)
         {
-            var rowContent = new DockPanel { LastChildFill = true };
-            var pill = UiKit.MetaPill(kind, kind == "PLAYER");
-            pill.Margin = new Thickness(8, 0, 0, 0);
-            DockPanel.SetDock(pill, Dock.Right);
-            rowContent.Children.Add(pill);
-            rowContent.Children.Add(new StackPanel
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(comp.DisplayName, comp.ShortName, comp.Id, 15);
+            if (score > 0)
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = 8,
-                VerticalAlignment = VerticalAlignment.Center,
-                Children =
-                {
-                    new TextBlock { Text = name, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center },
-                    new TextBlock { Text = meta, FontSize = 11, Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center },
-                },
-            });
-            var row = new Button
-            {
-                Content = rowContent,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                MinHeight = 30,
-                Height = 30,
-                Padding = new Thickness(8, 0),
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-            };
-            row.Click += (_, _) => { CloseUnified(); pick(); };
-            unifiedList.Children.Add(row);
+                string meta = comp.Reputation > 0 ? $"Rep {comp.Reputation}" : "";
+                results.Add(new("COMPETITION", comp.DisplayName, meta, score, () => PickCompetition(comp)));
+                catCount++;
+            }
         }
+
+        // 2. Clubs (Weight 14)
+        catCount = 0;
+        foreach (var club in unifiedClubs)
+        {
+            if (catCount >= MaxPerCategory) break;
+            string name = club.Name ?? club.DisplayName;
+            int score = MatchScore(name, club.ShortName, club.Id, 14);
+            if (score > 0)
+            {
+                results.Add(new("CLUB", name, "", score, () => PickClub(club)));
+                catCount++;
+            }
+        }
+
+        // 3. Players (Weight 13)
+        catCount = 0;
+        var playerSource = rows.OfType<PlayerRecord>();
+        foreach (var player in playerSource)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(player.DisplayName, player.FullName, player.Id, 13);
+            if (score > 0)
+            {
+                string playerMeta = string.Join(" · ", new[] { player.NationalityName, player.Club?.DisplayName ?? "Free agent" }.Where(s => !string.IsNullOrEmpty(s)));
+                results.Add(new("PLAYER", player.DisplayName, playerMeta, score, () => PickPlayer(player)));
+                catCount++;
+            }
+        }
+
+        // 4. Staff (Weight 12)
+        catCount = 0;
+        var staffSource = staffRows.Count > 0
+            ? staffRows.Select(r => (r.Staff, r.Name, r.Job)).ToList()
+            : unifiedStaff.Select(s => (s, s.DisplayName, StaffLabels.Job(s.JobCode))).ToList();
+        foreach (var (staff, sName, job) in staffSource)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(sName, staff.FullName, staff.Id, 12);
+            if (score > 0)
+            {
+                string meta = string.Join(" · ", new[] { staff.Nationality?.DisplayName, job }.Where(s => !string.IsNullOrEmpty(s)));
+                results.Add(new("STAFF", sName, meta, score, () => PickStaff(staff)));
+                catCount++;
+            }
+        }
+
+        // 5. Nations (Weight 11)
+        catCount = 0;
+        var nationSource = nationScreen.Rows.Count > 0
+            ? nationScreen.Rows.Select(r => r.Nation).ToList()
+            : unifiedNations;
+        foreach (var nation in nationSource)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(nation.DisplayName, nation.ShortName, nation.Id, 11);
+            if (score > 0)
+            {
+                results.Add(new("NATION", nation.DisplayName, "", score, () => PickNation(nation)));
+                catCount++;
+            }
+        }
+
+        // 6. Stadiums (Weight 10)
+        catCount = 0;
+        var stadiumSource = stadiumScreen.Rows.Count > 0
+            ? stadiumScreen.Rows.Select(r => (r.Stadium, r.Name, r.Id, r.Owner)).ToList()
+            : unifiedStadiums.Select(s => (s, s.DisplayName, s.Id, s.Owner?.DisplayName ?? "")).ToList();
+        foreach (var (stadium, sName, sId, sOwner) in stadiumSource)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(sName, null, sId, 10);
+            if (score > 0)
+            {
+                string meta = sOwner;
+                results.Add(new("STADIUM", sName, meta, score, () => PickStadium(stadium)));
+                catCount++;
+            }
+        }
+
+        // 7. Awards (Weight 9)
+        catCount = 0;
+        var awardSource = awardScreen.Rows.Count > 0
+            ? awardScreen.Rows.Select(r => (r.Award, r.Name, r.Id, (int)r.Reputation)).ToList()
+            : unifiedAwards.Select(a => (a, a.DisplayName, a.Id, (int)a.Reputation)).ToList();
+        foreach (var (award, aName, aId, aRep) in awardSource)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(aName, award.ShortName, aId, 9);
+            if (score > 0)
+            {
+                string meta = aRep > 0 ? $"Rep {aRep}" : "";
+                results.Add(new("AWARD", aName, meta, score, () => PickAward(award)));
+                catCount++;
+            }
+        }
+
+        // 8. Referees (Weight 8)
+        catCount = 0;
+        foreach (var referee in unifiedReferees)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(referee.DisplayName, null, referee.UniqueId, 8);
+            if (score > 0)
+            {
+                results.Add(new("REFEREE", referee.DisplayName, "", score, () => refereeScreen.Pick(referee)));
+                catCount++;
+            }
+        }
+
+        // 9. Cities (Weight 7)
+        catCount = 0;
+        var nationNames = unifiedNations.Where(nat => nat.Address != 0).GroupBy(nat => nat.Address).ToDictionary(g => g.Key, g => g.First().DisplayName);
+        foreach (var city in unifiedCities)
+        {
+            if (catCount >= MaxPerCategory) break;
+            int score = MatchScore(city.Name, null, city.Id, 7);
+            if (score > 0)
+            {
+                results.Add(new("CITY", city.Name, nationNames.GetValueOrDefault(city.Nation, ""), score, () => cityScreen.Pick(city)));
+                catCount++;
+            }
+        }
+
+        results.Sort((a, b) => b.TotalScore.CompareTo(a.TotalScore));
+        if (results.Count > MaxTotalResults) results.RemoveRange(MaxTotalResults, results.Count - MaxTotalResults);
+
+        lastUnifiedResults = results;
+        RenderCurrentUnifiedResults();
         searchOverlay.IsVisible = true;
     }
+
+    void RenderCurrentUnifiedResults()
+    {
+        unifiedList.Children.Clear();
+        if (lastUnifiedResults.Count == 0)
+        {
+            unifiedResultsLabel.Text = "Results";
+            unifiedCountBadge.IsVisible = false;
+            return;
+        }
+
+        unifiedResultsLabel.Text = "Results";
+        unifiedResultsCountText.Text = lastUnifiedResults.Count.ToString(Inv);
+        unifiedCountBadge.IsVisible = true;
+
+        if (unifiedGroupByType)
+        {
+            string[] groupOrder = ["COMPETITION", "CLUB", "PLAYER", "STAFF", "REFEREE", "NATION", "STADIUM", "AWARD", "CITY"];
+            var groups = lastUnifiedResults
+                .GroupBy(r => r.Kind)
+                .OrderBy(g =>
+                {
+                    int idx = Array.IndexOf(groupOrder, g.Key);
+                    return idx >= 0 ? idx : 999;
+                });
+
+            foreach (var group in groups)
+            {
+                var groupItems = group.ToList();
+                if (groupItems.Count == 0) continue;
+
+                var headerBar = new Border
+                {
+                    Background = UiKit.SurfaceHeader,
+                    BorderBrush = UiKit.BorderSubtle,
+                    BorderThickness = new Thickness(0, 1, 0, 1),
+                    Padding = new Thickness(10, 4),
+                    Margin = new Thickness(0, 6, 0, 2),
+                    CornerRadius = new CornerRadius(3),
+                    Child = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 6,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Children =
+                        {
+                            new Border
+                            {
+                                Width = 3,
+                                Height = 12,
+                                CornerRadius = new CornerRadius(1.5),
+                                Background = UiKit.Accent,
+                                VerticalAlignment = VerticalAlignment.Center,
+                            },
+                            new TextBlock
+                            {
+                                Text = PluralizeKind(group.Key),
+                                FontSize = 12.5,
+                                FontWeight = FontWeight.Bold,
+                                Foreground = UiKit.TextSecondary,
+                                LetterSpacing = 0.5,
+                                VerticalAlignment = VerticalAlignment.Center,
+                            },
+                            new Border
+                            {
+                                Background = UiKit.AccentSoft,
+                                BorderBrush = UiKit.AccentBorder,
+                                BorderThickness = new Thickness(1),
+                                CornerRadius = new CornerRadius(8),
+                                Padding = new Thickness(6, 1),
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Child = new TextBlock
+                                {
+                                    Text = groupItems.Count.ToString(Inv),
+                                    FontSize = 11.5,
+                                    FontWeight = FontWeight.Bold,
+                                    Foreground = UiKit.Brush("#E9D5FF"),
+                                }
+                            }
+                        }
+                    }
+                };
+                unifiedList.Children.Add(headerBar);
+
+                foreach (var item in groupItems)
+                {
+                    unifiedList.Children.Add(CreateUnifiedResultRow(item, showPill: false));
+                }
+            }
+        }
+        else
+        {
+            foreach (var item in lastUnifiedResults)
+            {
+                unifiedList.Children.Add(CreateUnifiedResultRow(item, showPill: true));
+            }
+        }
+    }
+
+    Control CreateUnifiedResultRow(UnifiedSearchResult item, bool showPill)
+    {
+        var rowContent = new DockPanel { LastChildFill = true };
+        var role = new TextBlock
+        {
+            Text = string.Concat(item.Kind[..1], item.Kind[1..].ToLowerInvariant()),
+            FontSize = 12.5,
+            Foreground = UiKit.TextMuted,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+        };
+        DockPanel.SetDock(role, Dock.Right);
+        rowContent.Children.Add(role);
+        rowContent.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                new TextBlock { Text = item.Name, FontSize = 13.5, FontWeight = FontWeight.SemiBold, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = item.Meta, FontSize = 12.5, Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center },
+            },
+        });
+        var row = new Button
+        {
+            Content = rowContent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            MinHeight = 30,
+            Height = 30,
+            Padding = new Thickness(8, 0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+        row.Click += (_, _) => { CloseUnified(); item.Pick(); };
+        return row;
+    }
+
+    static string PluralizeKind(string kind) => kind switch
+    {
+        "COMPETITION" => "COMPETITIONS",
+        "CLUB" => "CLUBS",
+        "PLAYER" => "PLAYERS",
+        "STAFF" => "STAFF",
+        "NATION" => "NATIONS",
+        "STADIUM" => "STADIUMS",
+        "AWARD" => "AWARDS",
+        "REFEREE" => "REFEREES",
+        "CITY" => "CITIES",
+        _ => kind
+    };
+
+    static Border CreateKindPill(string kind)
+    {
+        string label = kind switch
+        {
+            "COMPETITION" => "Competition",
+            "CLUB" => "Club",
+            "PLAYER" => "Player",
+            "STAFF" => "Staff",
+            "NATION" => "Nation",
+            "STADIUM" => "Stadium",
+            "AWARD" => "Award",
+            _ => kind
+        };
+        return UiKit.MetaPill(label, highlight: kind is "COMPETITION" or "PLAYER");
+    }
+
+    void PickCompetition(CompetitionRecord competition) => competitionScreen.Pick(competition);
 
     void ChooseFirstUnified()
     {
@@ -843,175 +1271,58 @@ public sealed partial class MainWindow
     {
         Button? primary = null;
         if (playerTabs.Any(t => ReferenceEquals(t.Root, bodyHost.Content))) primary = saveButton;
-        else if (ReferenceEquals(bodyHost.Content, clubDetailRoot)) primary = clubSaveButton;
-        else if (ReferenceEquals(bodyHost.Content, nationDetailRoot)) primary = nationSaveButton;
-        else if (ReferenceEquals(bodyHost.Content, staffDetailRoot)) primary = staffSaveButton;
-        else if (ReferenceEquals(bodyHost.Content, competitionDetailRoot)) primary = competitionSaveButton;
-        else if (ReferenceEquals(bodyHost.Content, stadiumDetailRoot)) primary = stadiumSaveButton;
-        else if (ReferenceEquals(bodyHost.Content, cityDetailRoot)) primary = citySaveButton;
-        else if (ReferenceEquals(bodyHost.Content, awardDetailRoot)) primary = awardSaveButton;
+        else if (bodyHost.Content is Control shownBody && screens.FirstOrDefault(s => s.OwnsBody(shownBody)) is { } screen) primary = screen.SaveButton;
 
-        if (primary is { IsEnabled: true })
-        {
-            RaiseClick(primary);
-            return;
-        }
-
-        if (bodyHost.Content is Visual root)
-        {
-            var subSave = root.GetVisualDescendants().OfType<Button>()
-                .FirstOrDefault(b => b.IsVisible && b.IsEnabled && b.Content is string label &&
-                    (label.Equals("Save changes", StringComparison.OrdinalIgnoreCase) || label.Equals("Save contract", StringComparison.OrdinalIgnoreCase)));
-            if (subSave is not null)
-            {
-                RaiseClick(subSave);
-                return;
-            }
-        }
+        // The contract tab has no Save of its own: its edits are saved with the player's, by this one button.
+        var pendingContracts = playerTabs.Any(t => ReferenceEquals(t.Root, bodyHost.Content)) && selected is { } shownPlayer
+            ? contractDrafts.Where(c => c.Value.Player.Address == shownPlayer.Address && c.Value.Changes.Count > 0).ToArray()
+            : [];
+        // Every tab's own Save button is hidden; this one button runs them all (and the entity's own Save), once each.
+        var subSaves = bodyHost.Content is Visual root
+            ? root.GetVisualDescendants().OfType<Button>()
+                .Where(b => !ReferenceEquals(b, primary) && b.IsEnabled && b.Content is string label &&
+                    (label is "Save changes" or "Save contract" or "Save loan" or "Save"))
+                .ToArray()
+            : [];
+        bool ranAny = false;
+        if (primary is { IsEnabled: true }) { RaiseClick(primary); ranAny = true; }
+        foreach (var (key, draft) in pendingContracts)
+            if (selected is { } owner) { SaveContract(owner, draft, key == owner.Address ? 0UL : key); ranAny = true; }
+        foreach (var button in subSaves)
+            if (button.IsEnabled) { RaiseClick(button); ranAny = true; }
+        if (ranAny) return;
 
         status.Text = "No unsaved changes";
-    }
-
-    async void OpenCurrentMassEdit()
-    {
-        if (backend.State.Status != ConnectionStatus.Connected) { status.Text = "Load game first"; return; }
-        if (ReferenceEquals(bodyHost.Content, clubDetailRoot) || activeModule == "Clubs")
-        {
-            if (loadedClubs.Count == 0) await LoadClubsScreenAsync(forceReloadPlayers: false);
-            await ShowClubMassEditAsync();
-            return;
-        }
-        if (ReferenceEquals(bodyHost.Content, staffDetailRoot) || activeModule == "Staff")
-        {
-            if (staffRows.Count == 0) await LoadStaffAsync();
-            await ShowStaffMassEditAsync();
-            return;
-        }
-        RaiseClick(massEditButton);
     }
 
     void OpenCurrentFreezer()
     {
         if (backend.State.Status != ConnectionStatus.Connected) { status.Text = "Load game first"; return; }
         if (backend.Freezer is null) { status.Text = backend.FreezeError is { } err ? $"Freezer unavailable: {err}" : "Freezer unavailable"; return; }
-        if ((ReferenceEquals(bodyHost.Content, clubDetailRoot) || (activeModule == "Clubs" && activeEntityButton is null)) && selectedClub is { } club)
-        {
-            _ = ShowClubFreezerAsync(club);
-            return;
-        }
-        if (selected is { } player)
-        {
-            _ = ShowPlayerFreezerAsync(player);
-            return;
-        }
-        if (selectedClub is { } fallbackClub)
-        {
-            _ = ShowClubFreezerAsync(fallbackClub);
-            return;
-        }
-        status.Text = "Select a player or club first";
+        _ = ShowFreezerManagerAsync();
     }
-
-    sealed record HistoryRow(string Time, string Field, int OldValue, int NewValue, string Result, EditRecord Raw);
 
     async Task ShowEditHistoryAsync()
     {
-        var window = new Window
-        {
-            Title = "Session Edit History",
-            Width = 640,
-            Height = 460,
-            MinWidth = 480,
-            MinHeight = 300,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-        };
-
-        var history = backend.State.Status == ConnectionStatus.Connected && backend.Edits is not null
-            ? backend.Edits.History
-            : [];
-        var table = new DataGrid
-        {
-            IsReadOnly = true,
-            AutoGenerateColumns = false,
-            CanUserSortColumns = false,
-            RowHeight = 27,
-            Background = UiKit.SurfaceAlt,
-            BorderBrush = UiKit.BorderSubtle,
-            BorderThickness = new Thickness(1),
-        };
-        table.Columns.Add(new DataGridTextColumn { Header = "Time", Binding = new Binding(nameof(HistoryRow.Time)), Width = new DataGridLength(82) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding(nameof(HistoryRow.Field)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        var oldCol = new DataGridTextColumn { Header = "Before", Binding = new Binding(nameof(HistoryRow.OldValue)), Width = new DataGridLength(85) };
-        oldCol.CellStyleClasses.Add("numeric");
-        var newCol = new DataGridTextColumn { Header = "After", Binding = new Binding(nameof(HistoryRow.NewValue)), Width = new DataGridLength(85) };
-        newCol.CellStyleClasses.Add("numeric");
-        table.Columns.Add(oldCol);
-        table.Columns.Add(newCol);
-        table.Columns.Add(new DataGridTextColumn { Header = "Result", Binding = new Binding(nameof(HistoryRow.Result)), Width = new DataGridLength(90) });
-
-        void RefreshRows()
-        {
-            var current = backend.State.Status == ConnectionStatus.Connected && backend.Edits is not null ? backend.Edits.History : [];
-            table.ItemsSource = current.Reverse().Select(r => new HistoryRow(
-                r.Time.ToLocalTime().ToString("HH:mm:ss", Inv),
-                r.Field,
-                r.OldValue,
-                r.NewValue,
-                r.Succeeded ? "Saved" : (r.Error ?? "Failed"),
-                r)).ToArray();
-        }
-        RefreshRows();
-
-        var info = new TextBlock
-        {
-            Text = history.Count == 0
-                ? "No scalar edits recorded in this session."
-                : $"{history.Count:N0} scalar edit(s) recorded. Structural or multi-step writes require a save backup.",
-            Foreground = Brush("#94A3B8"),
-            FontSize = 11.5,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        var undoSelected = new Button { Content = "Undo selected", IsEnabled = false };
-        var close = new Button { Content = "Close", Classes = { "accent" } };
-        close.Click += (_, _) => window.Close();
-
-        table.SelectionChanged += (_, _) =>
-        {
-            undoSelected.IsEnabled = table.SelectedItem is HistoryRow hr && hr.Raw.Succeeded &&
-                PlayerFields.All.Any(f => f.Id == hr.Raw.Field && f.Write is not null) &&
-                rows.OfType<PlayerRecord>().Any(p => p.Address == hr.Raw.Entity);
-        };
-        undoSelected.Click += (_, _) =>
-        {
-            if (table.SelectedItem is not HistoryRow hr) return;
-            var field = PlayerFields.All.FirstOrDefault(f => f.Id == hr.Raw.Field && f.Write is not null);
-            var target = rows.OfType<PlayerRecord>().FirstOrDefault(p => p.Address == hr.Raw.Entity);
-            if (field is null || target is null) return;
-            try
-            {
-                var updated = backend.Edits!.Undo(target, field, hr.Raw);
-                updated.GameDate = backend.GameDate;
-                ReplaceRow(updated);
-                if (selected?.Address == updated.Address) { selected = updated; RenderEditor(); }
-                RefreshRows();
-                info.Text = $"Reverted {hr.Field} on {updated.DisplayName} to {hr.OldValue}.";
-            }
-            catch (Exception ex) { info.Text = UserMessage.For(ex); }
-        };
-
-        var footer = new DockPanel { Margin = new Thickness(0, 10, 0, 0), LastChildFill = true };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { undoSelected, close } };
-        DockPanel.SetDock(buttons, Dock.Right);
-        footer.Children.Add(buttons);
-        footer.Children.Add(info);
-
-        var root = new DockPanel { Margin = new Thickness(12) };
-        DockPanel.SetDock(footer, Dock.Bottom);
-        root.Children.Add(footer);
-        root.Children.Add(table);
-        window.Content = root;
+        if (backend.State.Status != ConnectionStatus.Connected || backend.Edits?.Journal is not { } journal) { status.Text = "Load game first"; return; }
+        var window = new EditHistoryWindow(journal, backend.Session.Memory, text => status.Text = text, RefreshAfterHistoryUndo);
         await window.ShowDialog(this);
+    }
+
+    /// <summary>After an undo from the history window: re-read the open player so the page shows the restored values.</summary>
+    void RefreshAfterHistoryUndo()
+    {
+        try
+        {
+            if (selected is { } player && backend.Players.Reload(player.Address) is { } fresh)
+            {
+                fresh.GameDate = backend.GameDate;
+                ReplaceRow(fresh);
+                selected = fresh;
+                RenderEditor();
+            }
+        }
+        catch (Exception ex) { status.Text = UserMessage.For(ex); }
     }
 
     void PickPlayer(PlayerRecord player)
@@ -1022,21 +1333,6 @@ public sealed partial class MainWindow
         updating = false;
         selected = player;
         ShowDetailTab(player);
-    }
-
-    void PickClub(ClubEntry club)
-    {
-        SwitchModule("Clubs");
-        SelectClubInList(club);
-        OpenKindTab("club", club.DisplayName, clubDetailRoot);
-    }
-
-    void PickStaff(Fm27Editor.Core.Staff.StaffRecord staff)
-    {
-        SwitchModule("Staff");
-        selectedStaff = staff;
-        RenderStaffEditor();
-        OpenKindTab("staff", staff.DisplayName, staffDetailRoot);
     }
 
     async Task OpenPlayerClubAsync(ulong address)
@@ -1071,21 +1367,16 @@ public sealed partial class MainWindow
         {
             var competition = backend.Session.Competitions.Reload(address);
             if (competition is null) { status.Text = "Competition unavailable"; return; }
-            SwitchModule("Competitions");
-            selectedCompetition = competition;
-            RenderCompetitionEditor();
-            OpenKindTab("competition", competition.DisplayName, competitionDetailRoot);
+            competitionScreen.Pick(competition);
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }
     }
 
-    void PickNation(NationRecord nation)
-    {
-        SwitchModule("Nations");
-        selectedNation = nation;
-        RenderNationEditor();
-        OpenKindTab("nation", nation.DisplayName, nationDetailRoot);
-    }
+    void PickNation(NationRecord nation) => nationScreen.Pick(nation);
+
+    void PickStadium(Fm27Editor.Core.Stadiums.StadiumRecord stadium) => stadiumScreen.Pick(stadium);
+
+    void PickAward(Fm27Editor.Core.Awards.AwardRecord award) => awardScreen.Pick(award);
 
     void SwitchModule(string title)
     {

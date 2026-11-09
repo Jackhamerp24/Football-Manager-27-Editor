@@ -54,6 +54,7 @@ public sealed class TeamCohesionWriter(IProcessMemory memory, OffsetProfile prof
     /// <summary>Checks the original owner, vector and complete row before writing and reading back the value.</summary>
     public void Set(PlayerRecord player, ulong club, TeamCohesionSnapshot snapshot, sbyte value)
     {
+        using var _ = Fm27Editor.Core.History.ChangeContext.Describe("Team Cohesion");
         var c = profile.Cohesion ?? throw new InvalidOperationException("Profile has no cohesion offsets");
         var current = Capture(player, club);
         if (current is null || current != snapshot) throw new StaleObjectException("The team cohesion changed since it was read");

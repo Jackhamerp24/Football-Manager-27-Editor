@@ -23,7 +23,7 @@ public sealed class KeepPlayingWriter(IProcessMemory memory, OffsetProfile profi
         var guards = new List<RetirementGuard>
         {
             new(state.Root, BitConverter.GetBytes(state.Manager), "retirement root"),
-            new(state.Manager, BitConverter.GetBytes(moduleBase + PlannedRetirements.GamePassManagerVtable), "retirement manager"),
+            new(state.Manager, BitConverter.GetBytes(moduleBase + reader.ManagerVtable), "retirement manager"),
             new(state.Manager + 0x30, state.ListHeader, "retirement list header"),
             new(state.Manager + 0x90, state.IndexHeader, "retirement index header"),
             new(player.Address + 0x290, BitConverter.GetBytes(person), "player person id"),
@@ -138,7 +138,7 @@ public sealed class KeepPlayingWriter(IProcessMemory memory, OffsetProfile profi
     void Validate(KeepPlayingPlan plan)
     {
         if (reader.PersonId(plan.Player) != plan.PersonId || memory.ReadUInt64(plan.Root) != plan.Manager ||
-            !reader.IsSupported || memory.ReadUInt64(plan.Manager) != moduleBase + PlannedRetirements.GamePassManagerVtable)
+            !reader.IsSupported || memory.ReadUInt64(plan.Manager) != moduleBase + reader.ManagerVtable)
             throw new StaleObjectException("Player or retirement manager changed");
     }
 

@@ -26,6 +26,7 @@ public sealed class SquadTests
         Assert.Equal("Unh", burrows.InfFlags);
         Assert.Equal("Harrison Burrows", burrows.DisplayName);
         Assert.Equal("England", burrows.DisplayNat);
+        Assert.Equal("", burrows.DisplayClub);
         Assert.Equal("122", burrows.DisplayCa);
         Assert.Equal("140", burrows.DisplayPa);
         Assert.Equal("24", burrows.DisplayAge);
@@ -63,6 +64,21 @@ public sealed class SquadTests
         Assert.Equal("Unh", SquadFormatters.FormatInfFlags(player, isUnhappy: true));
         Assert.Equal("Inj, Unh", SquadFormatters.FormatInfFlags(player, isInjured: true, isUnhappy: true));
         // Healthy unbanned player displays empty
+        Assert.Equal("", SquadFormatters.FormatInfFlags(player, isInjured: false, isBanned: false));
+    }
+
+    [Fact]
+    public void SquadFormatters_HealAndLiftBans_ClearsInfFlags()
+    {
+        var player = CreateFakePlayer("Test Player", 25, 120, 130, "England");
+
+        // Player initially injured and banned
+        Assert.Equal("Inj, Ban", SquadFormatters.FormatInfFlags(player, isInjured: true, isBanned: true));
+
+        // When healed -> isInjured becomes false, Inf only has Ban
+        Assert.Equal("Ban", SquadFormatters.FormatInfFlags(player, isInjured: false, isBanned: true));
+
+        // When bans are lifted too -> Inf is completely cleared (no red flags)
         Assert.Equal("", SquadFormatters.FormatInfFlags(player, isInjured: false, isBanned: false));
     }
 

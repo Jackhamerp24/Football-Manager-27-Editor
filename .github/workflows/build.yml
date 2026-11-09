@@ -30,7 +30,9 @@ jobs:
       - name: Publish
         shell: pwsh
         run: |
-          $common = '-c', 'Release', '-r', 'win-x64', '--self-contained', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=none'
+          $version = '0.0.0'
+          if ('${{ github.ref_type }}' -eq 'tag') { $version = '${{ github.ref_name }}'.TrimStart('v') }
+          $common = '-c', 'Release', '-r', 'win-x64', '--self-contained', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=none', "-p:Version=$version"
           dotnet publish src/Fm27Editor.App/Fm27Editor.App.csproj @common -o out/app
           dotnet publish src/Fm27Editor.Tools/Fm27Editor.Tools.csproj @common -o out/tools
           New-Item -ItemType Directory release | Out-Null

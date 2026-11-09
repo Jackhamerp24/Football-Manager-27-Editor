@@ -36,7 +36,7 @@ public class ClubFinancialStatementsTests
 
     void WriteIncome(int period, int fieldOffset, int value) => Write(period, Offsets.IncomeBase + fieldOffset, value);
 
-    ClubFinancialStatements Reader() => new(memory, profile);
+    ClubFinancialStatements Reader() => new(memory, profile, TestWorld.ModuleBase);
 
     [Fact]
     public void Reads_this_month_last_month_and_this_season_blocks()
@@ -96,6 +96,34 @@ public class ClubFinancialStatementsTests
 
         reader.Set(Club, 0, true, "gateReceipts", 500, 700);
         Assert.Equal(700, reader.Read(Club)[0].GateReceipts);
+    }
+
+    [Fact]
+    public void Set_rejects_a_club_whose_vtable_changed()
+    {
+        Build();
+        var reader = Reader();
+        Assert.True(reader.IsClub(Club));
+        TestWorld.Set64(memory.Map(0x6002_0000, 0x170), 0, TestWorld.ModuleBase + 0x1234567);
+        var impostor = new ClubFinancialStatements(memory, profile, TestWorld.ModuleBase);
+
+        Assert.False(impostor.IsClub(0x6002_0000));
+        Assert.Throws<StaleObjectException>(() =>
+            impostor.Set(0x6002_0000, 0, true, "gateReceipts", 0, 1));
+        Assert.True(reader.IsClub(Club));
+    }
+
+    [Fact]
+    public void Set_rejects_a_rebuilt_finance_object()
+    {
+        Build();
+        var reader = Reader();
+        ulong current = reader.FinancePointer(Club)!.Value;
+        reader.Set(Club, 0, true, "gateReceipts", 0, 5, expectedFinance: current);
+
+        Assert.Throws<StaleObjectException>(() =>
+            reader.Set(Club, 0, true, "gateReceipts", 5, 6, expectedFinance: current + 0x1000));
+        Assert.Equal(5, reader.Read(Club)[0].GateReceipts);
     }
 
     [Fact]

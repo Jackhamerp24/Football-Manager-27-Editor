@@ -26,6 +26,15 @@ public sealed class FrozenPlayer
     public static FrozenPlayer Capture(PlayerRecord player, IEnumerable<(PlayerAttribute Attribute, FreezeMode Mode)> attributes) =>
         new(player.Id ?? 0, player.Address, attributes.Select(a => new FrozenAttribute(a.Attribute, player.Raw(a.Attribute), a.Mode)));
 
+    public static IEnumerable<(PlayerAttribute Attribute, FreezeMode Mode)> AllAttributes(PlayerRecord player)
+    {
+        foreach (var attr in Enum.GetValues<PlayerAttribute>())
+        {
+            if (player.Raw(attr) is >= 1 and <= 100)
+                yield return (attr, FreezeMode.Fixed);
+        }
+    }
+
     /// <summary>Adopts a deliberate editor change to an already frozen attribute.</summary>
     public bool AcceptEdit(PlayerRecord player, PlayerAttribute attribute)
     {

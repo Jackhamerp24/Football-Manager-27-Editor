@@ -138,7 +138,7 @@ public sealed class EditorTests
     public void NationRowToStringReturnsNationDisplayNameForComboBoxes()
     {
         var nation = new Fm27Editor.Core.Nations.NationRecord(0x2000, 765, "England", "ENG");
-        var row = new MainWindow.NationRow(nation, "England", 765, 4, 155, 19);
+        var row = new NationRow(nation, "England", 765, 4, 155, 19);
         Assert.Equal("England", row.ToString());
     }
     [Fact]
@@ -330,6 +330,35 @@ public sealed class EditorTests
         } }));
         Assert.False(module.MatchesFilter(mainoo, new PlayerFilter { NumericRanges = new Dictionary<string, NumericRange> { ["Height"] = new(181, null) } }));
         Assert.False(module.MatchesFilter(mainoo, new PlayerFilter { RequiredPreferredMoves = 1 }));
+
+        // PositionRanges: Min and Max range filtering for positions
+        mainoo.Positions[(int)PlayerPosition.Striker] = 14;
+        var inRangeFilter = new PlayerFilter
+        {
+            PositionRanges = new Dictionary<PlayerPosition, NumericRange>
+            {
+                [PlayerPosition.Striker] = new(12, 16)
+            }
+        };
+        Assert.True(module.MatchesFilter(mainoo, inRangeFilter));
+
+        var outOfRangeFilterLow = new PlayerFilter
+        {
+            PositionRanges = new Dictionary<PlayerPosition, NumericRange>
+            {
+                [PlayerPosition.Striker] = new(15, 20)
+            }
+        };
+        Assert.False(module.MatchesFilter(mainoo, outOfRangeFilterLow));
+
+        var outOfRangeFilterHigh = new PlayerFilter
+        {
+            PositionRanges = new Dictionary<PlayerPosition, NumericRange>
+            {
+                [PlayerPosition.Striker] = new(1, 13)
+            }
+        };
+        Assert.False(module.MatchesFilter(mainoo, outOfRangeFilterHigh));
     }
 
     [Fact]

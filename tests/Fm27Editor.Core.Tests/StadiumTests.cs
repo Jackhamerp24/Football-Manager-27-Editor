@@ -43,6 +43,82 @@ public class StadiumTests
     StadiumRepository Repo() => new(_w.Memory, _w.Profile, TestWorld.ModuleBase);
     StadiumWriter Writer() => new(_w.Memory, _w.Profile, TestWorld.ModuleBase);
 
+    [Theory]
+    [InlineData(true, 0x90)]
+    [InlineData(false, 0x60)]
+    public void OwnerAndLocationWriteOnlyTheFmrtePointerAndRejectStale(bool owner, int offset)
+    {
+        const ulong target = 0x7500_0000;
+        uint vt = owner ? _w.Profile.Club!.ClubVtableRva : _w.Profile.Cities!.Vtable;
+        TestWorld.Set64(_w.Memory.Map(target, 0x20), 0, TestWorld.ModuleBase + vt);
+        var stadium = Repo().LoadAll()[0];
+        ulong old = BitConverter.ToUInt64(_w.Bytes(Ot + (ulong)offset, 8));
+        var expected = _w.Bytes(Ot, 0xC0);
+        BitConverter.GetBytes(target).CopyTo(expected, offset);
+        if (owner) Writer().SetOwner(stadium, target); else Writer().SetLocation(stadium, old, target);
+        Assert.Equal(expected, _w.Bytes(Ot, 0xC0));
+        int writes = _w.Memory.Writes;
+        if (owner) Assert.Throws<StaleObjectException>(() => Writer().SetOwner(stadium, target));
+        else Assert.Throws<StaleObjectException>(() => Writer().SetLocation(stadium, old, target));
+        Assert.Equal(writes, _w.Memory.Writes);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OwnerAndLocationRejectObjectsWithWrongVtable(bool owner)
+    {
+        const ulong target = 0x7500_0000;
+        _w.Memory.Map(target, 0x20);
+        var stadium = Repo().LoadAll()[0];
+        int writes = _w.Memory.Writes;
+        if (owner) Assert.Throws<ArgumentException>(() => Writer().SetOwner(stadium, target));
+        else Assert.Throws<ArgumentException>(() => Writer().SetLocation(stadium, 0, target));
+        Assert.Equal(writes, _w.Memory.Writes);
+    }
+
+    /// <summary>FMRTE 27's "Change Nearby Stadium" on Old Trafford (Etihad → Anfield) wrote one 8-byte pointer at stadium +0x68.</summary>
+    [Fact]
+    public void Nearby_stadium_writes_only_the_pointer_at_0x68_and_rejects_stale_or_foreign_targets()
+    {
+        const ulong other = 0x7500_0000;
+        TestWorld.Set64(_w.Memory.Map(other, 0xC0), 0, TestWorld.ModuleBase + 0x4DEDC18);
+        var stadium = Repo().LoadAll()[0];
+        ulong old = BitConverter.ToUInt64(_w.Bytes(Ot + 0x68, 8));
+        var expected = _w.Bytes(Ot, 0xC0);
+        BitConverter.GetBytes(other).CopyTo(expected, 0x68);
+
+        Writer().SetNearby(stadium, old, other);
+
+        Assert.Equal(expected, _w.Bytes(Ot, 0xC0));
+        Assert.Equal(other, Repo().NearbyPointer(Ot));
+        int writes = _w.Memory.Writes;
+        Assert.Throws<StaleObjectException>(() => Writer().SetNearby(stadium, old, other));               // the pointer is no longer the one read
+        Assert.Throws<ArgumentException>(() => Writer().SetNearby(stadium, other, Ot));                   // not another stadium
+        Assert.Throws<ArgumentException>(() => Writer().SetNearby(stadium, other, TestWorld.Mainoo));    // not a stadium at all
+        Assert.Equal(writes, _w.Memory.Writes);
+    }
+
+    [Fact]
+    public void Coordinates_change_only_the_floats_asked_for_and_stay_in_range()
+    {
+        var stadium = Repo().LoadAll()[0];
+        var before = _w.Bytes(Ot, 0xC0);
+        int lat = _w.Profile.Stadium!.Latitude, lon = _w.Profile.Stadium.Longitude;
+
+        Writer().SetCoordinates(stadium, 53.5f, null);
+
+        var expected = (byte[])before.Clone();
+        BitConverter.GetBytes(53.5f).CopyTo(expected, lat);
+        Assert.Equal(expected, _w.Bytes(Ot, 0xC0));                                       // longitude untouched
+        Assert.Equal(53.5, Repo().Reload(Ot)!.Latitude, 4);
+        Assert.Equal(-2.291336, Repo().Reload(Ot)!.Longitude, 4);
+        Assert.Throws<StaleObjectException>(() => Writer().SetCoordinates(stadium, 54f, null));   // the stadium still carries the old latitude
+        Assert.Throws<ArgumentOutOfRangeException>(() => Writer().SetCoordinates(Repo().Reload(Ot)!, 91f, null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Writer().SetCoordinates(Repo().Reload(Ot)!, null, -181f));
+        Assert.Equal(lon, _w.Profile.Stadium.Longitude);
+    }
+
     [Fact]
     public void Reads_Old_Trafford_as_FMRTE_shows_it()
     {

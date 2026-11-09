@@ -55,6 +55,7 @@ public sealed class NationPreferences(IProcessMemory memory, OffsetProfile profi
             || (row.Address - row.Begin) % 16 != 0 || !memory.Read(row.Address, 16).AsSpan().SequenceEqual(before))
             throw new StaleObjectException("Nation preference changed since it was read");
         byte[] next = [unchecked((byte)(sbyte)rating), (byte)maxAge, (byte)minAge, before[3], (byte)knowledge];
+        using var scope = Fm27Editor.Core.History.ChangeContext.Describe(new Fm27Editor.Core.History.ChangeLabel($"Transfer Preference: {row.Target}", Kind: Fm27Editor.Core.History.ChangeValueKind.Signed, PartNames: ["Rating", "Max Age", "Min Age", "", "Knowledge"]));
         if (!memory.TryWrite(row.Address, next) || !memory.Read(row.Address, next.Length).AsSpan().SequenceEqual(next))
             throw new MemoryAccessException("Could not write nation preference");
     }
@@ -102,6 +103,7 @@ public sealed class NationPreferences(IProcessMemory memory, OffsetProfile profi
             || (row.Address - row.Begin) % 16 != 0 || !memory.Read(row.Address, 16).AsSpan().SequenceEqual(before))
             throw new StaleObjectException("Nation continent preference changed since it was read");
         byte[] next = [unchecked((byte)(sbyte)rating), (byte)maxAge, (byte)minAge, before[3], (byte)knowledge];
+        using var scope = Fm27Editor.Core.History.ChangeContext.Describe(new Fm27Editor.Core.History.ChangeLabel($"Transfer Preference: {row.Target}", Kind: Fm27Editor.Core.History.ChangeValueKind.Signed, PartNames: ["Rating", "Max Age", "Min Age", "", "Knowledge"]));
         if (!memory.TryWrite(row.Address, next) || !memory.Read(row.Address, next.Length).AsSpan().SequenceEqual(next))
             throw new MemoryAccessException("Could not write nation continent preference");
     }

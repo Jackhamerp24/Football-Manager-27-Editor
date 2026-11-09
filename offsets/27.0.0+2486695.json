@@ -241,7 +241,7 @@
     "id": "0xC",
     "capital": "0xE8",
     "continent": "0xF0",
-    "stadium": "0x118",
+    "stadium": "0x118", "womenTeam": "0x110",
     "teams": { "pointer": "0x108", "list": "0x18", "teamVtable": "0x4DC2288", "reputation": "0xA8" },
     "rivalries": { "team": "0x108", "teamVtable": "0x4CEC0B8", "vector": "0x48", "entrySize": "0x10", "type": "0xA", "rivalType": "0x602", "value": "0xC" },
     "preferences": { "team": "0x108", "teamVtable": "0x4CEC0B8", "vector": "0xF0", "entrySize": "0x10" },

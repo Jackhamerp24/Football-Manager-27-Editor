@@ -19,7 +19,25 @@ public sealed record CityOffsets(int Pointer, uint ListRootRva, uint Vtable, int
     /// <summary>Single-value fields of FMRTE 27's City page (float latitude/longitude, int16 altitude, byte range index, byte attraction); optional.</summary>
     public CityFieldOffsets? Fields { get; init; }
 
+    /// <summary>Pointers to the Weather, Language and Local Region objects (FMRTE 27's City page); optional.</summary>
+    public CityLinkOffsets? Links { get; init; }
+
+    static readonly string[] LinkKeys = ["weather", "language", "region"];
+
     internal static CityOffsets Load(JsonElement e)
+    {
+        CityLinkOffsets? links = null;
+        if (e.TryGetProperty("weather", out _))
+        {
+            int[] l = LinkKeys.Select(key => Convert.ToInt32(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
+                ? s[2..] : throw new FormatException($"player.cities.{key}: expected hex"), 16)).ToArray();
+            links = new(l[0], l[1], l[2]);
+        }
+        var loaded = LoadBase(e);
+        return loaded with { Links = links };
+    }
+
+    static CityOffsets LoadBase(JsonElement e)
     {
         long[] v = Keys.Select(key => Convert.ToInt64(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
             ? s[2..] : throw new FormatException($"player.cities.{key}: expected hex"), 16)).ToArray();
@@ -43,11 +61,24 @@ public sealed record CityOffsets(int Pointer, uint ListRootRva, uint Vtable, int
             int[] o = [f.Latitude, f.Longitude, f.Altitude, f.Inhabitants, f.Attraction];
             for (int i = 0; i < FieldKeys.Length; i++) w.WriteString(FieldKeys[i], $"0x{o[i]:X}");
         }
+        if (Links is { } k)
+        {
+            int[] o = [k.Weather, k.Language, k.Region];
+            for (int i = 0; i < LinkKeys.Length; i++) w.WriteString(LinkKeys[i], $"0x{o[i]:X}");
+        }
         w.WriteEndObject();
     }
 }
 
 public sealed record CityFieldOffsets(int Latitude, int Longitude, int Altitude, int Inhabitants, int Attraction);
+
+public sealed record CityLinkOffsets(int Weather, int Language, int Region);
+
+/// <summary>The four objects a city points to. Nation is <c>cities.nation</c>; the rest are <see cref="CityLinkOffsets"/>.</summary>
+public enum CityLink { Nation, Weather, Language, Region }
+
+/// <summary>One choice for a city link: the object's address and the name the game shows.</summary>
+public sealed record CityLinkTarget(ulong Address, string Name);
 
 /// <summary>
 /// A city the game knows. <see cref="Nation"/> is the nation object, for telling same-named cities apart. Inhabitants is the
@@ -176,6 +207,94 @@ public sealed class CityWriter(IProcessMemory memory, OffsetProfile profile, ulo
         if (!memory.Read(address, before.Length).AsSpan().SequenceEqual(before)) throw new StaleObjectException($"{field} changed since it was read");
         if (!memory.TryWrite(address, after) || !memory.Read(address, after.Length).AsSpan().SequenceEqual(after))
             throw new MemoryAccessException($"Could not write {after.Length} byte(s) at 0x{address:X}");
+    }
+}
+
+/// <summary>
+/// A city's Nation, Weather, Language and Local Region are four 8-byte pointers (city +0x20, +0x28, +0x30, +0x38); FMRTE 27 changing
+/// Manchester's four values on 9/11/2026 wrote exactly those four pointers. Weather, Language and Region objects carry their name
+/// (length-prefixed string) at +0x18. The choices are the distinct objects the loaded cities already point to, so the catalogue
+/// needs no heap scan. Set is guarded: city vtable, the pointer still the one read, the target of the same object type as the
+/// current one (nation: the nation vtable) with a readable name; then write and read back.
+/// </summary>
+public sealed class CityLinks(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
+{
+    const int NameOffset = 0x18, MaxName = 200;
+
+    public bool Available => profile.Cities?.Links is not null;
+
+    public int OffsetOf(CityLink link)
+    {
+        var o = profile.Cities ?? throw new InvalidOperationException("Profile has no city offsets");
+        var l = o.Links ?? throw new InvalidOperationException("Profile has no city link offsets");
+        return link switch { CityLink.Nation => o.Nation, CityLink.Weather => l.Weather, CityLink.Language => l.Language, _ => l.Region };
+    }
+
+    /// <summary>The raw pointer a city holds now (0 when unset or unreadable): the snapshot for <see cref="Set"/>.</summary>
+    public ulong Pointer(CityRecord city, CityLink link) => Available && Q(city.Address + (ulong)OffsetOf(link), out ulong p) ? p : 0;
+
+    /// <summary>The name the game shows for a Weather, Language or Region object; null when the object is unreadable.</summary>
+    public string? NameOf(ulong target)
+    {
+        if (!Q(target + NameOffset, out ulong name) || name == 0) return null;
+        Span<byte> len = stackalloc byte[4];
+        if (!memory.TryRead(name, len)) return null;
+        int n = BitConverter.ToInt32(len);
+        if (n <= 0 || n > MaxName) return null;
+        var bytes = new byte[n];
+        return memory.TryRead(name + 4, bytes) ? System.Text.Encoding.UTF8.GetString(bytes) : null;
+    }
+
+    /// <summary>Every Weather, Language or Region object some city points to, by name.</summary>
+    public IReadOnlyList<CityLinkTarget> Catalogue(IEnumerable<CityRecord> cities, CityLink link)
+    {
+        if (link == CityLink.Nation || !Available) return [];
+        var seen = new Dictionary<ulong, ulong>();           // pointer -> vtable
+        foreach (var city in cities)
+        {
+            ulong p = Pointer(city, link);
+            if (p != 0 && !seen.ContainsKey(p)) seen[p] = Q(p, out ulong vt) ? vt : 0;
+        }
+        ulong common = seen.Values.Where(v => v != 0).GroupBy(v => v).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault();
+        return seen.Where(kv => kv.Value == common && common != 0)
+            .Select(kv => NameOf(kv.Key) is { } name ? new CityLinkTarget(kv.Key, name) : null).OfType<CityLinkTarget>()
+            .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <param name="chosenFrom">The catalogue the target was picked from. Needed when the city holds no object for this link now (0): there is no
+    /// current object to compare kinds with, so the target must be one the catalogue lists.</param>
+    public void Set(CityRecord city, CityLink link, ulong expected, ulong target, IReadOnlyList<CityLinkTarget>? chosenFrom = null)
+    {
+        var o = profile.Cities ?? throw new InvalidOperationException("Profile has no city offsets");
+        int offset = OffsetOf(link);
+        if (memory.ReadUInt64(city.Address) != moduleBase + o.Vtable) throw new StaleObjectException("The city object changed since it was read");
+        ulong at = city.Address + (ulong)offset;
+        if (memory.ReadUInt64(at) != expected) throw new StaleObjectException($"{link} changed since it was read");
+        if (target == 0) throw new ArgumentException("A city needs a target", nameof(target));
+        ulong targetVt = memory.ReadUInt64(target);
+        if (link == CityLink.Nation)
+        {
+            var n = profile.Nation ?? throw new InvalidOperationException("Profile has no nation offsets");
+            if (targetVt != moduleBase + n.VtableRva) throw new StaleObjectException("The nation object changed since it was read");
+        }
+        else
+        {
+            bool sameKind = expected != 0 ? targetVt == memory.ReadUInt64(expected) : chosenFrom is not null && chosenFrom.Any(t => t.Address == target);
+            if (!sameKind) throw new StaleObjectException($"The {link} object is not the same kind as the current one");
+            if (link == CityLink.Language && profile.Languages is { } lang && targetVt != moduleBase + lang.LanguageVtable)
+                throw new StaleObjectException("The language object changed since it was read");
+            if (NameOf(target) is null) throw new StaleObjectException($"The {link} object has no readable name");
+        }
+        if (!memory.TryWrite(at, BitConverter.GetBytes(target)) || memory.ReadUInt64(at) != target)
+            throw new MemoryAccessException($"Could not write 0x{at:X}");
+    }
+
+    bool Q(ulong address, out ulong value)
+    {
+        Span<byte> b = stackalloc byte[8];
+        bool ok = address != 0 && memory.TryRead(address, b);
+        value = ok ? BitConverter.ToUInt64(b) : 0;
+        return ok;
     }
 }
 

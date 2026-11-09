@@ -24,7 +24,7 @@ public static class ClauseSaveInput
                     extraNumber = int.Parse(extra!, NumberStyles.Integer, CultureInfo.InvariantCulture);
                     break;
                 case TransferClauseKind.CompetitionBonus:
-                    extraDate = string.IsNullOrWhiteSpace(extra) ? null : DateOnly.ParseExact(extra.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    extraDate = string.IsNullOrWhiteSpace(extra) ? null : DateSetting.TryParse(extra, out var parsedExtra) ? parsedExtra : throw new FormatException($"Enter the date as {DateSetting.Hint}");
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind));

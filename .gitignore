@@ -33,7 +33,18 @@ re/tools/*.py
 re/*.csv
 # Notes from inspecting a closed-source editor: keep local
 docs/FM-STUDIO-27-research.md
-src/Fm27Editor.App/Assets/Flags/
 
 # Agent docs stay local
 docs/*.md
+
+# Local RE scratch: decompiled FMRTE 26 sources, Frida captures, RAM snapshots, CLI output dumps, one-off scripts
+re/fmrte26/
+re/snapshots/
+re/*.jsonl
+re/*.txt
+re/tools/*.jsonl
+re/tools/out-*.txt
+re/tools/future-*.ps1
+re/tools/mdconst/
+rule.md
+/FM27 Editor Logo.png

@@ -191,6 +191,8 @@ public sealed class NationOffsets
     public int? Stadium { get; init; }
     /// <summary>National teams of the men's side (profile nation.teams): nation + Pointer is the team holder, whose begin/end/cap vector of team pointers sits at +List.</summary>
     public NationTeamOffsets? Teams { get; init; }
+    /// <summary>The women's national team (profile nation.womenTeam, 0x110 on 27.0.0+2493426): staff knowledge can point at it.</summary>
+    public int? WomenTeam { get; init; }
     public NationRivalryOffsets? Rivalries { get; init; }
     public NationPreferenceOffsets? Preferences { get; init; }
     /// <summary>Single-value nation and national-team fields (profile <c>nation.fields</c>, paths from the nation object).</summary>

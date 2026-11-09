@@ -41,7 +41,7 @@ public sealed partial class MainWindow
             if (Other() is not { } o) return;
             try
             {
-                backend.Edits.Execute(() => session.CallUpWriter.Swap(player, all.GetValueOrDefault(player.Address), o, all.GetValueOrDefault(o.Address)));
+                backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.CallUpWriter.Swap(player, all.GetValueOrDefault(player.Address), o, all.GetValueOrDefault(o.Address)));
                 status.Text = $"Swapped national call-ups of {player.DisplayName} and {o.DisplayName}. Continue in FM to see updates.";
                 RenderEditor();
             }

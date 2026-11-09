@@ -5,6 +5,9 @@ namespace Fm27Editor.Core.Tests;
 /// <summary>
 /// Every expectation comes from the game's Club Culture screen for Manchester United (7/11/2026), row by row against
 /// the 25 records read from RAM: type code, importance and dates had to line up before a name was accepted.
+/// R. Madrid (8/11/2026) added three more: the two rows that read "Finish above club in the league" (184, one per
+/// rival — the club comes from the row's club item, the Target stays -1), and the importance-9 pair that reads
+/// "Sign high-reputation players" (103, top) and "Increase commercial income" (42, bottom).
 /// </summary>
 public class ClubVisionTypesTests
 {
@@ -13,7 +16,9 @@ public class ClubVisionTypesTests
     [InlineData(2, "Qualify For Competition")]
     [InlineData(5, "Challenge for the Competition title")]
     [InlineData(10, "Reach the latter stages of the Competition")]
+    [InlineData(9, "Challenge for the Competition")]
     [InlineData(33, "Be competitive in the competition")]
+    [InlineData(42, "Increase commercial revenue")]
     [InlineData(44, "Work within wage budget")]
     [InlineData(45, "Sign players to sell for a profit")]
     [InlineData(60, "Become the most reputable team in Nation")]
@@ -23,13 +28,20 @@ public class ClubVisionTypesTests
     [InlineData(81, "Maximum one-year contracts for players over the age of X")]
     [InlineData(82, "Maximum two-year contracts for players over the age of X")]
     [InlineData(84, "Minimum X-year contracts for first-team players")]
+    [InlineData(103, "Sign high-reputation players")]
     [InlineData(104, "Sign players under the age of X for the first team")]
     [InlineData(105, "Sign players under the age of X for the future")]
+    [InlineData(107, "Don't Sign Players Over X Age")]
+    [InlineData(153, "Play direct football")]
     [InlineData(120, "Develop players using the club's youth system")]
     [InlineData(121, "Develop the best youth system in the country")]
     [InlineData(122, "Develop division best youth system")]
+    [InlineData(101, "Sign Players Based In Nation")]   // Barcelona 11/11/2026: FMRTE's 22 rows against the 22 records in RAM
     [InlineData(150, "Play attacking football")]
+    [InlineData(152, "Play possession football")]
+    [InlineData(157, "Play high-tempo pressing football")]
     [InlineData(155, "Play entertaining football")]
+    [InlineData(184, "Finish above club in the league")]
     public void Names_match_the_rows_the_game_shows(byte code, string name) =>
         Assert.Equal(name, ClubVisionTypes.Name(code));
 
@@ -37,7 +49,7 @@ public class ClubVisionTypesTests
     [InlineData(0)]
     [InlineData(3)]
     [InlineData(182)]
-    [InlineData(184)]
+    [InlineData(185)]
     [InlineData(255)]
     public void Codes_never_seen_in_the_game_stay_unnamed(byte code) =>
         Assert.Null(ClubVisionTypes.Name(code));
@@ -46,16 +58,33 @@ public class ClubVisionTypesTests
     [InlineData(1)]
     [InlineData(44)]
     [InlineData(155)]
-    [InlineData(182)]
-    [InlineData(184)]
-    [InlineData(255)]
-    public void Display_text_never_shows_the_numeric_code(byte code)
+    public void Display_text_is_the_name_the_game_shows(byte code)
     {
         string text = ClubVisionTypes.DisplayName(code);
         Assert.False(string.IsNullOrWhiteSpace(text));
-        Assert.DoesNotContain(text, char.IsDigit);
-        Assert.DoesNotContain($"({code})", text);
-        Assert.Equal(ClubVisionTypes.Name(code) ?? ClubVisionTypes.UnnamedLabel, text);
+        Assert.Equal(ClubVisionTypes.Name(code), text);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(182)]
+    [InlineData(185)]
+    [InlineData(255)]
+    public void Codes_never_seen_in_the_game_produce_no_text(byte code)
+    {
+        Assert.False(ClubVisionTypes.IsKnown(code));
+        Assert.Equal(string.Empty, ClubVisionTypes.DisplayName(code));
+        Assert.DoesNotContain(ClubVisionTypes.All.Values, value => value.Contains("Other", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Finish_above_names_the_club_from_the_row_item()
+    {
+        // R. Madrid carried two 184 rows: Barcelona (importance 10) and A. Madrid (importance 6), both Target -1.
+        Assert.Equal("Finish above Barcelona in the league", ClubVisionTypes.DisplayName(184, "Barcelona"));
+        Assert.Equal("Finish above A. Madrid in the league", ClubVisionTypes.DisplayName(184, "A. Madrid"));
+        Assert.Equal("Finish above club in the league", ClubVisionTypes.DisplayName(184, null));
+        Assert.Equal(ClubVisionTargetKind.Club, ClubVisionTypes.TargetKind(184));
     }
 
     [Theory]

@@ -14,12 +14,12 @@ public sealed partial class MainWindow
         public string Field => Scalar?.Field.ToString() ?? Attribute?.Attribute.ToString() ?? (Injury is not null ? "Injuries" : Unhappiness is not null ? "Unhappiness" : Retirement is not null ? "Retirement" : "Bans");
         public long Before => Scalar?.Before ?? (long?)Attribute?.Before ?? Injury?.Injuries.Count ?? Unhappiness?.OldCount ?? Ban?.OldCount ?? 0;
         public long After => Scalar?.After ?? (long?)Attribute?.After ?? Unhappiness?.NewCount ?? Ban?.NewCount ?? 0;
-        public string BeforeText => Retirement is { } retirement ? retirement.RetirementDate?.ToString("yyyy-MM-dd") ?? "None" : Before.ToString(Inv);
+        public string BeforeText => Retirement is { } retirement ? retirement.RetirementDate is { } retires ? DateSetting.Format(retires) : "None" : Before.ToString(Inv);
         public string AfterText => Retirement is not null ? "Continue" : After.ToString(Inv);
     }
     readonly Stack<List<SquadPresetStep>> squadPresetUndo = new();
 
-    void AddSquadPresetButtons(IReadOnlyList<PlayerRecord> squad)
+    Control CreateSquadPresetBar(Func<IReadOnlyList<PlayerRecord>> getSquad, Action? onApplied = null)
     {
         var fitness = new Button { Content = "Fitness" };
         var morale = new Button { Content = "Morale" };
@@ -28,17 +28,44 @@ public sealed partial class MainWindow
         var bans = new Button { Content = "Lift bans" };
         var max = new Button { Content = "Max attributes" };
         var retirement = new Button { Content = "Prevent retirement", IsEnabled = new PlannedRetirements(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase).IsSupported };
+        var freeze = new Button { Content = "Freeze squad" };
+        var unfreeze = new Button { Content = "Unfreeze squad" };
         var undo = new Button { Content = "Undo preset", IsEnabled = squadPresetUndo.Count > 0 };
-        fitness.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, false, false, false, false);
-        morale.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Morale, false, false, false, false);
-        heal.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, false, true, false, false);
-        unhappiness.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, false, false, true, false);
-        bans.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, false, false, false, true);
-        max.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, false, false, false, false, true);
-        retirement.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, false, false, false, false, false, true);
-        undo.Click += async (_, _) => await ShowSquadPresetAsync(squad, PlayerPreset.Fitness, true, false, false, false);
-        clubEditorPanel.Children.Add(new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8), Children = { heal, fitness, morale, bans, unhappiness, max, retirement, undo } });
+        fitness.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, false, false, false); onApplied?.Invoke(); };
+        morale.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Morale, false, false, false, false); onApplied?.Invoke(); };
+        heal.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, true, false, false); onApplied?.Invoke(); };
+        unhappiness.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, false, true, false); onApplied?.Invoke(); };
+        bans.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, false, false, true); onApplied?.Invoke(); };
+        max.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, false, false, false, true); onApplied?.Invoke(); };
+        retirement.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, false, false, false, false, true); onApplied?.Invoke(); };
+        freeze.Click += (_, _) =>
+        {
+            if (backend.Freezer is not { } frz) return;
+            int count = 0;
+            foreach (var p in getSquad())
+            {
+                try { frz.SetPlayer(p, FrozenPlayer.AllAttributes(p)); count++; } catch { }
+            }
+            status.Text = $"Frozen {count} player(s) in squad";
+            onApplied?.Invoke();
+        };
+        unfreeze.Click += (_, _) =>
+        {
+            if (backend.Freezer is not { } frz) return;
+            int count = 0;
+            foreach (var p in getSquad())
+            {
+                if (p.Id is { } pid) { try { frz.RemovePlayer(pid); count++; } catch { } }
+            }
+            status.Text = $"Unfrozen {count} player(s) in squad";
+            onApplied?.Invoke();
+        };
+        undo.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, true, false, false, false); onApplied?.Invoke(); };
+        return new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 8, Margin = new Thickness(0, 0, 0, 10), Children ={ heal, fitness, morale, bans, unhappiness, max, freeze, unfreeze, retirement, undo } };
     }
+
+    void AddSquadPresetButtons(IReadOnlyList<PlayerRecord> squad) =>
+        clubEditorPanel.Children.Add(CreateSquadPresetBar(() => squad));
 
     async Task ShowSquadPresetAsync(IReadOnlyList<PlayerRecord> squad, PlayerPreset preset, bool undoing, bool heal, bool removeUnhappiness, bool liftBans, bool maxAttributes = false, bool preventRetirement = false)
     {
@@ -95,11 +122,11 @@ public sealed partial class MainWindow
         catch (Exception ex) { status.Text = $"Preset: {ex.Message}"; return; }
         var window = new Window { Title = undoing ? "Undo preset" : $"{(preventRetirement ? "Prevent retirement" : maxAttributes ? "Max attributes" : heal ? "Heal" : removeUnhappiness ? "Remove unhappiness" : liftBans ? "Lift bans" : preset.ToString())} — Preview", Width = 600, Height = 500, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var table = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = false, ItemsSource = changes, RowHeight = 27 };
-        table.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding("Player.Id"), Width = new DataGridLength(90) });
+        table.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding("Player.Id"), Width = new DataGridLength(103) });
         table.Columns.Add(new DataGridTextColumn { Header = "Player", Binding = new Binding("Player.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding("Field"), Width = new DataGridLength(120) });
-        table.Columns.Add(new DataGridTextColumn { Header = undoing ? "Restore" : "Before", Binding = new Binding("BeforeText"), Width = new DataGridLength(95) });
-        table.Columns.Add(new DataGridTextColumn { Header = undoing ? "Current" : "After", Binding = new Binding("AfterText"), Width = new DataGridLength(95) });
+        table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding("Field"), Width = new DataGridLength(138) });
+        table.Columns.Add(new DataGridTextColumn { Header = undoing ? "Restore" : "Before", Binding = new Binding("BeforeText"), Width = new DataGridLength(109) });
+        table.Columns.Add(new DataGridTextColumn { Header = undoing ? "Current" : "After", Binding = new Binding("AfterText"), Width = new DataGridLength(109) });
         var apply = new Button { Content = undoing ? "Undo" : "Apply", IsEnabled = changes.Count > 0, Classes = { "accent" } };
         var text = new TextBlock { Text = $"{changes.Count:N0} changes" + (unavailable > 0 ? $", {unavailable:N0} unavailable" : ""), VerticalAlignment = VerticalAlignment.Center };
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(0, 8, 0, 0), Children = { apply, text } };
@@ -123,7 +150,7 @@ public sealed partial class MainWindow
                     {
                         try
                         {
-                            backend.Edits.Execute(() =>
+                            backend.Edits.Execute("Squad Preset", "Players", "Edit", () =>
                             {
                                 void Record() { if (undoing) batch.Remove(change); else batch.Add(change); count++; }
                                 if (change.Scalar is { } scalar)
@@ -175,6 +202,10 @@ public sealed partial class MainWindow
             finally { running = busy = false; }
         };
         await window.ShowDialog(this);
-        if (clubsActive && backend.State.Status == ConnectionStatus.Connected) RenderClubEditor();
+        if (backend.State.Status == ConnectionStatus.Connected)
+        {
+            if (clubsActive) RenderClubEditor();
+            else nationScreen.Reopen();
+        }
     }
 }

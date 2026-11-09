@@ -55,6 +55,7 @@ public sealed class NationRepository(IProcessMemory memory, OffsetProfile profil
         }
         catch (MemoryAccessException) { }
         if (FindNearbyNationList(rva) is { Count: > 0 } discovered) return discovered;
+        if (FindListNearSlots(rva) is { Count: > 0 } scanned) return scanned;
         return LoadFromReferences();
     }
 
@@ -86,6 +87,46 @@ public sealed class NationRepository(IProcessMemory memory, OffsetProfile profil
                     if (obj == 0 || !memory.TryRead(obj, pointer) || BitConverter.ToUInt64(pointer) != expectedVtable) { plausible = false; break; }
                 }
                 if (!plausible) continue;
+                var pointers = new ulong[count];
+                Buffer.BlockCopy(raw, 0, pointers, 0, raw.Length);
+                var rows = ReadPointers(pointers);
+                if (rows.Count == count) best = rows;
+            }
+        }
+        return best;
+    }
+
+
+    /// <summary>
+    /// The configured slot may hold another object in a given game process (a Steam run showed five objects of a different class there,
+    /// while the real vector of 251 nations sat 0x19E0 bytes away in the same allocation area). Looks in the memory around the objects
+    /// the neighbouring slots point to for a vector header whose first and last items are nations; the largest such vector wins.
+    /// </summary>
+    IReadOnlyList<NationRecord>? FindListNearSlots(uint configuredRva)
+    {
+        const int Window = 0x10000, MinNations = 100;
+        ulong expectedVtable = moduleBase + N.VtableRva;
+        var chunk = new byte[Window];
+        Span<byte> pointer = stackalloc byte[8];
+        var tried = new HashSet<ulong>();
+        IReadOnlyList<NationRecord>? best = null;
+        for (long delta = -0x40; delta <= 0x40; delta += 8)
+        {
+            if ((long)configuredRva + delta < 0 || !memory.TryRead(moduleBase + (ulong)((long)configuredRva + delta), pointer)) continue;
+            ulong around = BitConverter.ToUInt64(pointer);
+            if (around < 0x20000 || (around >= moduleBase && around < moduleBase + 0x40000000) || !tried.Add(around >> 14)) continue;
+            ulong start = around - 0x4000;
+            if (!memory.TryRead(start, chunk)) continue;
+            for (int at = 0; at + 24 <= chunk.Length; at += 8)
+            {
+                ulong begin = BitConverter.ToUInt64(chunk, at), end = BitConverter.ToUInt64(chunk, at + 8), cap = BitConverter.ToUInt64(chunk, at + 16);
+                if (begin < 0x10000 || end <= begin || cap < end || (end - begin) % 8 != 0) continue;
+                int count = (int)Math.Min((end - begin) / 8, int.MaxValue);
+                if (count < MinNations || count > MaxNations || (best is not null && count <= best.Count)) continue;
+                var raw = new byte[count * 8];
+                if (!memory.TryRead(begin, raw)) continue;
+                if (!memory.TryRead(BitConverter.ToUInt64(raw, 0), pointer) || BitConverter.ToUInt64(pointer) != expectedVtable) continue;
+                if (!memory.TryRead(BitConverter.ToUInt64(raw, raw.Length - 8), pointer) || BitConverter.ToUInt64(pointer) != expectedVtable) continue;
                 var pointers = new ulong[count];
                 Buffer.BlockCopy(raw, 0, pointers, 0, raw.Length);
                 var rows = ReadPointers(pointers);
@@ -180,6 +221,12 @@ public sealed class NationFieldAccess(IProcessMemory memory, OffsetProfile profi
         if (!memory.TryWrite(at, bytes) || !memory.Read(at, bytes.Length).AsSpan().SequenceEqual(bytes))
             throw new MemoryAccessException($"Write of {field} at 0x{at:X} failed");
     }
+
+    /// <summary>Where <paramref name="field"/> lives for this nation right now, or null when it is unmapped or the path is broken.</summary>
+    public ulong? AddressOf(ulong nation, NationField field) =>
+        Map.TryGetValue(field, out var o) && IsNation(nation) ? Resolve(nation, o) : null;
+
+    internal IReadOnlyDictionary<NationField, ClubFieldOffset> Fields => Map;
 
     bool IsNation(ulong address) =>
         address != 0 && profile.Nation is { } n && memory.TryRead(address, new byte[8]) && memory.ReadUInt64(address) == moduleBase + n.VtableRva;

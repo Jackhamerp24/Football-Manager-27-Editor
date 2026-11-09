@@ -24,4 +24,26 @@ public static class PitchLayout
         new(PlayerPosition.AttackingMidLeft, "Attacking Midfielder (Left)", .18, .25),
         new(PlayerPosition.Striker, "Striker", .50, .08)
     ];
+
+    public static readonly PlayerPosition[] DefensivePositions =
+    [
+        PlayerPosition.Goalkeeper,
+        PlayerPosition.DefenderLeft,
+        PlayerPosition.DefenderCentral,
+        PlayerPosition.DefenderRight,
+        PlayerPosition.WingBackLeft,
+        PlayerPosition.WingBackRight,
+        PlayerPosition.DefensiveMidfielder,
+    ];
+
+    public static readonly PlayerPosition[] AttackingPositions =
+    [
+        PlayerPosition.MidfielderLeft,
+        PlayerPosition.MidfielderCentral,
+        PlayerPosition.MidfielderRight,
+        PlayerPosition.AttackingMidLeft,
+        PlayerPosition.AttackingMidCentral,
+        PlayerPosition.AttackingMidRight,
+        PlayerPosition.Striker,
+    ];
 }

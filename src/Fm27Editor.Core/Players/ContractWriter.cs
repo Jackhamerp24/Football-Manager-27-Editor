@@ -156,8 +156,9 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
     }
 
     /// <summary><paramref name="expected"/> null means the field held "no date" when it was read.</summary>
-    void WriteDate(ulong address, DateOnly? expected, DateOnly date)
+    void WriteDate(ulong address, DateOnly? expected, DateOnly date, [System.Runtime.CompilerServices.CallerMemberName] string? who = null)
     {
+        using var _ = Fm27Editor.Core.History.ChangeContext.DescribeMember(who);
         RequireRange(date.Year, 1901, 2300, "Year");
         var current = memory.Read(address, 4);
         short raw = BitConverter.ToInt16(current);
@@ -319,8 +320,9 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
         if (value < min || value > max) throw new ArgumentOutOfRangeException(field, value, $"{field} must be {min}-{max}");
     }
 
-    void Write(ulong address, byte[] expected, byte[] value)
+    void Write(ulong address, byte[] expected, byte[] value, [System.Runtime.CompilerServices.CallerMemberName] string? who = null)
     {
+        using var _ = Fm27Editor.Core.History.ChangeContext.DescribeMember(who);
         if (!memory.Read(address, expected.Length).AsSpan().SequenceEqual(expected))
             throw new StaleObjectException($"Value at 0x{address:X} changed since it was read");
         if (!memory.TryWrite(address, value))

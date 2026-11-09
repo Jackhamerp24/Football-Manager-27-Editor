@@ -17,7 +17,9 @@ public sealed record ClubVisionRow(
     string? SourceName = null,
     bool? ForCompetition = null,
     int? Value = null,
-    string? TypeName = null);
+    string? TypeName = null,
+    int? Target = null,
+    int? SourceType = null);
 
 public sealed record ClubAffiliationRow(
     string? ParentClub,
@@ -210,7 +212,7 @@ public static class ClubListLabels
     public static bool IsRealDate(DateOnly? date) => date is { Year: > 1900 };
 
     public static string FormatDate(DateOnly? date) =>
-        date is { Year: > 1900 } d ? d.ToString("yyyy-MM-dd", Inv) : "";
+        date is { Year: > 1900 } d ? DateSetting.Format(d) : "";
 }
 
 /// <summary>Builds master list tables and selected-row detail panels without reading process memory directly.</summary>
@@ -221,24 +223,31 @@ public static class ClubListBuilder
     public static ClubListTableModel BuildVision(IEnumerable<ClubVisionRow> rows, bool hasReader = true, bool usesTeamRoot = false)
     {
         var list = rows.ToArray();
-        bool hasSource = list.Any(r => !string.IsNullOrWhiteSpace(r.SourceName) || r.SourceCode is not null);
+        bool hasSource = list.Any(r => !string.IsNullOrWhiteSpace(r.SourceName) || r.SourceCode is not null || r.SourceType is not null);
         bool hasForComp = list.Any(r => r.ForCompetition is not null);
 
-        var cols = new List<ClubListColumn>(7) { new("Type", 2.2, IsStar: true) };
-        if (hasSource) cols.Add(new("Source", 92));
-        cols.Add(new("Importance", 84, RightAlign: true));
+        var cols = new List<ClubListColumn>(6) { new("Type", 2.2, IsStar: true) };
+        if (hasSource) cols.Add(new("Source", 106));
+        cols.Add(new("Importance", 97, RightAlign: true));
         cols.Add(new("Item", 1.4, IsStar: true));
-        if (hasForComp) cols.Add(new("For Comp.", 78));
-        cols.Add(new("Start", 98, RightAlign: true));
-        cols.Add(new("End", 98, RightAlign: true));
+        if (hasForComp) cols.Add(new("For Comp.", 90));
+        cols.Add(new("Start", 113, RightAlign: true));
+        cols.Add(new("End", 113, RightAlign: true));
 
         var models = new List<ClubListRowModel>(list.Length);
         foreach (var r in list)
         {
-            string typeText = !string.IsNullOrWhiteSpace(r.TypeName) ? r.TypeName : ClubListLabels.VisionType(r.TypeCode);
+            string typeText = !string.IsNullOrWhiteSpace(r.TypeName)
+                ? r.TypeName
+                : ClubListLabels.VisionType(r.TypeCode);
+            if (r.Target is { } tgt && tgt > 0 && typeText.Contains("X"))
+                typeText = typeText.Replace("X", tgt.ToString(Inv));
+
             string sourceText = !string.IsNullOrWhiteSpace(r.SourceName)
                 ? r.SourceName
-                : r.SourceCode is { } sc ? ClubListLabels.VisionSource(sc) : "";
+                : r.SourceType == 1 ? "Board"
+                : r.SourceType is { } other ? $"Unknown ({other.ToString(Inv)})"
+                : r.SourceCode is { } sc ? (sc == 1 ? "Board" : (ClubListLabels.VisionSources.TryGetValue(sc, out var sn) ? sn : "Other source")) : "";
             string importanceText = r.Importance.ToString(Inv);
             string itemText = !string.IsNullOrWhiteSpace(r.ItemName)
                 ? r.ItemName
@@ -292,10 +301,10 @@ public static class ClubListBuilder
             new("Parent Club", 1.3, IsStar: true),
             new("Feeder Club", 1.5, IsStar: true),
             new("Type", 1.1, IsStar: true),
-            new("Start", 98, RightAlign: true),
+            new("Start", 113, RightAlign: true),
         };
-        if (hasEnd) cols.Add(new("End", 98, RightAlign: true));
-        if (hasFee) cols.Add(new("Annual Fee", 104, RightAlign: true));
+        if (hasEnd) cols.Add(new("End", 113, RightAlign: true));
+        if (hasFee) cols.Add(new("Annual Fee", 120, RightAlign: true));
 
         var models = new List<ClubListRowModel>(list.Length);
         foreach (var r in list)
@@ -351,9 +360,9 @@ public static class ClubListBuilder
 
         var cols = new List<ClubListColumn>(4);
         if (hasDivision) cols.Add(new("Division", 2.4, IsStar: true));
-        if (hasId) cols.Add(new("ID", 96, RightAlign: true));
-        cols.Add(new("Level", 70, RightAlign: true));
-        if (hasYear) cols.Add(new("Year", 70, RightAlign: true));
+        if (hasId) cols.Add(new("ID", 110, RightAlign: true));
+        cols.Add(new("Level", 81, RightAlign: true));
+        if (hasYear) cols.Add(new("Year", 81, RightAlign: true));
 
         var models = new List<ClubListRowModel>(list.Length);
         foreach (var r in list)
@@ -396,9 +405,9 @@ public static class ClubListBuilder
         var cols = new ClubListColumn[]
         {
             new("Income Type", 1.8, IsStar: true),
-            new("Total Value", 124, RightAlign: true),
-            new("Start", 98, RightAlign: true),
-            new("End", 98, RightAlign: true),
+            new("Total Value", 143, RightAlign: true),
+            new("Start", 113, RightAlign: true),
+            new("End", 113, RightAlign: true),
         };
 
         var models = new List<ClubListRowModel>(list.Length);
@@ -447,9 +456,9 @@ public static class ClubListBuilder
         var cols = new ClubListColumn[]
         {
             new("Source", 2.0, IsStar: true),
-            new("Original Debt", 128, RightAlign: true),
-            new("Start", 98, RightAlign: true),
-            new("End", 98, RightAlign: true),
+            new("Original Debt", 147, RightAlign: true),
+            new("Start", 113, RightAlign: true),
+            new("End", 113, RightAlign: true),
         };
 
         var models = new List<ClubListRowModel>(list.Length);
@@ -499,12 +508,12 @@ public static class ClubListBuilder
         bool hasItem = list.Any(r => !string.IsNullOrWhiteSpace(r.ItemTypeName) || r.ItemTypeCode is not null);
 
         var cols = new List<ClubListColumn>(6);
-        if (hasKit) cols.Add(new("Kit", 84));
-        if (hasItem) cols.Add(new("Item", 84));
+        if (hasKit) cols.Add(new("Kit", 97));
+        if (hasItem) cols.Add(new("Item", 97));
         cols.Add(new("Foreground", 1.0, IsStar: true));
         cols.Add(new("Background", 1.0, IsStar: true));
         cols.Add(new("Outline", 1.0, IsStar: true));
-        cols.Add(new("Style", 64, RightAlign: true));
+        cols.Add(new("Style", 74, RightAlign: true));
 
         var models = new List<ClubListRowModel>(list.Length);
         foreach (var r in list)
@@ -568,9 +577,9 @@ public static class ClubListBuilder
             new("Person", 1.4, IsStar: true),
             new("From", 1.2, IsStar: true),
             new("To", 1.2, IsStar: true),
-            new("Fee", 112, RightAlign: true),
+            new("Fee", 129, RightAlign: true),
         };
-        if (hasType) cols.Insert(0, new("Type", 85));
+        if (hasType) cols.Insert(0, new("Type", 98));
         if (hasStatus) cols.Add(new("Status", 1.1, IsStar: true));
 
         var models = new List<ClubListRowModel>(list.Length);

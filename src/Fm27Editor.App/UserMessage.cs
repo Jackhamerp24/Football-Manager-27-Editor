@@ -10,6 +10,7 @@ public static class UserMessage
     public static string For(Exception error) => error switch
     {
         GameNotRunningException ex => ex.Message,
+        SaveChangedException ex => ex.Message,
         UnsupportedBuildException => "This game version is not supported",
         PartialClauseWriteException => "Some clause fields may have been saved. Reload before retrying.",
         StaleObjectException => "Player data changed in game; reloaded",

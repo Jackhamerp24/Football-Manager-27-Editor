@@ -5,7 +5,7 @@ using System.ComponentModel;
 namespace Fm27Editor.Core.Game;
 
 /// <summary>The running fm.exe and where game_plugin.dll is loaded, without any build check.</summary>
-public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize, string? FileVersion)
+public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize, string? FileVersion, string? ExePath = null)
 {
     public const string ProcessName = "fm";
     public const string DefaultModule = "game_plugin.dll";
@@ -24,7 +24,7 @@ public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize
             .ToList();
         if (candidates.Count == 0) throw new GameNotRunningException($"{moduleName} is not loaded yet");
         var (process, module) = candidates[0];
-        return new GameProcess(process.Id, (ulong)module!.BaseAddress, module.ModuleMemorySize, module.FileVersionInfo.FileVersion);
+        return new GameProcess(process.Id, (ulong)module!.BaseAddress, module.ModuleMemorySize, module.FileVersionInfo.FileVersion, module.FileName);
     }
 
     static ProcessModule? TryModule(Process p, string moduleName)
@@ -50,7 +50,7 @@ public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize
                 do
                 {
                     if (module.ModuleName.Equals(moduleName, StringComparison.OrdinalIgnoreCase))
-                    { games.Add(new GameProcess(processId, (ulong)module.BaseAddress, checked((int)module.BaseSize), null)); break; }
+                    { games.Add(new GameProcess(processId, (ulong)module.BaseAddress, checked((int)module.BaseSize), null, module.ExePath)); break; }
                 } while (Module32Next(snapshot, ref module));
             }
             finally { CloseHandle(snapshot); }

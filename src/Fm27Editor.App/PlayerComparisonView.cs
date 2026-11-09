@@ -73,7 +73,7 @@ public sealed partial class MainWindow
                 {
                     new TextBlock { Text = p.DisplayName, FontSize = 16, FontWeight = FontWeight.Bold },
                     new TextBlock { Text = $"{p.ClubName} · {p.NationalityName} · {p.Age} yrs", Foreground = Brush("#94A3B8") },
-                    new TextBlock { Text = p.Contract is { } c ? $"£{c.Wage:N0} p/w · {c.Expires:yyyy-MM-dd}" : "", Foreground = Brush("#94A3B8") },
+                    new TextBlock { Text = p.Contract is { } c ? $"£{c.Wage:N0} p/w · {DateSetting.Format(c.Expires)}" : "", Foreground = Brush("#94A3B8") },
                 },
             },
         };

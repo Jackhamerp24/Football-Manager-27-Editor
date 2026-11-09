@@ -14,14 +14,8 @@ using Fm27Editor.Core.Players;
 
 namespace Fm27Editor.App;
 
-public sealed partial class MainWindow
+public sealed partial class MainWindow : IClubPanels
 {
-    public sealed record ClubsNavItem
-    {
-        public string Title => "Clubs";
-        public override string ToString() => Title;
-    }
-
     public sealed record ClubSectionOption(ClubSection Section, string Title)
     {
         public override string ToString() => Title;
@@ -37,131 +31,69 @@ public sealed partial class MainWindow
         public override string ToString() => $"{Club.DisplayName}, {Id}";
     }
 
-    readonly ClubsNavItem clubsNavItem = new();
-    readonly Border clubsViewRoot = new() { IsVisible = false };
-    readonly TextBox clubSearchBox = new() { Watermark = "Club or ID" };
-    readonly DataGrid clubPickerList = new()
-    {
-        IsReadOnly = true,
-        AutoGenerateColumns = false,
-        CanUserSortColumns = true,
-        CanUserResizeColumns = true,
-        SelectionMode = DataGridSelectionMode.Single,
-        GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-        HorizontalGridLinesBrush = Brush("#1D2130"),
-        RowHeight = 26,
-        Background = Brush("#11131C"),
-        BorderThickness = new Thickness(0),
-    };
     readonly ListBox clubSectionList = SectionHost.CreateRailListBox(stretchVertically: false);
-    readonly ContentControl clubHeaderHost = new() { Margin = new Thickness(12, 9, 12, 8) };
-    readonly StackPanel clubEditorPanel = new() { Spacing = 10, Margin = new Thickness(12, 0, 12, 12) };
-    readonly Dictionary<ulong, ClubDraft> clubDrafts = [];
     readonly Dictionary<ulong, ulong> clubSelectedTeam = [];
+    Dictionary<int, string>? visionCompetitionNames, visionNationNames, visionContinentNames;
     readonly Dictionary<(ulong Club, ClubSection Section), int> clubListSelectedRow = [];
 
-    IReadOnlyList<ClubEntry> loadedClubs = [];
-    ClubEntry? selectedClub;
-    int? lastSelectedClubId;
+    sealed class ClubVisionRowDraft
+    {
+        public int? Importance { get; set; }
+        public byte? TypeCode { get; set; }
+        public int? SourceType { get; set; }
+        public (DateOnly Start, DateOnly End)? Dates { get; set; }
+        public bool HasChanges => Importance is not null || TypeCode is not null || SourceType is not null || Dates is not null;
+    }
+    readonly Dictionary<ulong, Dictionary<ulong, ClubVisionRowDraft>> clubVisionDrafts = [];
+
+    sealed class ClubAffiliationRowDraft
+    {
+        public bool? ScoutingShared { get; set; }
+        public bool? PlayersOnLoan { get; set; }
+        public bool? FirstOption { get; set; }
+        public bool? PlayFriendlies { get; set; }
+        public int? ParentWagePercent { get; set; }
+        public int? FriendlyChance { get; set; }
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
+        public int? AnnualFee { get; set; }
+
+        public bool HasChanges => ScoutingShared != null || PlayersOnLoan != null || FirstOption != null
+            || PlayFriendlies != null || ParentWagePercent != null || FriendlyChance != null
+            || StartDate != null || EndDate != null || AnnualFee != null;
+    }
+    readonly Dictionary<ulong, Dictionary<ulong, ClubAffiliationRowDraft>> clubAffiliationDrafts = [];
+
+    ClubScreen clubScreen = null!;
+    ClubEntry? selectedClub => clubScreen.Selected;
+    StackPanel clubEditorPanel => clubScreen.EditorPanel;
+    Dictionary<ulong, ClubDraft> clubDrafts => clubScreen.DraftStore;
+    IReadOnlyList<ClubEntry> loadedClubs => clubScreen.Clubs;
+    bool clubsActive => clubScreen.IsActive;
     ClubSection selectedClubSection = ClubSection.Information;
     ClubSection selectedFinanceSubSection = ClubSection.Finances;
-    bool clubsActive;
     bool clubUpdating;
-    int clubLoadGeneration;
     int clubRenderGeneration;
-    Button? clubSaveButton;
-    Button? clubDiscardButton;
-    Control clubDetailRoot = new Panel();
-    IReadOnlyList<ClubPickerItem> clubPickerSource = [];
-    IReadOnlyDictionary<ulong, (long? Balance, long? Reputation)> clubPickerStats = new Dictionary<ulong, (long?, long?)>();
+    int clubSaveTotal;
+    bool clubSaveInScalar;
 
-    /// <summary>Selects a club in the full list (no filter) so the module screen and the tab agree.</summary>
-    void SelectClubInList(ClubEntry club)
+    /// <summary>Draws the open club again (after something in it changed).</summary>
+    void RenderClubEditor() => clubScreen.Reopen();
+
+    void PickClub(ClubEntry club) => clubScreen.Pick(club);
+
+    Task LoadClubsScreenAsync(bool forceReloadPlayers)
     {
-        var item = clubPickerSource.FirstOrDefault(i => i.Club.Address == club.Address || ReferenceEquals(i.Club, club));
-        if (item is not null)
-        {
-            clubUpdating = true;
-            clubPickerList.SelectedItem = item;
-            clubPickerList.ScrollIntoView(item, null);
-            clubUpdating = false;
-            selectedClub = item.Club;
-        }
-        else
-        {
-            // The list may not be loaded yet; the tab still has to show the club the search picked.
-            selectedClub = club;
-        }
-        if (selectedClub?.Id is { } id) lastSelectedClubId = id;
-        RenderClubEditor();
-        UpdateClubStatusFromDraft();
+        if (forceReloadPlayers) { clubCache = null; rows = []; }
+        return clubScreen.LoadAsync();
     }
 
-
-    void RegisterClubsView()
+    void RegisterClubs()
     {
         ParseClubStartupArgs(out bool startOnClubs, out int? startupClubId);
-        if (startupClubId is not null)
-            lastSelectedClubId = startupClubId;
-
-        BuildClubsLayout();
-
-        AddModuleTab("Clubs", clubsViewRoot, clubsNavItem);
-
-        modules.ItemsSource = (object[])[.. Modules.Registered, clubsNavItem];
-
-        modules.SelectionChanged += async (_, _) =>
-        {
-            bool toClubs = ReferenceEquals(modules.SelectedItem, clubsNavItem);
-            if (toClubs == clubsActive) return;
-
-            clubsActive = toClubs;
-            status.Text = "";
-
-            if (clubsActive)
-            {
-                if (backend.State.Status == ConnectionStatus.Connected)
-                {
-                    if (loadedClubs.Count > 0) FilterClubPicker();
-                    else await LoadClubsScreenAsync(forceReloadPlayers: false);
-                }
-                else
-                    ClearClubsScreen();
-            }
-        };
-
-        backend.StateChanged += (_, _) => Dispatcher.UIThread.Post(async () =>
-        {
-            loadedClubs = [];
-            clubPickerStats = new Dictionary<ulong, (long?, long?)>();
-            clubDrafts.Clear();
-            kitDrafts.Clear();
-            clubMassUndo.Clear();
-            clubSelectedTeam.Clear();
-            clubListSelectedRow.Clear();
-            selectedClub = null;
-
-            if (!clubsActive) return;
-
-            if (backend.State.Status == ConnectionStatus.Connected)
-            {
-                rows = [];
-                clubCache = null;
-                competitionCache = null;
-                await LoadClubsScreenAsync(forceReloadPlayers: true);
-            }
-            else
-            {
-                gameDateBadge.IsVisible = false;
-                ClearClubsScreen();
-            }
-        });
-
-        if (startOnClubs)
-        {
-            Opened += (_, _) => Dispatcher.UIThread.Post(() => modules.SelectedItem = clubsNavItem);
-        }
-
+        BuildClubSectionRail();
+        clubScreen = AddScreen(host => new ClubScreen(host, this) { StartupClubId = startupClubId });
+        if (startOnClubs) Opened += (_, _) => Dispatcher.UIThread.Post(() => SwitchModule("Clubs"));
         timer.Tick += async (_, _) => await CheckSelectedClubAsync();
     }
 
@@ -186,47 +118,23 @@ public sealed partial class MainWindow
         }
     }
 
-    void BuildClubsLayout()
+    void BuildClubSectionRail()
     {
-        var sectionOptions = ClubFieldInfo.Sections
-            .Select(s => new ClubSectionOption(s, ClubFieldInfo.SectionTitle(s)))
-            .ToArray();
         clubSectionList.ItemTemplate = new FuncDataTemplate<ClubSectionOption>((opt, _) =>
             opt is null
                 ? null
                 : new TextBlock
                 {
                     Text = opt.Title,
-                    FontSize = 11.5,
+                    FontSize = 13,
                     FontWeight = FontWeight.Medium,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(2, 2, 14, 2),
                 });
-        clubSectionList.ItemsSource = sectionOptions;
+        clubSectionList.ItemsSource = ClubFieldInfo.Sections
+            .Select(s => new ClubSectionOption(s, ClubFieldInfo.SectionTitle(s)))
+            .ToArray();
         clubSectionList.SelectedIndex = 0;
-
-        clubPickerList.SelectionChanged += (_, _) =>
-        {
-            if (clubUpdating) return;
-            selectedClub = (clubPickerList.SelectedItem as ClubPickerItem)?.Club;
-            if (selectedClub?.Id is { } id) lastSelectedClubId = id;
-        };
-        clubPickerList.DoubleTapped += (_, _) =>
-        {
-            if (selectedClub is not { } club) return;
-            RenderClubEditor();
-            UpdateClubStatusFromDraft();
-            OpenKindTab("club", club.DisplayName, clubDetailRoot);
-        };
-        clubPickerList.KeyDown += (_, e) =>
-        {
-            if (e.Key != Avalonia.Input.Key.Enter || selectedClub is not { } club) return;
-            RenderClubEditor();
-            UpdateClubStatusFromDraft();
-            OpenKindTab("club", club.DisplayName, clubDetailRoot);
-            e.Handled = true;
-        };
-
         clubSectionList.SelectionChanged += (_, _) =>
         {
             if (clubUpdating) return;
@@ -237,202 +145,119 @@ public sealed partial class MainWindow
                 UpdateClubStatusFromDraft();
             }
         };
-
-        var listGrid = new Grid
-        {
-            Background = UiKit.WindowBg,
-            RowDefinitions = new RowDefinitions
-            {
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(new GridLength(1, GridUnitType.Star)),
-            },
-        };
-
-        var idCol = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(ClubPickerItem.Id)), Width = new DataGridLength(96), SortMemberPath = nameof(ClubPickerItem.Id) };
-        idCol.CellStyleClasses.Add("numeric");
-        clubPickerList.Columns.Add(idCol);
-        clubPickerList.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(ClubPickerItem.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star), SortMemberPath = nameof(ClubPickerItem.Name) });
-        var balCol = new DataGridTextColumn { Header = "Balance", Binding = new Binding(nameof(ClubPickerItem.Balance)) { StringFormat = "N0" }, Width = new DataGridLength(150), SortMemberPath = nameof(ClubPickerItem.Balance) };
-        balCol.CellStyleClasses.Add("numeric");
-        clubPickerList.Columns.Add(balCol);
-        var repCol = new DataGridTextColumn { Header = "Reputation", Binding = new Binding(nameof(ClubPickerItem.Reputation)), Width = new DataGridLength(110), SortMemberPath = nameof(ClubPickerItem.Reputation) };
-        repCol.CellStyleClasses.Add("numeric");
-        clubPickerList.Columns.Add(repCol);
-        clubSearchBox.TextChanged += (_, _) => FilterClubPicker();
-        var searchBar = new Border
-        {
-            Background = UiKit.Surface,
-            BorderBrush = UiKit.BorderSubtle,
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(10, 7),
-            Child = clubSearchBox,
-        };
-        Grid.SetRow(searchBar, 0);
-        listGrid.Children.Add(searchBar);
-        Grid.SetRow(clubPickerList, 1);
-        listGrid.Children.Add(clubPickerList);
-
-        clubsViewRoot.Child = listGrid;
-
-        clubSectionList.Margin = new Thickness(12, 0, 0, 10);
-        var mainSplit = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions
-            {
-                new ColumnDefinition(new GridLength(180)) { MinWidth = 156 },
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)) { MinWidth = 460 },
-            },
-        };
-        Grid.SetColumn(clubSectionList, 0);
-        mainSplit.Children.Add(clubSectionList);
-
-        var rightScroll = new ScrollViewer
-        {
-            Content = clubEditorPanel,
-            Background = UiKit.WindowBg,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        };
-        Grid.SetColumn(rightScroll, 1);
-        mainSplit.Children.Add(rightScroll);
-
-        var detailDock = new DockPanel { Background = UiKit.WindowBg };
-        DockPanel.SetDock(clubHeaderHost, Dock.Top);
-        detailDock.Children.Add(clubHeaderHost);
-        detailDock.Children.Add(mainSplit);
-        clubDetailRoot = detailDock;
     }
 
-    void ClearClubsScreen()
+    // What the club screen asks of the window.
+    ListBox IClubPanels.SectionRail => clubSectionList;
+    IReadOnlyList<ClubEntry>? IClubPanels.CachedClubs => clubCache;
+    IReadOnlyList<PlayerRecord> IClubPanels.ShownPlayers => rows.OfType<PlayerRecord>().ToArray();
+
+    void IClubPanels.ClubsLoaded(IReadOnlyList<ClubEntry> clubs, IReadOnlyList<PlayerRecord>? freshPlayers, DateOnly? gameDate)
     {
-        clubUpdating = true;
-        loadedClubs = [];
+        if (freshPlayers is not null && rows.Count == 0)
+            rows = freshPlayers.OrderByDescending(p => p.CurrentAbility).Cast<object>().ToArray();
+        clubCache = clubs;
+        if (gameDate is { } d)
+        {
+            gameDateText.Text = d.ToString("dd MMM yyyy", Inv);
+            gameDateBadge.IsVisible = true;
+        }
+        else gameDateBadge.IsVisible = false;
+        UpdateConnectionBadge();
+        connection.Text = $"{backend.State.Message} · {clubs.Count:N0}";
+    }
+
+    void IClubPanels.Reconnected()
+    {
+        kitDrafts.Clear();
+        clubSelectedTeam.Clear();
+        visionCompetitionNames = visionNationNames = visionContinentNames = null;
         clubListSelectedRow.Clear();
-        selectedClub = null;
-        clubPickerList.ItemsSource = Array.Empty<ClubPickerItem>();
-        clubEditorPanel.Children.Clear();
-        clubUpdating = false;
+        clubVisionDrafts.Clear();
+        clubAffiliationDrafts.Clear();
+        if (!clubsActive) return;
+        if (backend.State.Status == ConnectionStatus.Connected) { rows = []; clubCache = null; competitionCache = null; }
+        else gameDateBadge.IsVisible = false;
     }
 
-    async Task LoadClubsScreenAsync(bool forceReloadPlayers)
+    bool IClubPanels.HasPending(ClubEntry club) =>
+        (kitDrafts.TryGetValue(club.Address, out var kits) && kits.Count > 0)
+        || pendingAffiliationRemovals.ContainsKey(club.Address) || clubFamiliarityDrafts.ContainsKey(club.Address);
+
+    ulong IClubPanels.TeamOf(ClubEntry club) => ResolveSelectedTeam(club)?.Address ?? 0;
+    bool IClubPanels.IsValid(ulong clubAddress) => IsClubObjectValid(clubAddress);
+
+    int IClubPanels.SaveClub(ClubEntry club, ClubDraft draft)
     {
-        if (backend.State.Status != ConnectionStatus.Connected) return;
-        int current = ++clubLoadGeneration;
-        try
+        int count = 0;
+        clubSaveInScalar = false;
+        if (kitDrafts.TryGetValue(club.Address, out var pending) && pending.Count > 0)
+        {
+            count += pending.Count;
+            SaveKitDrafts(backend.Session, club);
+        }
+        if (clubFamiliarityDrafts.TryGetValue(club.Address, out var familiarityText))
+        {
+            if (!int.TryParse(familiarityText, out int familiarityValue) || familiarityValue is < 0 or > 100)
+                throw new InvalidOperationException("Tactical familiarity must be a whole number from 0 to 100");
+            var session = backend.Session;
+            var access = session.PlayerFamiliarity;
+            foreach (var team in club.Teams)
+                foreach (var squadPlayer in session.ReadSquad(team.Address))
+                    if (access.Read(squadPlayer.Address) is { } snapshot)
+                        access.SetTactical(snapshot, familiarityValue);
+            clubFamiliarityDrafts.Remove(club.Address);
+            count++;
+        }
+        if (pendingAffiliationRemovals.TryGetValue(club.Address, out var affiliation))
         {
             var session = backend.Session;
-            var cachedClubs = !forceReloadPlayers ? clubCache : null;
-            var existingPlayers = !forceReloadPlayers ? rows.OfType<PlayerRecord>().ToArray() : [];
-
-            var (clubs, loadedPlayers, gameDate, stats) = await Task.Run(() =>
-            {
-                var gd = session.ReadGameDate();
-                IReadOnlyList<PlayerRecord>? freshPlayers = null;
-                IReadOnlyList<ClubEntry> clubEntries;
-                if (cachedClubs is not null)
-                {
-                    clubEntries = cachedClubs;
-                }
-                else
-                {
-                    PlayerRecord[] src;
-                    if (existingPlayers.Length > 0)
-                    {
-                        src = existingPlayers;
-                    }
-                    else
-                    {
-                        var all = session.Players.LoadAll();
-                        foreach (var p in all) p.GameDate = gd;
-                        freshPlayers = all;
-                        src = all.ToArray();
-                    }
-                    clubEntries = session.LoadClubs(src);
-                }
-                var access = session.ClubFields;
-                var values = new Dictionary<ulong, (long? Balance, long? Reputation)>(clubEntries.Count);
-                foreach (var club in clubEntries)
-                {
-                    try
-                    {
-                        long? balance = access.Read(club.Address, ClubField.Balance);
-                        long? reputation = club.Teams.Count > 0 ? access.Read(club.Teams[0].Address, ClubField.TeamReputation) : null;
-                        values[club.Address] = (balance, reputation);
-                    }
-                    catch (Exception) { }
-                }
-                return (clubEntries, freshPlayers, gd, values);
-            });
-
-            if (current != clubLoadGeneration || !clubsActive) return;
-
-            if (loadedPlayers is not null && rows.Count == 0)
-                rows = loadedPlayers.OrderByDescending(p => p.CurrentAbility).Cast<object>().ToArray();
-
-            clubCache = clubs;
-            clubPickerStats = stats;
-            loadedClubs = ClubCatalog.Filter(clubs, null);
-
-            if (gameDate is { } d)
-            {
-                gameDateText.Text = d.ToString("dd MMM yyyy", Inv);
-                gameDateBadge.IsVisible = true;
-            }
-            else
-            {
-                gameDateBadge.IsVisible = false;
-            }
-
-            FilterClubPicker();
-            UpdateConnectionBadge();
+            new ClubAffiliationWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, affiliation);
+            pendingAffiliationRemovals.Remove(club.Address);
+            count++;
         }
-        catch (Exception ex)
+        if (draft.CanSave)
         {
-            status.Text = ClubUserMessage(ex);
+            clubSaveInScalar = true;
+            clubSaveTotal = draft.Count;
+            count += draft.Save(backend.Edits, backend.Session.ClubFields, target => backend.AcceptFrozenClubEdit(club, target.Field));
         }
+        return count;
     }
 
-    void FilterClubPicker()
+    void IClubPanels.SaveFailed(ClubEntry club, Exception error)
     {
-        var filtered = ClubCatalog.Filter(loadedClubs, clubSearchBox.Text);
-        var prevAddr = selectedClub?.Address;
-        var prevId = selectedClub?.Id ?? lastSelectedClubId;
-
-        ClubEntry? next = null;
-        if (prevAddr is { } addr)
-            next = filtered.FirstOrDefault(c => c.Address == addr);
-        if (next is null && prevId is { } id)
-            next = filtered.FirstOrDefault(c => c.Id == id);
-
-        var items = filtered.Select(c =>
+        if (!clubSaveInScalar || !clubDrafts.TryGetValue(club.Address, out var draft))
         {
-            var item = new ClubPickerItem(c);
-            if (clubPickerStats.TryGetValue(c.Address, out var values))
-            {
-                item.Balance = values.Balance;
-                item.Reputation = values.Reputation;
-            }
-            return item;
-        }).ToArray();
-        var nextItem = next is null ? null : items.FirstOrDefault(i => ReferenceEquals(i.Club, next));
-
-        clubUpdating = true;
-        clubPickerSource = items;
-        clubPickerList.ItemsSource = items;
-        clubPickerList.SelectedItem = nextItem;
-        clubUpdating = false;
-
-        if (clubsActive && backend.State.Status == ConnectionStatus.Connected)
-        {
-            connection.Text = filtered.Count == loadedClubs.Count
-                ? $"{backend.State.Message} · {loadedClubs.Count:N0}"
-                : $"{backend.State.Message} · {filtered.Count:N0} / {loadedClubs.Count:N0}";
+            // A write can fail after earlier writes succeeded; discard stale drafts and reload.
+            kitDrafts.Remove(club.Address);
+            pendingAffiliationRemovals.Remove(club.Address);
+            RenderClubEditor();
+            status.Text = $"Some changes may have been saved. {UserMessage.For(error)}";
+            return;
         }
-
-        if (!ReferenceEquals(selectedClub, next))
+        ulong teamAddr = ResolveSelectedTeam(club)?.Address ?? 0;
+        var access = backend.Session.ClubFields;
+        int saved = clubSaveTotal - draft.Count;
+        try
         {
-            selectedClub = next;
-            if (next?.Id is { } cid) lastSelectedClubId = cid;
+            var fresh = access.ReadAll(club.Address, teamAddr);
+            if (fresh.Count == 0 && !IsClubObjectValid(club.Address))
+            {
+                clubDrafts.Remove(club.Address);
+                status.Text = "Club no longer available; reloading";
+                _ = LoadClubsScreenAsync(forceReloadPlayers: true);
+                return;
+            }
+            draft.Rebase(club.Address, teamAddr, backend.Session.Profile, fresh);
+            RenderClubEditor();
+            status.Text = saved > 0
+                ? $"{saved} saved. {ClubUserMessage(error)} Review remaining changes."
+                : ClubUserMessage(error);
+        }
+        catch (Exception reloadError)
+        {
+            status.Text = $"{saved} saved. {ClubUserMessage(reloadError)}";
         }
     }
 
@@ -447,8 +272,6 @@ public sealed partial class MainWindow
             if (!ok && clubsActive && selectedClub?.Address == addr)
             {
                 clubDrafts.Clear();
-                clubCache = null;
-                rows = [];
                 status.Text = "Club no longer available; reloading";
                 await LoadClubsScreenAsync(forceReloadPlayers: true);
             }
@@ -500,56 +323,22 @@ public sealed partial class MainWindow
             status.Text = "";
     }
 
-    void RenderClubEditor()
+    void IClubPanels.BuildClub(ClubEntry club, ClubDraft draft)
     {
         clubRenderGeneration++;
-        clubEditorPanel.Children.Clear();
-        clubSaveButton = null;
-        clubDiscardButton = null;
-
-        if (selectedClub is not { } club || backend.State.Status != ConnectionStatus.Connected)
-            return;
+        if (backend.State.Status != ConnectionStatus.Connected) return;
 
         var session = backend.Session;
         var profile = session.Profile;
         var access = session.ClubFields;
         var orderedTeams = ClubCatalog.OrderedTeams(club);
         var activeTeam = ResolveSelectedTeam(club);
+        backend.Edits.RegisterLabels("Club", club.DisplayName,
+            Fm27Editor.Core.History.EntityChangeLabels.ForClub(session.Memory, profile, session.ModuleBase, club.Address, activeTeam?.Address ?? 0));
         ulong teamAddr = activeTeam?.Address ?? 0;
 
         var values = access.ReadAll(club.Address, teamAddr);
-        if (!clubDrafts.TryGetValue(club.Address, out var draft))
-            clubDrafts[club.Address] = draft = new ClubDraft(club.Address);
         draft.AbsorbSnapshot(club.Address, teamAddr, profile, values);
-
-        var commands = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        clubSaveButton = new Button
-        {
-            Content = "Save changes",
-            IsEnabled = draft.CanSave,
-            Classes = { "accent" },
-        };
-        clubSaveButton.Click += (_, _) => SaveClubWithKits(club);
-
-        clubDiscardButton = new Button
-        {
-            Content = "Discard",
-            IsEnabled = draft.Count > 0 || draft.InvalidCount > 0,
-        };
-        clubDiscardButton.Click += (_, _) =>
-        {
-            clubDrafts.Remove(club.Address);
-            kitDrafts.Remove(club.Address);
-            clubFamiliarityDrafts.Remove(club.Address);
-            pendingAffiliationRemovals.Remove(club.Address);
-            RenderClubEditor();
-            status.Text = "Changes discarded";
-        };
         UpdateKitSaveButtons(club.Address);
 
         NationRecord? clubNation = null;
@@ -614,13 +403,13 @@ public sealed partial class MainWindow
         if (clubNation is not null)
         {
             if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
-            var flag = graphics.Image("nationflag", clubNation.Id, 15);
+            var flag = graphics.NationFlag(clubNation.Id, 14);
             var content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 5,
                 VerticalAlignment = VerticalAlignment.Center,
-                Children = { flag, new TextBlock { Text = clubNation.DisplayName, FontSize = 12, VerticalAlignment = VerticalAlignment.Center } },
+                Children = { flag, new TextBlock { Text = clubNation.DisplayName, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center } },
             };
             var nationBtn = UiKit.MetaLinkButton(content);
             nationBtn.Click += async (_, _) => await OpenPlayerNationAsync(clubNation.Address);
@@ -643,7 +432,7 @@ public sealed partial class MainWindow
         }
 
         var crestImg = graphics.Image("club", club.Id, 72);
-        clubHeaderHost.Content = UiKit.EntityBanner(club.Name ?? club.DisplayName, badges, null, crestImg);
+        clubScreen.Header.Content = UiKit.EntityBanner(club.Name ?? club.DisplayName, badges, null, crestImg);
 
         if (HookClubSquadsView(club, orderedTeams, activeTeam, teamAddr)) return;
 
@@ -676,11 +465,61 @@ public sealed partial class MainWindow
         if (groups.Count == 0)
             return;
 
-        if (orderedTeams.Count > 1 && groups.Any(g => g.UsesTeamRoot))
-            clubEditorPanel.Children.Add(BuildClubTeamSelector(club, orderedTeams, teamAddr));
+        if (section == ClubSection.TacticalUnderstanding)
+        {
+            if (orderedTeams.Count > 1) clubEditorPanel.Children.Add(BuildClubTeamSelector(club, orderedTeams, teamAddr));
+            // FMRTE: the Tactical Understanding card has a Max button that sets every bar to 100; Team Cohesion has its own.
+            var max = new Button { Content = "Max", Classes = { "accent" }, HorizontalAlignment = HorizontalAlignment.Left };
+            max.Click += (_, _) =>
+            {
+                foreach (var g in groups) foreach (var f in g.Fields) draft.Stage(f, 100);
+                RenderClubEditor();
+                UpdateClubStatusFromDraft();
+            };
+            clubEditorPanel.Children.Add(max);
+            foreach (var g in groups) clubEditorPanel.Children.Add(BuildClubGroupCard(g, draft));
+            clubEditorPanel.Children.Add(BuildTeamCohesionCard(session: backend.Session, club, orderedTeams.FirstOrDefault(t => t.Address == teamAddr)));
+            return;
+        }
 
         var items = groups.Select(g => (BuildClubGroupCard(g, draft), g.Fields.Count)).ToList();
         clubEditorPanel.Children.Add(UiKit.TwoColumnMasonry(items, gap: 10));
+    }
+
+    /// <summary>FMRTE's Team Cohesion card: the squad average, and Max sets every squad player's cohesion to the top.</summary>
+    Control BuildTeamCohesionCard(GameSession session, ClubEntry club, TeamEntry? team)
+    {
+        var average = new TextBlock { FontSize = 13, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
+        var max = new Button { Content = "Max", Classes = { "accent" } };
+        IReadOnlyList<PlayerRecord> squad = [];
+        if (team is not null)
+        {
+            try { squad = session.ReadSquad(team.Address); } catch { }
+        }
+        var writer = new TeamCohesionWriter(session.Memory, session.Profile, session.ModuleBase);
+        void Refresh()
+        {
+            var values = squad.Select(p => writer.Read(p, club.Address)).Where(v => v is not null).Select(v => (int)v!.Value).ToList();
+            average.Text = values.Count == 0 ? "" : Math.Round(values.Average()).ToString(Inv);
+        }
+        Refresh();
+        max.IsEnabled = squad.Count > 0;
+        max.Click += (_, _) =>
+        {
+            int done = 0, failed = 0;
+            foreach (var p in squad)
+            {
+                try { backend.Edits.Execute("Club", club.DisplayName, "Team cohesion", () => writer.Set(p, club.Address, TeamCohesionWriter.Improve)); done++; }
+                catch { failed++; }
+            }
+            Refresh();
+            status.Text = failed == 0 ? $"Team cohesion maxed for {done} player(s). Continue in FM to see updates." : $"Team cohesion maxed for {done} player(s); {failed} could not be changed.";
+        };
+        var row = new DockPanel { Margin = new Thickness(12, 8) };
+        DockPanel.SetDock(max, Dock.Right);
+        row.Children.Add(max);
+        row.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { new TextBlock { Text = "Squad average", FontSize = 13, Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center }, average } });
+        return UiKit.Card("Team Cohesion", row);
     }
 
     void RenderClubFinancesSection(
@@ -767,87 +606,54 @@ public sealed partial class MainWindow
         if (periods.Count == 0) return;
 
         string[] headers = ["This Month", "Last Month", "This Season"];
-        int columns = 1 + Math.Min(headers.Length, periods.Count);
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("300,150,150,150"), RowSpacing = 1, Margin = new Thickness(0, 4) };
+        long currentBalance = 0;
+        try { currentBalance = session.ClubFields.Read(club.Address, ClubField.Balance) ?? 0; } catch { }
 
-        void Add(string label, Func<ClubFinancialPeriod, long> pick, bool bold = false, bool money = true)
+        IReadOnlyList<long> Values(Func<ClubFinancialPeriod, long> pick) =>
+            periods.Take(headers.Length).Select(pick).ToArray();
+
+        // 1. Summary Card
+        var summaryRows = new (string Label, IReadOnlyList<long> Values, bool Bold)[]
         {
-            int row = grid.RowDefinitions.Count;
-            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var name = new TextBlock
-            {
-                Text = label,
-                FontSize = 11.5,
-                FontWeight = bold ? FontWeight.SemiBold : FontWeight.Normal,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 0, 0),
-                Foreground = Brush(bold ? "#F8FAFC" : "#CBD5E1"),
-            };
-            Grid.SetRow(name, row);
-            Grid.SetColumn(name, 0);
-            grid.Children.Add(name);
-            for (int i = 0; i < columns - 1 && i < periods.Count; i++)
-            {
-                var value = new TextBlock
-                {
-                    Text = money ? pick(periods[i]).ToString("N0", Inv) : pick(periods[i]).ToString(Inv),
-                    FontSize = 11.5,
-                    FontWeight = bold ? FontWeight.SemiBold : FontWeight.Normal,
-                    TextAlignment = TextAlignment.Right,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Margin = new Thickness(0, 0, 12, 0),
-                    Foreground = Brush(pick(periods[i]) < 0 ? "#F87171" : "#F8FAFC"),
-                };
-                Grid.SetRow(value, row);
-                Grid.SetColumn(value, i + 1);
-                grid.Children.Add(value);
-            }
-        }
+            ("Balance", [currentBalance, 0, 0], false),
+            ("Profit", Values(p => p.TotalIncome - p.TotalExpenditure), true),
+        };
+        clubEditorPanel.Children.Add(UiKit.FinancialStatementCard.Create("Summary", headers, summaryRows));
 
-        int headerRow = grid.RowDefinitions.Count;
-        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        for (int i = 0; i < columns; i++)
+        // 2. Income Card
+        var incomeRows = new (string Label, IReadOnlyList<long> Values, bool Bold)[]
         {
-            var head = new TextBlock
-            {
-                Text = i == 0 ? "Item" : headers[i - 1],
-                FontSize = 11,
-                FontWeight = FontWeight.Bold,
-                Foreground = Brush("#94A3B8"),
-                Margin = new Thickness(i == 0 ? 8 : 0, 0, i == 0 ? 0 : 12, 4),
-                HorizontalAlignment = i == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right,
-            };
-            Grid.SetRow(head, headerRow);
-            Grid.SetColumn(head, i);
-            grid.Children.Add(head);
-        }
+            ("Gate Receipts", Values(p => p.GateReceipts), false),
+            ("Other", Values(p => p.OtherIncome), false),
+            ("Season Tickets", Values(p => p.SeasonTickets), false),
+            ("Interest", Values(p => p.Interest), false),
+            ("Investments", Values(p => p.Investments), false),
+            ("Merchandising", Values(p => p.Merchandising), false),
+            ("Players Sold", Values(p => p.PlayersSold), false),
+            ("Sponsorship", Values(p => p.Sponsorship), false),
+            ("Match Day Income", Values(p => p.MatchDayIncome), false),
+            ("Grants", Values(p => p.Grants), false),
+            ("Total Income", Values(p => p.TotalIncome), true),
+        };
+        clubEditorPanel.Children.Add(UiKit.FinancialStatementCard.Create("Income", headers, incomeRows));
 
-        Add("Total Income", p => p.TotalIncome, bold: true);
-        Add("Gate Receipts", p => p.GateReceipts);
-        Add("Other", p => p.OtherIncome);
-        Add("Season Tickets", p => p.SeasonTickets);
-        Add("Interest", p => p.Interest);
-        Add("Investments", p => p.Investments);
-        Add("Merchandising", p => p.Merchandising);
-        Add("Players Sold", p => p.PlayersSold);
-        Add("Sponsorship", p => p.Sponsorship);
-        Add("Match Day Income", p => p.MatchDayIncome);
-        Add("Grants", p => p.Grants);
-        Add("Total Expenditure", p => p.TotalExpenditure, bold: true);
-        Add("Other", p => p.Other);
-        Add("Loan Repayments and Interest", p => p.LoanRepayment);
-        Add("League Fines", p => p.LeagueFines);
-        Add("Ground Maintenance", p => p.GroundMaintenance);
-        Add("Player Wages", p => p.PlayerWages);
-        Add("Staff Wages", p => p.StaffWages);
-        Add("Bonuses", p => p.Bonuses);
-        Add("Loyalty Bonuses", p => p.LoyaltyBonuses);
-        Add("Transfer Expenditure", p => p.TransferExpenditure);
-        Add("VAT", p => p.Vat);
-        Add("NI Employer Tax", p => p.NiEmployerTax);
-        Add("Profit", p => p.TotalIncome - p.TotalExpenditure, bold: true);
-
-        clubEditorPanel.Children.Add(grid);
+        // 3. Expenditure Card
+        var expenditureRows = new (string Label, IReadOnlyList<long> Values, bool Bold)[]
+        {
+            ("Other", Values(p => p.Other), false),
+            ("Loan Repayments and Interest", Values(p => p.LoanRepayment), false),
+            ("League Fines", Values(p => p.LeagueFines), false),
+            ("Ground Maintenance", Values(p => p.GroundMaintenance), false),
+            ("Player Wages", Values(p => p.PlayerWages), false),
+            ("Staff Wages", Values(p => p.StaffWages), false),
+            ("Bonuses", Values(p => p.Bonuses), false),
+            ("Loyalty Bonuses", Values(p => p.LoyaltyBonuses), false),
+            ("Transfer Expenditure", Values(p => p.TransferExpenditure), false),
+            ("VAT", Values(p => p.Vat), false),
+            ("NI Employer Tax", Values(p => p.NiEmployerTax), false),
+            ("Total Expenditure", Values(p => p.TotalExpenditure), true),
+        };
+        clubEditorPanel.Children.Add(UiKit.FinancialStatementCard.Create("Expenditure", headers, expenditureRows));
 
         // FMRTE only shows these figures; here a single figure can be written for one period, guarded by a snapshot check.
         var periodOptions = periods.Select(p => new StatementPeriodOption(p.Index, headers.Length > p.Index ? headers[p.Index] : $"Period {p.Index}")).ToArray();
@@ -871,7 +677,7 @@ public sealed partial class MainWindow
             long expected = field.Income ? IncomeValue(period, field.Key) : ExpenditureValue(period, field.Key);
             try
             {
-                backend.Edits.Execute(() => session.FinancialStatements.Set(club.Address, period.Index, field.Income, field.Key, expected, value));
+                backend.Edits.Execute("Club", club.DisplayName, "Finances", () => session.FinancialStatements.Set(club.Address, period.Index, field.Income, field.Key, expected, value));
                 RenderClubEditor();
                 status.Text = "Saved. Continue in FM to see updates.";
             }
@@ -982,7 +788,7 @@ public sealed partial class MainWindow
                 new TextBlock
                 {
                     Text = "Team",
-                    FontSize = 11.5,
+                    FontSize = 13,
                     Foreground = Brush("#CBD5E1"),
                     VerticalAlignment = VerticalAlignment.Center,
                 },
@@ -1046,28 +852,18 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { if (version == clubRenderGeneration && clubsActive) status.Text = UserMessage.For(ex); return; }
             if (version != clubRenderGeneration || !clubsActive || selectedClub?.Address != club.Address || selectedClubSection != listSection) return;
-            if (staffTable.Rows.Count > 0)
+            if (staffMembers.Length > 0)
             {
-                int selected = -1;
-                var open = new Button { Content = "Open Selected", IsEnabled = false };
-                open.Click += (_, _) =>
-                {
-                    if (selected < 0 || selected >= staffMembers.Length) return;
-                    var original = staffMembers[selected];
-                    try
-                    {
-                        var fresh = session.Staff.Reload(original.Address);
-                        if (fresh is null || fresh.Id != original.Id) { status.Text = "Staff member no longer available."; return; }
-                        OpenClubStaff(fresh);
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                clubEditorPanel.Children.Add(BuildClubListTable(staffTable, -1, i => { selected = i; open.IsEnabled = true; }));
-                clubEditorPanel.Children.Add(open);
+                // The same table as a nation's Staff: ticks, header sorting, and Tools that act on the club contract only.
+                var clubScope = new ClubStaffScope(session);
+                var today = session.ReadGameDate();
+                var staffLines = staffMembers.Select(s => new StaffListRow(s,
+                    s.JobCode is { } j ? CareerPlanLabels.Name(CareerPlanLabels.Jobs, j) : "", s.TeamName ?? "", s.Nationality?.DisplayName ?? "",
+                    ClubStaffLabels.Age(s.DateOfBirth, today), s.CurrentAbility, s.PotentialAbility, clubScope.ExpiryText(s))).ToList();
+                clubEditorPanel.Children.Add(new StackPanel { Margin = new Thickness(12, 0, 0, 0), Children = { BuildStaffTable(staffLines, clubScope, RenderClubEditor) } });
             }
             return;
-        }
-        var provider = GameSessionClubListProvider.Default;
+        }        var provider = GameSessionClubListProvider.Default;
         var playerRecords = rows.OfType<PlayerRecord>().ToArray();
         ClubListTableModel table;
         IReadOnlyList<ClubTransferOffer>? transferOffers = null;
@@ -1098,9 +894,6 @@ public sealed partial class MainWindow
         if (!table.HasReader)
             return;
 
-        if (orderedTeams.Count > 1 && table.UsesTeamRoot)
-            clubEditorPanel.Children.Add(BuildClubTeamSelector(club, orderedTeams, teamAddr));
-
         if (table.Rows.Count == 0)
             return;
 
@@ -1124,86 +917,193 @@ public sealed partial class MainWindow
         clubEditorPanel.Children.Add(detailHost);
     }
 
+    /// <summary>
+    /// Names for the competition items of Club Vision. The item number is the competition's <c>Index</c>, not its <c>Id</c>:
+    /// FMRTE shows index 637 as UEFA Champions League (id 1301394), 51 as LALIGA EA SPORTS (id 67) and 658 as the Spanish cup.
+    /// </summary>
+    internal static Dictionary<int, string> VisionCompetitionNames(IEnumerable<Fm27Editor.Core.Competitions.CompetitionRecord> competitions) =>
+        competitions.Where(c => !string.IsNullOrEmpty(c.DisplayName)).GroupBy(c => c.Index).ToDictionary(g => g.Key, g => g.First().DisplayName);
+
     void RenderClubVision(GameSession session, ClubEntry club, IReadOnlyList<TeamEntry> orderedTeams, ulong teamAddr)
     {
         IReadOnlyList<ClubVisionEntry> entries;
-        try { entries = session.ReadClubVision(teamAddr, loadedClubs); }
+        try
+        {
+            // An item index means a competition's index, a nation's position, a continent's position or a club, by its marker.
+            visionCompetitionNames ??= VisionCompetitionNames(session.Competitions.LoadAll());
+            var nationList = session.Nations.LoadAll();
+            visionNationNames ??= nationList.Select((n, i) => (i, n.DisplayName)).ToDictionary(x => x.i, x => x.DisplayName);
+            visionContinentNames ??= session.NationLinks.Continents(nationList).Select((c, i) => (i, c.Name)).ToDictionary(x => x.i, x => x.Name);
+            entries = session.ReadClubVision(teamAddr, loadedClubs, visionCompetitionNames, visionNationNames, visionContinentNames);
+        }
         catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
-        if (orderedTeams.Count > 1) clubEditorPanel.Children.Add(BuildClubTeamSelector(club, orderedTeams, teamAddr));
         if (entries.Count == 0) return;
-        var table = ClubListBuilder.BuildVision(entries.Select(r => new ClubVisionRow(
-            r.TypeCode, r.Importance, r.StartDate, r.EndDate, r.ClubItem?.DisplayName, r.ItemIndex)), usesTeamRoot: true);
+
+        if (!clubVisionDrafts.TryGetValue(teamAddr, out var drafts))
+            clubVisionDrafts[teamAddr] = drafts = [];
+
+        var rows = entries.Select(r =>
+        {
+            var d = drafts.GetValueOrDefault(r.Address);
+            byte typeCode = d?.TypeCode ?? r.TypeCode;
+            int importance = d?.Importance ?? r.Importance;
+            DateOnly? start = d?.Dates is { } dt ? dt.Start : r.StartDate;
+            DateOnly? end = d?.Dates is { } dtEnd ? dtEnd.End : r.EndDate;
+            int? source = d?.SourceType ?? r.SourceType;
+            return new ClubVisionRow(
+                typeCode, (byte)importance, start, end, r.ItemName ?? r.ClubItem?.DisplayName, r.ItemIndex,
+                TypeName: ClubVisionTypes.DisplayName(typeCode),
+                Target: r.Target,
+                SourceType: source,
+                ForCompetition: r.ItemKind == ClubVisionItemKind.Competition);
+        });
+
+        var table = ClubListBuilder.BuildVision(rows, usesTeamRoot: true);
         var key = (club.Address, ClubSection.ClubVision);
         int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, entries.Count - 1) : 0;
         clubListSelectedRow[key] = selected;
+
+        Button? saveBtn = null, discardBtn = null;
+        void UpdateSaveState()
+        {
+            bool dirty = drafts.Values.Any(d => d.HasChanges);
+            if (saveBtn is not null) saveBtn.IsEnabled = dirty;
+            if (discardBtn is not null) discardBtn.IsEnabled = dirty;
+        }
+
         Control Detail(int index)
         {
-            var panel = new StackPanel { Spacing = 8 };
-            if (BuildClubListDetailCard(table.Rows[index]) is { } existing) panel.Children.Add(existing);
-            var box = new TextBox { Text = entries[index].Importance.ToString(Inv), Width = 100, HorizontalContentAlignment = HorizontalAlignment.Right };
-            var apply = new Button { Content = "Apply" };
-            apply.Click += (_, _) =>
+            var entry = entries[index];
+            var d = drafts.GetValueOrDefault(entry.Address);
+            var panel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8) };
+
+            int curImportance = d?.Importance ?? entry.Importance;
+            var box = new TextBox { Text = curImportance.ToString(Inv), Width = 100, HorizontalContentAlignment = HorizontalAlignment.Right };
+            box.TextChanged += (_, _) =>
             {
-                if (!int.TryParse(box.Text, out int value)) { status.Text = "Enter a whole number for importance."; return; }
-                try
+                if (int.TryParse(box.Text, out int v))
                 {
-                    backend.Edits.Execute(() => session.SetClubVisionImportance(teamAddr, entries[index], value));
-                    RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.Importance = (v == entry.Importance) ? null : v;
+                    UpdateSaveState();
                 }
-                catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Importance", VerticalAlignment = VerticalAlignment.Center }, box, apply
-            } });
-            var typeBox = new TextBox { Text = entries[index].TypeCode.ToString(Inv), Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right };
-            var applyType = new Button { Content = "Apply" };
-            applyType.Click += (_, _) =>
-            {
-                if (!byte.TryParse(typeBox.Text, out byte code)) { status.Text = "Enter a whole number for the type code."; return; }
-                try
-                {
-                    backend.Edits.Execute(() => session.ClubVisionWriter.SetType(teamAddr, entries[index], code));
-                    RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
-                }
-                catch (Exception ex) { status.Text = UserMessage.For(ex); }
-            };
-            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
-            {
-                new TextBlock { Text = "Type code", VerticalAlignment = VerticalAlignment.Center }, typeBox, applyType
+                new TextBlock { Text = "Importance", Width = 90, VerticalAlignment = VerticalAlignment.Center }, box
             } });
 
-            var startBox = new TextBox { Text = entries[index].StartDate?.ToString("yyyy-MM-dd", Inv) ?? "", Width = 110 };
-            var endBox = new TextBox { Text = entries[index].EndDate?.ToString("yyyy-MM-dd", Inv) ?? "", Width = 110 };
-            var applyDates = new Button { Content = "Apply" };
-            applyDates.Click += (_, _) =>
+            var types = ClubVisionTypes.All.Select(kv => (Code: kv.Key, Name: kv.Value)).ToList();
+            byte curTypeCode = d?.TypeCode ?? entry.TypeCode;
+            if (!ClubVisionTypes.All.ContainsKey(curTypeCode))
+                types.Insert(0, (curTypeCode, ClubVisionTypes.DisplayName(curTypeCode)));
+            var typeCombo = new ComboBox
             {
-                if (!DateOnly.TryParseExact(startBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var start)
-                    || !DateOnly.TryParseExact(endBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var end))
-                { status.Text = "Enter dates as yyyy-MM-dd."; return; }
-                try
-                {
-                    backend.Edits.Execute(() => session.ClubVisionWriter.SetDates(teamAddr, entries[index], start, end));
-                    RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
-                }
-                catch (Exception ex) { status.Text = UserMessage.For(ex); }
+                Width = 380,
+                ItemsSource = types.Select(t => t.Name).ToArray(),
+                SelectedIndex = types.FindIndex(t => t.Code == curTypeCode),
             };
+            typeCombo.SelectionChanged += (_, _) =>
+            {
+                if (typeCombo.SelectedIndex >= 0 && typeCombo.SelectedIndex < types.Count)
+                {
+                    byte code = types[typeCombo.SelectedIndex].Code;
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.TypeCode = (code == entry.TypeCode) ? null : code;
+                    UpdateSaveState();
+                }
+            };
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+            {
+                new TextBlock { Text = "Objective", Width = 90, VerticalAlignment = VerticalAlignment.Center }, typeCombo
+            } });
+
+            var sourceOptions = new (int Code, string Name)[]
+            {
+                (1, "Board"),
+                (entry.SourceType is { } st && st != 1 ? st : 0, entry.SourceType is { } unknown && unknown != 1 ? $"Unknown ({unknown})" : "Unknown")
+            };
+            int curSource = d?.SourceType ?? entry.SourceType ?? 1;
+            var sourceCombo = new ComboBox
+            {
+                Width = 140,
+                ItemsSource = sourceOptions.Select(o => o.Name).ToArray(),
+                SelectedIndex = curSource == 1 ? 0 : 1,
+            };
+            sourceCombo.SelectionChanged += (_, _) =>
+            {
+                if (sourceCombo.SelectedIndex >= 0)
+                {
+                    int code = sourceOptions[sourceCombo.SelectedIndex].Code;
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.SourceType = (code == (entry.SourceType ?? 1)) ? null : code;
+                    UpdateSaveState();
+                }
+            };
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+            {
+                new TextBlock { Text = "Source", Width = 90, VerticalAlignment = VerticalAlignment.Center }, sourceCombo
+            } });
+
+            DateOnly curStart = d?.Dates is { } dtStart ? dtStart.Start : (entry.StartDate ?? new DateOnly(2026, 7, 1));
+            DateOnly curEnd = d?.Dates is { } dtEnd ? dtEnd.End : (entry.EndDate ?? new DateOnly(2027, 6, 30));
+            var startBox = new DateBox { Text = DateSetting.Format(curStart), Width = 130 };
+            var endBox = new DateBox { Text = DateSetting.Format(curEnd), Width = 130 };
+            void OnDatesChanged()
+            {
+                if (DateSetting.TryParse(startBox.Text, out var s)
+                    && DateSetting.TryParse(endBox.Text, out var e))
+                {
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.Dates = (s == entry.StartDate && e == entry.EndDate) ? null : (s, e);
+                    UpdateSaveState();
+                }
+            }
+            startBox.TextChanged += (_, _) => OnDatesChanged();
+            endBox.TextChanged += (_, _) => OnDatesChanged();
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
                 new TextBlock { Text = "Start", VerticalAlignment = VerticalAlignment.Center }, startBox,
-                new TextBlock { Text = "End", VerticalAlignment = VerticalAlignment.Center }, endBox, applyDates
+                new TextBlock { Text = "End", VerticalAlignment = VerticalAlignment.Center }, endBox
             } });
+
+            saveBtn = new Button { IsVisible = false, Content = "Save changes", Classes = { "accent" }, IsEnabled = drafts.Values.Any(r => r.HasChanges) };
+            discardBtn = new Button { Content = "Discard", IsEnabled = drafts.Values.Any(r => r.HasChanges) };
+            saveBtn.Click += (_, _) =>
+            {
+                var actions = new List<Action>();
+                foreach (var (addr, rowDraft) in drafts)
+                {
+                    var ent = entries.FirstOrDefault(e => e.Address == addr);
+                    if (ent is null || !rowDraft.HasChanges) continue;
+                    if (rowDraft.Importance is { } imp) actions.Add(() => session.ClubVisionWriter.SetImportance(teamAddr, ent, imp));
+                    if (rowDraft.TypeCode is { } tc) actions.Add(() => session.ClubVisionWriter.SetType(teamAddr, ent, tc));
+                    if (rowDraft.SourceType is { } st) actions.Add(() => session.ClubVisionWriter.SetSourceType(teamAddr, ent, st));
+                    if (rowDraft.Dates is { } dt) actions.Add(() => session.ClubVisionWriter.SetDates(teamAddr, ent, dt.Start, dt.End));
+                }
+                try
+                {
+                    backend.Edits.Execute("Club", club.DisplayName, "Vision", () => { foreach (var act in actions) act(); });
+                    drafts.Clear();
+                    RenderClubEditor();
+                    status.Text = "Saved club vision. Continue in FM to see updates.";
+                }
+                catch (Exception ex) { status.Text = UserMessage.For(ex); }
+            };
+            discardBtn.Click += (_, _) =>
+            {
+                drafts.Clear();
+                RenderClubEditor();
+            };
 
             var duplicate = new Button { Content = "Duplicate row" };
             duplicate.Click += (_, _) =>
             {
                 try
                 {
-                    backend.Edits.Execute(() => session.ClubVisionWriter.Duplicate(teamAddr, entries[index],
-                        (session.Memory as Fm27Editor.Core.Memory.WindowsProcessMemory) is { } wpm ? wpm.Allocate : null));
+                    Func<int, ulong>? allocator = session.Memory is Fm27Editor.Core.Memory.WindowsProcessMemory wpm ? wpm.Allocate : null;
+                    backend.Edits.Execute("Club", club.DisplayName, "Vision: Duplicate", () => session.ClubVisionWriter.Duplicate(teamAddr, entry, allocator));
+                    drafts.Clear();
                     RenderClubEditor();
                     status.Text = "Row added. Continue in FM to see updates.";
                 }
@@ -1214,18 +1114,96 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    backend.Edits.Execute(() => session.ClubVisionWriter.Remove(teamAddr, entries[index]));
+                    backend.Edits.Execute("Club", club.DisplayName, "Vision: Remove", () => session.ClubVisionWriter.Remove(teamAddr, entry));
+                    drafts.Clear();
                     RenderClubEditor();
                     status.Text = "Removed. Continue in FM to see updates.";
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
-            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { duplicate, remove } });
+            var addBtn = new Button { Content = "Add objective" };
+            addBtn.Click += async (_, _) =>
+            {
+                await ShowAddClubVisionObjectiveDialogAsync(session, teamAddr, entries[0]);
+            };
+
+            var buttonsBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 4, 0, 0), Children = { saveBtn, discardBtn, duplicate, remove, addBtn } };
+            panel.Children.Add(buttonsBar);
             return panel;
         }
+
         var detail = new Border { Child = Detail(selected) };
         clubEditorPanel.Children.Add(BuildClubListTable(table, selected, index => { clubListSelectedRow[key] = index; detail.Child = Detail(index); }));
         clubEditorPanel.Children.Add(detail);
+    }
+
+    async Task ShowAddClubVisionObjectiveDialogAsync(GameSession session, ulong teamAddr, ClubVisionEntry template)
+    {
+        var types = ClubVisionTypes.All.Select(kv => (Code: kv.Key, Name: kv.Value)).ToList();
+        var typeCombo = new ComboBox { ItemsSource = types.Select(t => t.Name).ToArray(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var importanceBox = new TextBox { Text = "5", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var targetBox = new TextBox { Text = "0", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var startBox = new DateBox { Text = DateSetting.Format(new DateOnly(DateTime.UtcNow.Year, 7, 1)), Width = 130 };
+        var endBox = new DateBox { Text = DateSetting.Format(new DateOnly(DateTime.UtcNow.Year + 1, 6, 30)), Width = 130 };
+
+        var dialog = new Window
+        {
+            Title = "Add Club Vision Objective",
+            Width = 480,
+            Height = 310,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Brush("#0D0F17"),
+        };
+
+        var form = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*"), RowSpacing = 10, ColumnSpacing = 12, Margin = new Thickness(16) };
+        void AddRow(string label, Control field, int row)
+        {
+            form.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            var l = new TextBlock { Text = label, Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetRow(l, row); Grid.SetColumn(l, 0);
+            Grid.SetRow(field, row); Grid.SetColumn(field, 1);
+            form.Children.Add(l); form.Children.Add(field);
+        }
+
+        AddRow("Objective", typeCombo, 0);
+        AddRow("Importance", importanceBox, 1);
+        AddRow("Target", targetBox, 2);
+        AddRow("Start Date", startBox, 3);
+        AddRow("End Date", endBox, 4);
+
+        var createBtn = new Button { Content = "Create objective", Classes = { "accent" } };
+        var cancelBtn = new Button { Content = "Cancel" };
+        cancelBtn.Click += (_, _) => dialog.Close();
+
+        createBtn.Click += (_, _) =>
+        {
+            if (typeCombo.SelectedIndex < 0 || typeCombo.SelectedIndex >= types.Count) return;
+            byte typeCode = types[typeCombo.SelectedIndex].Code;
+            if (!byte.TryParse(importanceBox.Text, out byte imp)) { status.Text = "Importance must be a whole number."; return; }
+            if (!int.TryParse(targetBox.Text, out int tgt)) { status.Text = "Target must be a whole number."; return; }
+            if (!DateSetting.TryParse(startBox.Text, out var start)
+                || !DateSetting.TryParse(endBox.Text, out var end))
+            { status.Text = $"Dates must be in {DateSetting.Hint} format."; return; }
+
+            try
+            {
+                Func<int, ulong>? allocator = session.Memory is Fm27Editor.Core.Memory.WindowsProcessMemory wpm ? wpm.Allocate : null;
+                backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Vision: Add", () => session.ClubVisionWriter.Create(teamAddr, template, typeCode, imp, tgt, start, end, allocator));
+                RenderClubEditor();
+                status.Text = "Objective added. Continue in FM to see updates.";
+                dialog.Close();
+            }
+            catch (Exception ex) { status.Text = UserMessage.For(ex); }
+        };
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0), Children = { createBtn, cancelBtn } };
+        form.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        Grid.SetRow(actions, 5); Grid.SetColumnSpan(actions, 2);
+        form.Children.Add(actions);
+
+        dialog.Content = form;
+        await dialog.ShowDialog(this);
     }
 
     void RenderClubAffiliations(GameSession session, ClubEntry club)
@@ -1234,198 +1212,269 @@ public sealed partial class MainWindow
         try { entries = session.ReadAffiliations(club.Address); }
         catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
         if (entries.Count == 0) return;
-        var table = ClubListBuilder.BuildAffiliations(entries.Select(r => new ClubAffiliationRow(
-            r.ParentClub?.DisplayName, r.FeederClub?.DisplayName, r.TypeCode, r.StartDate,
-            r.ParentClub?.Id, r.FeederClub?.Id, EndDate: r.EndDate, AnnualFee: r.AnnualFee)));
+
+        if (!clubAffiliationDrafts.TryGetValue(club.Address, out var drafts))
+            clubAffiliationDrafts[club.Address] = drafts = [];
+
+        var rows = entries.Select(r =>
+        {
+            var d = drafts.GetValueOrDefault(r.Address);
+            DateOnly? start = d?.StartDate ?? r.StartDate;
+            DateOnly? end = d?.EndDate ?? r.EndDate;
+            int? fee = d?.AnnualFee ?? r.AnnualFee;
+            return new ClubAffiliationRow(
+                r.ParentClub?.DisplayName, r.FeederClub?.DisplayName, r.TypeCode, start,
+                r.ParentClub?.Id, r.FeederClub?.Id, EndDate: end, AnnualFee: fee);
+        });
+        var table = ClubListBuilder.BuildAffiliations(rows);
         var key = (club.Address, ClubSection.Affiliations);
         int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, entries.Count - 1) : 0;
         clubListSelectedRow[key] = selected;
+
+        Button? saveBtn = null, discardBtn = null;
+        void UpdateSaveState()
+        {
+            bool dirty = drafts.Values.Any(d => d.HasChanges) || pendingAffiliationRemovals.ContainsKey(club.Address);
+            if (saveBtn is not null) saveBtn.IsEnabled = dirty;
+            if (discardBtn is not null) discardBtn.IsEnabled = dirty;
+        }
+
         Control Detail(int index)
         {
-            var panel = new StackPanel { Spacing = 8 };
-            if (BuildClubListDetailCard(table.Rows[index]) is { } existing) panel.Children.Add(existing);
-            bool removing = pendingAffiliationRemovals.TryGetValue(club.Address, out var removal) && removal.Address == entries[index].Address;
-            var remove = new Button { Content = removing ? "Undo Remove" : "Remove", IsEnabled = removing || !pendingAffiliationRemovals.ContainsKey(club.Address) };
-            remove.Click += (_, _) =>
+            if (index < 0 || index >= entries.Count) return new Panel();
+            var entry = entries[index];
+            var d = drafts.GetValueOrDefault(entry.Address);
+            var panel = new StackPanel { Spacing = 10, Margin = new Thickness(0, 10) };
+
+            // 1. Checkboxes
+            var checkBoxes = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 16, LineSpacing = 8 };
+            if (entry.ScoutingShared is not null)
+            {
+                bool cur = d?.ScoutingShared ?? entry.ScoutingShared.Value;
+                var cb = new CheckBox { Content = "Scouting Knowledge Shared", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                cb.IsCheckedChanged += (_, _) =>
+                {
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.ScoutingShared = (cb.IsChecked == entry.ScoutingShared) ? null : cb.IsChecked;
+                    UpdateSaveState();
+                };
+                checkBoxes.Children.Add(cb);
+            }
+            if (entry.PlayersOnLoan is not null)
+            {
+                bool cur = d?.PlayersOnLoan ?? entry.PlayersOnLoan.Value;
+                var cb = new CheckBox { Content = "Players Go On Loan", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                cb.IsCheckedChanged += (_, _) =>
+                {
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.PlayersOnLoan = (cb.IsChecked == entry.PlayersOnLoan) ? null : cb.IsChecked;
+                    UpdateSaveState();
+                };
+                checkBoxes.Children.Add(cb);
+            }
+            if (entry.FirstOption is not null)
+            {
+                bool cur = d?.FirstOption ?? entry.FirstOption.Value;
+                var cb = new CheckBox { Content = "First Option To Buy", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                cb.IsCheckedChanged += (_, _) =>
+                {
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.FirstOption = (cb.IsChecked == entry.FirstOption) ? null : cb.IsChecked;
+                    UpdateSaveState();
+                };
+                checkBoxes.Children.Add(cb);
+            }
+            if (entry.PlayFriendlies is not null)
+            {
+                bool cur = d?.PlayFriendlies ?? entry.PlayFriendlies.Value;
+                var cb = new CheckBox { Content = "Play Friendlies", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                cb.IsCheckedChanged += (_, _) =>
+                {
+                    if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                    rowDraft.PlayFriendlies = (cb.IsChecked == entry.PlayFriendlies) ? null : cb.IsChecked;
+                    UpdateSaveState();
+                };
+                checkBoxes.Children.Add(cb);
+            }
+            if (checkBoxes.Children.Count > 0) panel.Children.Add(checkBoxes);
+
+            // 2. Numeric and Date inputs
+            var inputRow = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 16, LineSpacing = 8 };
+            if (entry.ParentWagePercent is not null)
+            {
+                int cur = d?.ParentWagePercent ?? entry.ParentWagePercent.Value;
+                var box = new TextBox { Text = cur.ToString(Inv), Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+                box.TextChanged += (_, _) =>
+                {
+                    if (int.TryParse(box.Text, out int v))
+                    {
+                        if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                        rowDraft.ParentWagePercent = (v == entry.ParentWagePercent) ? null : v;
+                        UpdateSaveState();
+                    }
+                };
+                inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                {
+                    new TextBlock { Text = "% Loan Wage Paid By Parent", VerticalAlignment = VerticalAlignment.Center }, box
+                } });
+            }
+            if (entry.FriendlyChance is not null)
+            {
+                int cur = d?.FriendlyChance ?? entry.FriendlyChance.Value;
+                var box = new TextBox { Text = cur.ToString(Inv), Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+                box.TextChanged += (_, _) =>
+                {
+                    if (int.TryParse(box.Text, out int v))
+                    {
+                        if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                        rowDraft.FriendlyChance = (v == entry.FriendlyChance) ? null : v;
+                        UpdateSaveState();
+                    }
+                };
+                inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                {
+                    new TextBlock { Text = "% Chance Of Friendly", VerticalAlignment = VerticalAlignment.Center }, box
+                } });
+            }
+            if (session.Profile.Club?.Lists?.AffiliationStartEditable == true && entry.StartDate is not null)
+            {
+                DateOnly cur = d?.StartDate ?? entry.StartDate.Value;
+                var box = new DateBox { Text = DateSetting.Format(cur), Width = 130 };
+                box.TextChanged += (_, _) =>
+                {
+                    if (DateSetting.TryParse(box.Text, out var v))
+                    {
+                        if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                        rowDraft.StartDate = (v == entry.StartDate) ? null : v;
+                        UpdateSaveState();
+                    }
+                };
+                inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                {
+                    new TextBlock { Text = "Start Date", VerticalAlignment = VerticalAlignment.Center }, box
+                } });
+            }
+            if (entry.EndDate is not null)
+            {
+                DateOnly cur = d?.EndDate ?? entry.EndDate.Value;
+                var box = new DateBox { Text = DateSetting.Format(cur), Width = 130 };
+                box.TextChanged += (_, _) =>
+                {
+                    if (DateSetting.TryParse(box.Text, out var v))
+                    {
+                        if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                        rowDraft.EndDate = (v == entry.EndDate) ? null : v;
+                        UpdateSaveState();
+                    }
+                };
+                inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                {
+                    new TextBlock { Text = "End Date", VerticalAlignment = VerticalAlignment.Center }, box
+                } });
+            }
+            if (entry.AnnualFee is not null)
+            {
+                int cur = d?.AnnualFee ?? entry.AnnualFee.Value;
+                var box = new TextBox { Text = cur.ToString(Inv), Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
+                box.TextChanged += (_, _) =>
+                {
+                    if (int.TryParse(box.Text, out int v))
+                    {
+                        if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
+                        rowDraft.AnnualFee = (v == entry.AnnualFee) ? null : v;
+                        UpdateSaveState();
+                    }
+                };
+                inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                {
+                    new TextBlock { Text = "Annual Fee", VerticalAlignment = VerticalAlignment.Center }, box
+                } });
+            }
+            if (inputRow.Children.Count > 0) panel.Children.Add(inputRow);
+
+            // 3. Actions: Save changes, Discard, Remove
+            bool isDirty = drafts.Values.Any(r => r.HasChanges) || pendingAffiliationRemovals.ContainsKey(club.Address);
+            saveBtn = new Button { IsVisible = false, Content = "Save changes", Classes = { "accent" }, IsEnabled = isDirty };
+            discardBtn = new Button { Content = "Discard", IsEnabled = isDirty };
+
+            bool removing = pendingAffiliationRemovals.TryGetValue(club.Address, out var removal) && removal.Address == entry.Address;
+            var removeBtn = new Button { Content = removing ? "Undo Remove" : "Remove", IsEnabled = removing || !pendingAffiliationRemovals.ContainsKey(club.Address) };
+
+            saveBtn.Click += (_, _) =>
+            {
+                var actions = new List<Action>();
+                foreach (var (addr, rowDraft) in drafts)
+                {
+                    var ent = entries.FirstOrDefault(e => e.Address == addr);
+                    if (ent is null || !rowDraft.HasChanges) continue;
+                    if (rowDraft.ScoutingShared is { } sc) actions.Add(() => session.SetAffiliationScoutingShared(club.Address, ent, sc));
+                    if (rowDraft.PlayersOnLoan is { } ln) actions.Add(() => session.SetAffiliationPlayersOnLoan(club.Address, ent, ln));
+                    if (rowDraft.FirstOption is { } fo) actions.Add(() => session.SetAffiliationFirstOption(club.Address, ent, fo));
+                    if (rowDraft.PlayFriendlies is { } pf) actions.Add(() => session.SetAffiliationPlayFriendlies(club.Address, ent, pf));
+                    if (rowDraft.ParentWagePercent is { } wp) actions.Add(() => session.SetAffiliationParentWagePercent(club.Address, ent, wp));
+                    if (rowDraft.FriendlyChance is { } fc) actions.Add(() => session.SetAffiliationFriendlyChance(club.Address, ent, fc));
+                    if (rowDraft.StartDate is { } sd) actions.Add(() => session.SetAffiliationStartDate(club.Address, ent, sd));
+                    if (rowDraft.EndDate is { } ed) actions.Add(() => session.SetAffiliationEndDate(club.Address, ent, ed));
+                    if (rowDraft.AnnualFee is { } af) actions.Add(() => session.SetAffiliationAnnualFee(club.Address, ent, af));
+                }
+                if (pendingAffiliationRemovals.TryGetValue(club.Address, out var affRemoval))
+                {
+                    actions.Add(() => new ClubAffiliationWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, affRemoval));
+                }
+                if (actions.Count > 0)
+                {
+                    try
+                    {
+                        backend.Edits.Execute("Club", club.DisplayName, "Affiliations", () => { foreach (var act in actions) act(); });
+                        drafts.Clear();
+                        pendingAffiliationRemovals.Remove(club.Address);
+                        RenderClubEditor();
+                        status.Text = "Saved affiliation changes. Continue in FM to see updates.";
+                    }
+                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
+                }
+            };
+
+            discardBtn.Click += (_, _) =>
+            {
+                drafts.Clear();
+                pendingAffiliationRemovals.Remove(club.Address);
+                RenderClubEditor();
+                status.Text = "Changes discarded";
+            };
+
+            removeBtn.Click += (_, _) =>
             {
                 if (removing) pendingAffiliationRemovals.Remove(club.Address);
-                else pendingAffiliationRemovals[club.Address] = entries[index];
-                RenderClubEditor();
+                else pendingAffiliationRemovals[club.Address] = entry;
+                UpdateSaveState();
+                removeBtn.Content = pendingAffiliationRemovals.ContainsKey(club.Address) ? "Undo Remove" : "Remove";
             };
-            panel.Children.Add(remove);
-            if (entries[index].ScoutingShared is { } scoutingShared)
+
+            panel.Children.Add(new StackPanel
             {
-                var scoutingBox = new CheckBox { Content = "Scouting Knowledge Shared", IsChecked = scoutingShared, VerticalAlignment = VerticalAlignment.Center };
-                var applyScouting = new Button { Content = "Apply" };
-                applyScouting.Click += (_, _) =>
-                {
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationScoutingShared(club.Address, entries[index], scoutingBox.IsChecked == true));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { scoutingBox, applyScouting } });
-            }
-            if (entries[index].PlayersOnLoan is { } playersOnLoan)
-            {
-                var loanBox = new CheckBox { Content = "Players Go On Loan", IsChecked = playersOnLoan, VerticalAlignment = VerticalAlignment.Center };
-                var applyLoan = new Button { Content = "Apply" };
-                applyLoan.Click += (_, _) =>
-                {
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationPlayersOnLoan(club.Address, entries[index], loanBox.IsChecked == true));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { loanBox, applyLoan } });
-            }
-            if (entries[index].FirstOption is { } firstOption)
-            {
-                var firstOptionBox = new CheckBox { Content = "First Option To Buy", IsChecked = firstOption, VerticalAlignment = VerticalAlignment.Center };
-                var applyOption = new Button { Content = "Apply" };
-                applyOption.Click += (_, _) =>
-                {
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationFirstOption(club.Address, entries[index], firstOptionBox.IsChecked == true));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { firstOptionBox, applyOption } });
-            }
-            if (entries[index].PlayFriendlies is { } playFriendlies)
-            {
-                var box = new CheckBox { Content = "Play Friendlies", IsChecked = playFriendlies, VerticalAlignment = VerticalAlignment.Center };
-                var applyFriendlies = new Button { Content = "Apply" };
-                applyFriendlies.Click += (_, _) =>
-                {
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationPlayFriendlies(club.Address, entries[index], box.IsChecked == true));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { box, applyFriendlies } });
-            }
-            if (entries[index].ParentWagePercent is { } wage)
-            {
-                var wageBox = new TextBox { Text = wage.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
-                var applyWage = new Button { Content = "Apply" };
-                applyWage.Click += (_, _) =>
-                {
-                    if (!int.TryParse(wageBox.Text, out int value)) { status.Text = "Enter a whole number for parent wage percentage."; return; }
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationParentWagePercent(club.Address, entries[index], value));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
-                {
-                    new TextBlock { Text = "% Loan Wage Paid By Parent", VerticalAlignment = VerticalAlignment.Center }, wageBox, applyWage
-                } });
-            }
-            if (entries[index].FriendlyChance is { } chance)
-            {
-                var chanceBox = new TextBox { Text = chance.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
-                var applyChance = new Button { Content = "Apply" };
-                applyChance.Click += (_, _) =>
-                {
-                    if (!int.TryParse(chanceBox.Text, out int value)) { status.Text = "Enter a whole number for chance of friendly."; return; }
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationFriendlyChance(club.Address, entries[index], value));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
-                {
-                    new TextBlock { Text = "% Chance Of Friendly", VerticalAlignment = VerticalAlignment.Center }, chanceBox, applyChance
-                } });
-            }
-            if (session.Profile.Club?.Lists?.AffiliationStartEditable == true && entries[index].StartDate is { } start)
-            {
-                var startBox = new TextBox { Text = start.ToString("yyyy-MM-dd", Inv), Width = 130 };
-                var applyStart = new Button { Content = "Apply" };
-                applyStart.Click += (_, _) =>
-                {
-                    if (!DateOnly.TryParseExact(startBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var value))
-                    { status.Text = "Enter date as yyyy-MM-dd."; return; }
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationStartDate(club.Address, entries[index], value));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
-                {
-                    new TextBlock { Text = "Start Date", VerticalAlignment = VerticalAlignment.Center }, startBox, applyStart
-                } });
-            }
-            if (entries[index].EndDate is { } end)
-            {
-                var endBox = new TextBox { Text = end.ToString("yyyy-MM-dd", Inv), Width = 130 };
-                var applyEnd = new Button { Content = "Apply" };
-                applyEnd.Click += (_, _) =>
-                {
-                    if (!DateOnly.TryParseExact(endBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var value))
-                    { status.Text = "Enter date as yyyy-MM-dd."; return; }
-                    try
-                    {
-                        backend.Edits.Execute(() => session.SetAffiliationEndDate(club.Address, entries[index], value));
-                        RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
-                    }
-                    catch (Exception ex) { status.Text = UserMessage.For(ex); }
-                };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
-                {
-                    new TextBlock { Text = "End Date", VerticalAlignment = VerticalAlignment.Center }, endBox, applyEnd
-                } });
-            }
-            if (entries[index].AnnualFee is not { } fee) return panel;
-            var feeBox = new TextBox { Text = fee.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
-            var apply = new Button { Content = "Apply" };
-            apply.Click += (_, _) =>
-            {
-                if (!int.TryParse(feeBox.Text, out int value)) { status.Text = "Enter a whole number for annual fee."; return; }
-                try
-                {
-                    backend.Edits.Execute(() => session.SetAffiliationAnnualFee(club.Address, entries[index], value));
-                    RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
-                }
-                catch (Exception ex) { status.Text = UserMessage.For(ex); }
-            };
-            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
-            {
-                new TextBlock { Text = "Annual Fee", VerticalAlignment = VerticalAlignment.Center }, feeBox, apply
-            } });
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Margin = new Thickness(0, 4, 0, 0),
+                Children = { saveBtn, discardBtn, removeBtn }
+            });
+
             return panel;
         }
         var detail = new Border { Child = Detail(selected) };
-        clubEditorPanel.Children.Add(BuildClubListTable(table, selected, index =>
+        clubEditorPanel.Children.Add(new StackPanel
         {
-            clubListSelectedRow[key] = index;
-            detail.Child = Detail(index);
-        }));
-        clubEditorPanel.Children.Add(detail);
+            Margin = new Thickness(12, 0, 0, 0),
+            Children =
+            {
+                BuildClubListTable(table, selected, index =>
+                {
+                    clubListSelectedRow[key] = index;
+                    detail.Child = Detail(index);
+                }),
+                detail,
+            },
+        });
     }
 
     sealed record SponsorIncomeOption(byte Code, string Label)
@@ -1443,8 +1492,8 @@ public sealed partial class MainWindow
 
         var addBar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 6 };
         var newTotal = new TextBox { Text = "1000000", Width = 112, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var newStart = new TextBox { Text = "2026-07-01", Width = 104 };
-        var newEnd = new TextBox { Text = "2027-06-30", Width = 104 };
+        var newStart = new DateBox { Text = "2026-07-01", Width = 130 };
+        var newEnd = new DateBox { Text = "2027-06-30", Width = 130 };
         var newType = new ComboBox
         {
             Width = 196,
@@ -1459,12 +1508,12 @@ public sealed partial class MainWindow
         {
             if (newType.SelectedItem is not SponsorIncomeOption chosen) { status.Text = "Choose an income type."; return; }
             if (!int.TryParse(newTotal.Text, out int value)) { status.Text = "Enter a whole number for the sponsor value."; return; }
-            if (!DateOnly.TryParseExact(newStart.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var start)
-                || !DateOnly.TryParseExact(newEnd.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var end))
-            { status.Text = "Enter dates as yyyy-MM-dd."; return; }
+            if (!DateSetting.TryParse(newStart.Text, out var start)
+                || !DateSetting.TryParse(newEnd.Text, out var end))
+            { status.Text = $"Enter dates as {DateSetting.Hint}."; return; }
             try
             {
-                backend.Edits.Execute(() => session.SponsorWriter.Add(club.Address, chosen.Code, value, start, end));
+                backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Add", () => session.SponsorWriter.Add(club.Address, chosen.Code, value, start, end));
                 RenderClubEditor();
                 status.Text = "Sponsor added. Continue in FM to see updates.";
             }
@@ -1478,7 +1527,7 @@ public sealed partial class MainWindow
             try
             {
                 var entry = sponsors[index];
-                backend.Edits.Execute(() => session.SponsorWriter.Remove(club.Address, entry));
+                backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Remove", () => session.SponsorWriter.Remove(club.Address, entry));
                 RenderClubEditor();
                 status.Text = "Sponsor removed. Continue in FM to see updates.";
             }
@@ -1516,7 +1565,7 @@ public sealed partial class MainWindow
                     if (income.SelectedItem is not SponsorIncomeOption chosen) return;
                     try
                     {
-                        backend.Edits.Execute(() => session.SetSponsorIncomeType(club.Address, sponsor, chosen.Code));
+                        backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Income Type", () => session.SetSponsorIncomeType(club.Address, sponsor, chosen.Code));
                         RenderClubEditor();
                         status.Text = "Saved. Continue in FM to see updates.";
                     }
@@ -1537,7 +1586,7 @@ public sealed partial class MainWindow
                 if (!int.TryParse(totalBox.Text, out int value)) { status.Text = "Enter a whole number for the sponsor value."; return; }
                 try
                 {
-                    backend.Edits.Execute(() => session.SetSponsorTotal(club.Address, sponsor, value));
+                    backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Total", () => session.SetSponsorTotal(club.Address, sponsor, value));
                     RenderClubEditor();
                     status.Text = "Saved. Continue in FM to see updates.";
                 }
@@ -1552,17 +1601,17 @@ public sealed partial class MainWindow
             });
             if (sponsor.StartDate is { } started && sponsor.EndDate is { } ended)
             {
-                var startBox = new TextBox { Text = started.ToString("yyyy-MM-dd", Inv), Width = 120 };
-                var endBox = new TextBox { Text = ended.ToString("yyyy-MM-dd", Inv), Width = 120 };
+                var startBox = new DateBox { Text = DateSetting.Format(started), Width = 140 };
+                var endBox = new DateBox { Text = DateSetting.Format(ended), Width = 140 };
                 var applyDates = new Button { Content = "Apply" };
                 applyDates.Click += (_, _) =>
                 {
-                    if (!DateOnly.TryParseExact(startBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var start)
-                        || !DateOnly.TryParseExact(endBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var end))
-                    { status.Text = "Enter dates as yyyy-MM-dd."; return; }
+                    if (!DateSetting.TryParse(startBox.Text, out var start)
+                        || !DateSetting.TryParse(endBox.Text, out var end))
+                    { status.Text = $"Enter dates as {DateSetting.Hint}."; return; }
                     try
                     {
-                        backend.Edits.Execute(() => session.SetSponsorDates(club.Address, sponsor, start, end));
+                        backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Dates", () => session.SetSponsorDates(club.Address, sponsor, start, end));
                         RenderClubEditor();
                         status.Text = "Saved. Continue in FM to see updates.";
                     }
@@ -1586,7 +1635,7 @@ public sealed partial class MainWindow
                 {
                     try
                     {
-                        backend.Edits.Execute(() => session.SetSponsorFlags(club.Address, sponsor, renewBox.IsChecked == true, fixedBox.IsChecked == true));
+                        backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Renew / Fixed", () => session.SetSponsorFlags(club.Address, sponsor, renewBox.IsChecked == true, fixedBox.IsChecked == true));
                         RenderClubEditor();
                         status.Text = "Saved. Continue in FM to see updates.";
                     }
@@ -1600,12 +1649,19 @@ public sealed partial class MainWindow
             return panel;
         }
         var detail = new Border { Child = Detail(selected) };
-        clubEditorPanel.Children.Add(BuildClubListTable(table, selected, index =>
+        clubEditorPanel.Children.Add(new StackPanel
         {
-            clubListSelectedRow[key] = index;
-            detail.Child = Detail(index);
-        }));
-        clubEditorPanel.Children.Add(detail);
+            Margin = new Thickness(12, 0, 0, 0),
+            Children =
+            {
+                BuildClubListTable(table, selected, index =>
+                {
+                    clubListSelectedRow[key] = index;
+                    detail.Child = Detail(index);
+                }),
+                detail,
+            },
+        });
     }
 
     void RenderClubDebts(GameSession session, ClubEntry club)    {
@@ -1630,7 +1686,7 @@ public sealed partial class MainWindow
         {
             try
             {
-                backend.Edits.Execute(() => session.RemoveAllDebts(club.Address));
+                backend.Edits.Execute("Club", club.DisplayName, "Debts: Remove All", () => session.RemoveAllDebts(club.Address));
                 RenderClubEditor();
                 status.Text = "All debts cleared. Continue in FM to see updates.";
             }
@@ -1656,7 +1712,7 @@ public sealed partial class MainWindow
             { status.Text = "Enter whole numbers for debt payments."; return; }
             try
             {
-                backend.Edits.Execute(() => session.SetDebtPayments(club.Address, debt, repayment, interestValue));
+                backend.Edits.Execute("Club", club.DisplayName, "Debt: Repayment / Interest", () => session.SetDebtPayments(club.Address, debt, repayment, interestValue));
                 RenderClubEditor();
                 status.Text = "Saved. Continue in FM to see updates.";
             }
@@ -1672,7 +1728,7 @@ public sealed partial class MainWindow
                 if (!int.TryParse(originalBox.Text, out int value)) { status.Text = "Enter a whole number for original debt."; return; }
                 try
                 {
-                    backend.Edits.Execute(() => session.SetOriginalDebt(club.Address, debt, value));
+                    backend.Edits.Execute("Club", club.DisplayName, "Debt: Original Amount", () => session.SetOriginalDebt(club.Address, debt, value));
                     RenderClubEditor();
                     status.Text = "Saved. Continue in FM to see updates.";
                 }
@@ -1685,17 +1741,17 @@ public sealed partial class MainWindow
         }
         if (session.Profile.Club?.FinanceLists?.DebtDatesEditable == true && debt.StartDate is { } started && debt.EndDate is { } ended)
         {
-            var startBox = new TextBox { Text = started.ToString("yyyy-MM-dd", Inv), Width = 120 };
-            var endBox = new TextBox { Text = ended.ToString("yyyy-MM-dd", Inv), Width = 120 };
+            var startBox = new DateBox { Text = DateSetting.Format(started), Width = 140 };
+            var endBox = new DateBox { Text = DateSetting.Format(ended), Width = 140 };
             var applyDates = new Button { Content = "Apply" };
             applyDates.Click += (_, _) =>
             {
-                if (!DateOnly.TryParseExact(startBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var start)
-                    || !DateOnly.TryParseExact(endBox.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var end))
-                { status.Text = "Enter dates as yyyy-MM-dd."; return; }
+                if (!DateSetting.TryParse(startBox.Text, out var start)
+                    || !DateSetting.TryParse(endBox.Text, out var end))
+                { status.Text = $"Enter dates as {DateSetting.Hint}."; return; }
                 try
                 {
-                    backend.Edits.Execute(() => session.SetDebtDates(club.Address, debt, start, end));
+                    backend.Edits.Execute("Club", club.DisplayName, "Debt: Dates", () => session.SetDebtDates(club.Address, debt, start, end));
                     RenderClubEditor();
                     status.Text = "Saved. Continue in FM to see updates.";
                 }
@@ -1717,7 +1773,7 @@ public sealed partial class MainWindow
                 if (source.SelectedItem is not DebtSourceOption chosen) return;
                 try
                 {
-                    backend.Edits.Execute(() => session.SetDebtSource(club.Address, debt, chosen.Code));
+                    backend.Edits.Execute("Club", club.DisplayName, "Debt: Source", () => session.SetDebtSource(club.Address, debt, chosen.Code));
                     RenderClubEditor();
                     status.Text = "Saved. Continue in FM to see updates.";
                 }
@@ -1741,7 +1797,7 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    backend.Edits.Execute(() => session.SetDebtInterestOnly(club.Address, debt, check.IsChecked == true));
+                    backend.Edits.Execute("Club", club.DisplayName, "Debt: Interest Only", () => session.SetDebtInterestOnly(club.Address, debt, check.IsChecked == true));
                     RenderClubEditor();
                     status.Text = "Saved. Continue in FM to see updates.";
                 }
@@ -1787,7 +1843,7 @@ public sealed partial class MainWindow
             if (pick.SelectedItem is not ClubEntry rival || rival.Address == club.Address) { status.Text = "Pick another club"; return; }
             try
             {
-                backend.Edits.Execute(() => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).AddRival(club.Address, rival.Address, 50, 2, null));
+                backend.Edits.Execute("Club", club.DisplayName, "Relationships: Add Rival", () => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).AddRival(club.Address, rival.Address, 50, 2, null));
                 RenderClubEditor();
                 status.Text = "Added. Continue in FM to see updates.";
             }
@@ -1820,13 +1876,13 @@ public sealed partial class MainWindow
             permanent = new CheckBox { Content = "Permanent", IsChecked = row.Permanent, VerticalAlignment = VerticalAlignment.Center };
             panel.Children.Add(permanent);
         }
-        var save = new Button { Content = "Save changes" };
+        var save = new Button { IsVisible = false, Content = "Save changes" };
         save.Click += (_, _) =>
         {
             if (!int.TryParse(value.Text, out int v) || v is < 1 or > 100) { status.Text = "Value must be 1 to 100"; return; }
             try
             {
-                backend.Edits.Execute(() => session.SetClubRelationship(club.Address, row,
+                backend.Edits.Execute("Club", club.DisplayName, "Relationships: Edit", () => session.SetClubRelationship(club.Address, row,
                     reason is { SelectedIndex: >= 0 } r ? r.SelectedIndex : null, permanent?.IsChecked, v));
                 RenderClubEditor();
                 status.Text = "Saved. Continue in FM to see updates.";
@@ -1839,7 +1895,7 @@ public sealed partial class MainWindow
         {
             try
             {
-                backend.Edits.Execute(() => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, row));
+                backend.Edits.Execute("Club", club.DisplayName, "Relationships: Remove", () => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, row));
                 RenderClubEditor();
                 status.Text = "Removed. Continue in FM to see updates.";
             }
@@ -1852,13 +1908,13 @@ public sealed partial class MainWindow
     Control BuildClubTransferDetail(GameSession session, ClubTransferOffer offer)
     {
         var value = new TextBox { Text = offer.Proposal.Value.ToString(Inv), Width = 150, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var save = new Button { Content = "Save changes" };
+        var save = new Button { IsVisible = false, Content = "Save changes" };
         save.Click += (_, _) =>
         {
             if (!int.TryParse(value.Text, out int fee) || fee < 0) { status.Text = "Enter a valid transfer fee"; return; }
             try
             {
-                backend.Edits.Execute(() => session.ProposalWriter.SetValue(offer.Proposal, fee));
+                backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Transfer Offer: Fee", () => session.ProposalWriter.SetValue(offer.Proposal, fee));
                 RenderClubEditor();
                 status.Text = "Saved. Continue in FM to see updates.";
             }
@@ -1870,37 +1926,64 @@ public sealed partial class MainWindow
         } };
     }
 
-    Control BuildClubListTable(ClubListTableModel table, int selectedIdx, Action<int> onRowSelected)
+    Control BuildClubListTable(ClubListTableModel table, int selectedIdx, Action<int> onRowSelected, Action<int>? onRowDoubleClicked = null)
     {
         var headerGrid = new Grid
         {
             ColumnDefinitions = CreateClubListColumns(table.Columns),
         };
+        // Clicking a header sorts the rows; `order[shown] = index in table.Rows`, so selection and double click still address the real row.
+        int[] order = Enumerable.Range(0, table.Rows.Count).ToArray();
+        int sortColumn = -1;
+        bool sortAscending = true;
+        var headerLabels = new List<TextBlock>();
+        ListBox? sortedList = null;
+        void SortBy(int column)
+        {
+            sortAscending = sortColumn != column || !sortAscending;
+            sortColumn = column;
+            string Text(int row) => column < table.Rows[row].Cells.Count ? table.Rows[row].Cells[column].Text : "";
+            bool numeric = table.Rows.Count > 0 && Enumerable.Range(0, table.Rows.Count).Where(r => Text(r).Length > 0)
+                .All(r => double.TryParse(Text(r).Replace(",", ""), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _));
+            var sorted = numeric
+                ? Enumerable.Range(0, table.Rows.Count).OrderBy(r => double.TryParse(Text(r).Replace(",", ""), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v) ? v : double.NegativeInfinity)
+                : Enumerable.Range(0, table.Rows.Count).OrderBy(r => Text(r), StringComparer.CurrentCultureIgnoreCase);
+            order = (sortAscending ? sorted : sorted.Reverse()).ToArray();
+            for (int c = 0; c < headerLabels.Count; c++)
+                headerLabels[c].Text = table.Columns[c].Header + (c == column ? (sortAscending ? " ▲" : " ▼") : "");
+            if (sortedList is not null) sortedList.ItemsSource = order.Select(r => table.Rows[r]).ToList();
+        }
         for (int i = 0; i < table.Columns.Count; i++)
         {
             var col = table.Columns[i];
+            int columnIndex = i;
             var colHeader = new TextBlock
             {
                 Text = col.Header,
-                FontSize = 11.5,
+                FontSize = 13,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = Brush("#CBD5E1"),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = col.RightAlign ? TextAlignment.Right : TextAlignment.Left,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(i == 0 ? 0 : 8, 0, 0, 0),
+                Margin = new Thickness(i == 0 ? 0 : 16, 0, 0, 0),
             };
-            Grid.SetColumn(colHeader, i);
-            headerGrid.Children.Add(colHeader);
+            headerLabels.Add(colHeader);
+            // A transparent background makes the whole header cell clickable, not just the glyphs.
+            var headerCell = new Border { Background = Brushes.Transparent, Child = colHeader, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) };
+            ToolTip.SetTip(headerCell, "Click to sort");
+            headerCell.PointerPressed += (_, _) => SortBy(columnIndex);
+            Grid.SetColumn(headerCell, i);
+            headerGrid.Children.Add(headerCell);
         }
 
         // ListBoxItem has Padding(8,4,8,4); row Margin(4,0,16,0) matches header Padding(12,6,24,6) and clears the vertical ScrollBar.
-        var listBox = new ListBox
+        ListBox? listBox = null;
+        listBox = new ListBox
         {
             Background = Brush("#151926"),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(0),
-            MaxHeight = 300,
             SelectionMode = SelectionMode.Single,
             ItemsSource = table.Rows,
             ItemTemplate = new FuncDataTemplate<ClubListRowModel>((row, _) =>
@@ -1911,25 +1994,37 @@ public sealed partial class MainWindow
                     ColumnDefinitions = CreateClubListColumns(table.Columns),
                     Margin = new Thickness(4, 0, 16, 0),
                 };
+                grid.DoubleTapped += (_, e) =>
+                {
+                    e.Handled = true;
+                    if (listBox?.SelectedIndex is int idx && idx >= 0 && idx < order.Length)
+                        onRowDoubleClicked?.Invoke(order[idx]);
+                };
                 Avalonia.Automation.AutomationProperties.SetName(grid, row.AutomationName);
                 int count = Math.Min(table.Columns.Count, row.Cells.Count);
                 for (int i = 0; i < count; i++)
                 {
                     var cell = row.Cells[i];
-                    var cellView = BuildClubListCellView(cell, i == 0 ? 0 : 8);
+                    var cellView = BuildClubListCellView(cell, i == 0 ? 0 : 16);
                     Grid.SetColumn(cellView, i);
                     grid.Children.Add(cellView);
                 }
                 return grid;
             }),
         };
+        sortedList = listBox;
         listBox.SelectedIndex = selectedIdx;
         listBox.SelectionChanged += (_, _) =>
         {
             if (clubUpdating) return;
             int idx = listBox.SelectedIndex;
-            if (idx >= 0 && idx < table.Rows.Count)
-                onRowSelected(idx);
+            if (idx >= 0 && idx < order.Length)
+                onRowSelected(order[idx]);
+        };
+        listBox.DoubleTapped += (_, e) =>
+        {
+            if (UiKit.OnRow(e) && listBox.SelectedIndex >= 0 && listBox.SelectedIndex < order.Length)
+                onRowDoubleClicked?.Invoke(order[listBox.SelectedIndex]);
         };
 
         return new Border
@@ -1982,7 +2077,7 @@ public sealed partial class MainWindow
                     new TextBlock
                     {
                         Text = cell.Text,
-                        FontSize = 11.5,
+                        FontSize = 13,
                         Foreground = Brush("#F1F5F9"),
                         VerticalAlignment = VerticalAlignment.Center,
                         TextWrapping = TextWrapping.Wrap,
@@ -1994,7 +2089,7 @@ public sealed partial class MainWindow
         return new TextBlock
         {
             Text = cell.Text,
-            FontSize = 11.5,
+            FontSize = 13,
             Foreground = Brush("#F1F5F9"),
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = cell.RightAlign ? TextAlignment.Right : TextAlignment.Left,
@@ -2034,7 +2129,7 @@ public sealed partial class MainWindow
                         new TextBlock
                         {
                             Text = field.Value,
-                            FontSize = 11.5,
+                            FontSize = 13,
                             FontWeight = FontWeight.SemiBold,
                             Foreground = Brush("#F8FAFC"),
                             VerticalAlignment = VerticalAlignment.Center,
@@ -2044,7 +2139,7 @@ public sealed partial class MainWindow
                 : new TextBlock
                 {
                     Text = field.Value,
-                    FontSize = 11.5,
+                    FontSize = 13,
                     FontWeight = FontWeight.SemiBold,
                     Foreground = Brush("#F8FAFC"),
                     VerticalAlignment = VerticalAlignment.Center,
@@ -2056,7 +2151,7 @@ public sealed partial class MainWindow
             line.Children.Add(new TextBlock
             {
                 Text = field.Label,
-                FontSize = 11.5,
+                FontSize = 13,
                 Foreground = Brush("#CBD5E1"),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
@@ -2077,7 +2172,7 @@ public sealed partial class MainWindow
         return detailCard;
     }
 
-    static ColumnDefinitions CreateClubListColumns(IReadOnlyList<ClubListColumn> columns)
+    internal static ColumnDefinitions CreateClubListColumns(IReadOnlyList<ClubListColumn> columns)
     {
         var defs = new ColumnDefinitions();
         foreach (var col in columns)
@@ -2118,7 +2213,7 @@ public sealed partial class MainWindow
         {
             distributionTotalText = new TextBlock
             {
-                FontSize = 11.5,
+                FontSize = 13,
                 FontWeight = FontWeight.Bold,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Right,
@@ -2131,7 +2226,7 @@ public sealed partial class MainWindow
             totalLine.Children.Add(new TextBlock
             {
                 Text = "Total",
-                FontSize = 11.5,
+                FontSize = 13,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = Brush("#94A3B8"),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -2155,7 +2250,7 @@ public sealed partial class MainWindow
         var label = new TextBlock
         {
             Text = field.Meta.Label,
-            FontSize = 11.5,
+            FontSize = 13,
             Foreground = Brush("#CBD5E1"),
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
@@ -2201,11 +2296,11 @@ public sealed partial class MainWindow
 
         if (field.Kind == ClubDisplayKind.Date)
         {
-            var box = new TextBox
+            var box = new DateBox
             {
                 Text = ClubFieldInfo.FormatValue(currentVal, ClubDisplayKind.Date),
                 Width = 106,
-                FontSize = 11.5,
+                FontSize = 13,
                 FontWeight = FontWeight.Bold,
                 HorizontalContentAlignment = HorizontalAlignment.Right,
                 Background = Brush("#0E1018"),
@@ -2232,7 +2327,7 @@ public sealed partial class MainWindow
             {
                 Text = ClubFieldInfo.FormatValue(currentVal, ClubDisplayKind.Colour),
                 Width = 106,
-                FontSize = 11.5,
+                FontSize = 13,
                 FontWeight = FontWeight.Bold,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Background = Brush("#0E1018"),
@@ -2268,7 +2363,7 @@ public sealed partial class MainWindow
             var combo = new ComboBox
             {
                 Width = 176,
-                FontSize = 11.5,
+                FontSize = 13,
                 ItemsSource = items,
                 SelectedItem = items.FirstOrDefault(i => i.Value == currentVal),
             };
@@ -2294,16 +2389,19 @@ public sealed partial class MainWindow
         string format = field.Kind is ClubDisplayKind.FormattedInt or ClubDisplayKind.Money ? "N0" : "0";
         decimal increment = field.Kind == ClubDisplayKind.Money ? 10_000 : 1;
 
+        // -1 is the game's "not set" (4,955 of 5,251 clubs have no Social Media Followers); an empty box says so, a number would lie.
+        bool notSet = currentVal == -1 && field.Min >= -1;
         var numeric = new NumericUpDown
         {
             Minimum = field.Min,
             Maximum = field.Max,
             Increment = increment,
-            Value = currentVal,
+            Value = notSet ? null : currentVal,
+            Watermark = notSet ? "None" : null,
             FormatString = format,
             ShowButtonSpinner = false,
             Width = inputWidth,
-            FontSize = 11.5,
+            FontSize = 13,
             FontWeight = FontWeight.Bold,
             HorizontalContentAlignment = HorizontalAlignment.Right,
             Background = Brush("#0E1018"),
@@ -2341,7 +2439,7 @@ public sealed partial class MainWindow
                     {
                         Text = "%",
                         Width = 12,
-                        FontSize = 12,
+                        FontSize = 13.5,
                         Foreground = Brush("#94A3B8"),
                         VerticalAlignment = VerticalAlignment.Center,
                     },
@@ -2353,47 +2451,6 @@ public sealed partial class MainWindow
         line.Children.Add(rightControl);
         line.Children.Add(label);
         return line;
-    }
-
-    void SaveClubDraft()
-    {
-        if (selectedClub is not { } club || !clubDrafts.TryGetValue(club.Address, out var draft) || !draft.CanSave)
-            return;
-
-        ulong teamAddr = ResolveSelectedTeam(club)?.Address ?? 0;
-        int total = draft.Count;
-        var access = backend.Session.ClubFields;
-        try
-        {
-            int saved = draft.Save(backend.Edits, access, target => backend.AcceptFrozenClubEdit(club, target.Field));
-            clubDrafts.Remove(club.Address);
-            RenderClubEditor();
-            status.Text = $"Saved {saved} change(s). Continue in FM to see updates.";
-        }
-        catch (Exception ex)
-        {
-            int saved = total - draft.Count;
-            try
-            {
-                var fresh = access.ReadAll(club.Address, teamAddr);
-                if (fresh.Count == 0 && !IsClubObjectValid(club.Address))
-                {
-                    clubDrafts.Remove(club.Address);
-                    status.Text = "Club no longer available; reloading";
-                    _ = LoadClubsScreenAsync(forceReloadPlayers: true);
-                    return;
-                }
-                draft.Rebase(club.Address, teamAddr, backend.Session.Profile, fresh);
-                RenderClubEditor();
-                status.Text = saved > 0
-                    ? $"{saved} saved. {ClubUserMessage(ex)} Review remaining changes."
-                    : ClubUserMessage(ex);
-            }
-            catch (Exception reloadError)
-            {
-                status.Text = $"{saved} saved. {ClubUserMessage(reloadError)}";
-            }
-        }
     }
 
     static IBrush SwatchBrush(long raw)

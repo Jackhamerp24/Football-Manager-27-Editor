@@ -116,6 +116,55 @@ public class RelationshipTests
     byte[] Row(ulong target, string tail) => [.. BitConverter.GetBytes(target), .. Convert.FromHexString(tail)];
 
     [Fact]
+    public void RemoveInternationalWithdrawalRewritesOnlyTheObservedRow()
+    {
+        Assert.True(_w.Memory.TryWrite(Records + 16, Convert.FromHexString("00000000000000000000005132FF00FF")));
+        var before = _w.Bytes(Records, 96);
+        var header = _w.Bytes(Holder, 24);
+        Assert.Equal(1, Writer().RemoveInternationalWithdrawal(Player()));
+        Row(TestWorld.Mainoo + 0x288, "00000301640000FF").CopyTo(before, 16);
+        Assert.Equal(before, _w.Bytes(Records, 96));
+        Assert.Equal(header, _w.Bytes(Holder, 24));
+    }
+
+    [Fact]
+    public void RemoveInternationalWithdrawalWithoutMatchingRowsDoesNotWrite()
+    {
+        var player = Player();
+        int writes = _w.Memory.Writes;
+        Assert.Equal(0, Writer().RemoveInternationalWithdrawal(player));
+        Assert.Equal(writes, _w.Memory.Writes);
+    }
+
+    [Fact]
+    public void RemoveInternationalWithdrawalRejectsRowChangedAfterSnapshot()
+    {
+        Assert.True(_w.Memory.TryWrite(Records + 16, Convert.FromHexString("00000000000000000000005132FF00FF")));
+        var player = Player();
+        var memory = new ChangeAfterSnapshot(_w.Memory);
+        int writes = _w.Memory.Writes;
+        Assert.Throws<StaleObjectException>(() => new RelationshipWriter(memory, _w.Profile, TestWorld.ModuleBase).RemoveInternationalWithdrawal(player));
+        Assert.Equal(writes + 1, _w.Memory.Writes); // only the simulated concurrent change
+        Assert.Equal(0x51, _w.Bytes(Records + 16 + 11, 1)[0]);
+    }
+
+    sealed class ChangeAfterSnapshot(FakeMemory inner) : Fm27Editor.Core.Memory.IProcessMemory
+    {
+        bool changed;
+        public bool TryRead(ulong address, Span<byte> buffer)
+        {
+            bool ok = inner.TryRead(address, buffer);
+            if (ok && !changed && address == Records && buffer.Length == 96)
+            {
+                changed = true;
+                Assert.True(inner.TryWrite(Records + 16 + 12, [0x33]));
+            }
+            return ok;
+        }
+        public bool TryWrite(ulong address, ReadOnlySpan<byte> bytes) => inner.TryWrite(address, bytes);
+    }
+
+    [Fact]
     public void NationalitySearchIncludesObservedOtherNationalityAndReportsInvalidTargets()
     {
         const ulong portugal = 0x7200_0000, france = 0x7200_0100;
@@ -304,6 +353,30 @@ public class RelationshipTests
         Assert.True(_w.Memory.TryWrite(Records + 5 * 16, Row(team, "00000419080000FF")));
         Assert.True(Writer().AddUefaRegistration(Player(), Statuses(), team, Allocate));
         Assert.Equal(Row(team, "00000419000000FF"), _w.Bytes(Pool + 6 * 16, 16));
+    }
+
+    /// <summary>
+    /// Domestic registration is the UEFA row with code 8 (the game's 24,289 domestic rows); a squad-wide register must be
+    /// able to tell the two apart for the same team.
+    /// </summary>
+    [Fact]
+    public void Domestic_registration_writes_code_8_and_HasRegistration_tells_team_and_code_apart()
+    {
+        ulong team = Obj(TeamVt), other = Obj(TeamVt);
+        var writer = Writer();
+        Assert.False(writer.HasRegistration(Statuses(), team, 0));
+        Assert.True(writer.AddUefaRegistration(Player(), Statuses(), team, Allocate));
+        Assert.True(writer.AddDomesticRegistration(Player(), Statuses(), team, Allocate));
+        Assert.False(writer.AddDomesticRegistration(Player(), Statuses(), team, Allocate));
+        Assert.Equal(Row(team, "00000419000000FF"), _w.Bytes(Pool + 6 * 16, 16));
+        Assert.Equal(Row(team, "00000419080000FF"), _w.Bytes(Pool + 7 * 16, 16));
+
+        var after = Statuses();
+        Assert.True(writer.HasRegistration(after, team, 0));
+        Assert.True(writer.HasRegistration(after, team, 8));
+        Assert.False(writer.HasRegistration(after, other, 0));
+        Assert.False(writer.HasRegistration(after, other, 8));
+        Assert.Throws<ArgumentOutOfRangeException>(() => writer.AddRegistration(Player(), Statuses(), team, 19, Allocate));
     }
 
     [Fact]

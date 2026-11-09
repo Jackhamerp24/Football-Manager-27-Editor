@@ -46,6 +46,7 @@ public sealed record PlayerFilter
     public int? MaxPa { get; init; }
     public IReadOnlyList<PlayerPosition> Positions { get; init; } = [];
     public IReadOnlyDictionary<PlayerPosition, int> PositionThresholds { get; init; } = new Dictionary<PlayerPosition, int>();
+    public IReadOnlyDictionary<PlayerPosition, NumericRange> PositionRanges { get; init; } = new Dictionary<PlayerPosition, NumericRange>();
     public IReadOnlyDictionary<string, NumericRange> NumericRanges { get; init; } = new Dictionary<string, NumericRange>();
     public ulong RequiredPreferredMoves { get; init; }
     public int PositionMinRating { get; init; } = 15;
@@ -79,8 +80,12 @@ public sealed record FilterPreset(
     int PositionMinRating = 15)
 {
     public IReadOnlyDictionary<PlayerPosition, int>? PositionThresholds { get; init; }
+    public IReadOnlyDictionary<PlayerPosition, NumericRange>? PositionRanges { get; init; }
     public IReadOnlyDictionary<string, NumericRange>? NumericRanges { get; init; }
     public ulong RequiredPreferredMoves { get; init; }
+    public string? Division { get; init; }
+    public string? Club { get; init; }
+    public string? Nationality { get; init; }
     public override string ToString() => Name;
 }
 
@@ -101,6 +106,25 @@ public static class PositionLabels
         PlayerPosition.AttackingMidLeft => "AML",
         PlayerPosition.AttackingMidCentral => "AMC",
         PlayerPosition.AttackingMidRight => "AMR",
+        PlayerPosition.Striker => "ST",
+        _ => p.ToString()
+    };
+
+    public static string Spaced(PlayerPosition p) => p switch
+    {
+        PlayerPosition.Goalkeeper => "GK",
+        PlayerPosition.DefenderLeft => "D L",
+        PlayerPosition.DefenderCentral => "D C",
+        PlayerPosition.DefenderRight => "D R",
+        PlayerPosition.WingBackLeft => "WB L",
+        PlayerPosition.WingBackRight => "WB R",
+        PlayerPosition.DefensiveMidfielder => "DM",
+        PlayerPosition.MidfielderLeft => "M L",
+        PlayerPosition.MidfielderCentral => "M C",
+        PlayerPosition.MidfielderRight => "M R",
+        PlayerPosition.AttackingMidLeft => "AM L",
+        PlayerPosition.AttackingMidCentral => "AM C",
+        PlayerPosition.AttackingMidRight => "AM R",
         PlayerPosition.Striker => "ST",
         _ => p.ToString()
     };
@@ -274,7 +298,16 @@ public sealed class PlayersModule : IEditorModule
             if (value is null || range.Min is { } lo && value < lo || range.Max is { } hi && value > hi) return false;
         }
         if (filter.RequiredPreferredMoves != 0 && (p.PreferredMoveBits is not { } moves || (moves & filter.RequiredPreferredMoves) != filter.RequiredPreferredMoves)) return false;
-        if (filter.PositionThresholds.Count > 0)
+        if (filter.PositionRanges.Count > 0)
+        {
+            foreach (var (position, range) in filter.PositionRanges)
+            {
+                int val = p.Position(position);
+                if (range.Min is { } lo && val < lo) return false;
+                if (range.Max is { } hi && val > hi) return false;
+            }
+        }
+        else if (filter.PositionThresholds.Count > 0)
         {
             foreach (var (position, min) in filter.PositionThresholds)
                 if (p.Position(position) < min) return false;
@@ -438,7 +471,7 @@ public static class DateField
     public static bool TryParse(string? text, out int value)
     {
         value = 0;
-        if (!DateOnly.TryParseExact(text?.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d)) return false;
+        if (!DateSetting.TryParse(text?.Trim(), out var d)) return false;
         value = ToInt(d);
         return true;
     }

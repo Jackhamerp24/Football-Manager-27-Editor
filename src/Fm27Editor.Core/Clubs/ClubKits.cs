@@ -17,6 +17,30 @@ public sealed record ClubKitItem(ulong Club, int ClubId, ulong Holder, ulong Beg
 
 public static class ClubKitMapping
 {
+    public static readonly string[] ColourNames = ["Foreground", "Background", "Outline", "Number Colour", "Number Outline Colour"];
+
+    /// <summary>What FMRTE calls this item ("Home Shirt", "GK Away Shorts"), or null when it is not one of the editable parts.</summary>
+    public static string? Name(IReadOnlyList<ClubKitItem> items, ClubKitItem item)
+    {
+        static string Kit(int k) => k switch { 0 => "Home", 1 => "Away", _ => "Third" };
+        string? part = (item.Type, item.Flags) switch
+        {
+            (3, 0x100) => "Shirt", (2, 0) => "GK Shirt", (2, 0x100) => "Text", (1 or 0x21, 0) => "Icon", (4, 0 or 1) => "Shorts", (5, 0 or 1) => "Socks", _ => null,
+        };
+        if (part is not null && item.Kit <= 2) return part.StartsWith("GK ", StringComparison.Ordinal) ? $"GK {Kit(item.Kit)} {part[3..]}" : $"{Kit(item.Kit)} {part}";
+        for (byte k = 0; k < 3; k++)
+        {
+            if (GoalkeeperIcon(items, k) is { } icon && icon.Slot == item.Slot) return $"GK {Kit(k)} Icon";
+            foreach (var (type, name) in new[] { ((byte)4, "Shorts"), ((byte)5, "Socks") })
+                if (GoalkeeperPart(items, k, type) is { } p && p.Slot == item.Slot) return $"GK {Kit(k)} {name}";
+        }
+        return null;
+    }
+
+    /// <summary>Announces "Home Shirt Background" for the colour about to be written.</summary>
+    public static IDisposable Announce(IReadOnlyList<ClubKitItem> items, ClubKitItem item, string what, Fm27Editor.Core.History.ChangeValueKind kind = Fm27Editor.Core.History.ChangeValueKind.Number) =>
+        Fm27Editor.Core.History.ChangeContext.Describe(new Fm27Editor.Core.History.ChangeLabel($"{Name(items, item) ?? "Kit item"} {what}", Kind: kind));
+
     /// <summary>FMRTE's GK Icon follows the goalkeeper shirt in the PSG and Bayern snapshots.</summary>
     public static ClubKitItem? GoalkeeperIcon(IReadOnlyList<ClubKitItem> items, byte kit)
     {
@@ -64,9 +88,8 @@ public sealed class ClubKits(IProcessMemory memory, OffsetProfile profile, ulong
     public IReadOnlyList<ClubKitItem> Read(ulong club, int clubId)
     {
         var c = profile.Club;
-        // The object layout is shared by the matching Game Pass and Steam builds; Steam is not yet runtime-verified.
-        if (profile.Build is not ("27.0.0+2493426 Game Pass" or "27.0.0+2493426") ||
-            c?.Id is not { } idOffset || c.TransferClauses is not { } layout) return [];
+        // The object layout is shared by Game Pass and Steam (read back on both); the vtable and id checks below refuse anything else.
+        if (c?.Id is not { } idOffset || c.TransferClauses is not { } layout) return [];
         try
         {
             if (memory.ReadUInt64(club) != moduleBase + c.ClubVtableRva || BitConverter.ToInt32(memory.Read(club + (ulong)idOffset, 4)) != clubId) return [];
@@ -99,12 +122,14 @@ public sealed class ClubKits(IProcessMemory memory, OffsetProfile profile, ulong
         // FMRTE changes RGB individually and leaves the existing alpha unchanged.
         RequireCurrent(snapshot);
         byte[] after = BitConverter.GetBytes(colour);
+        using var scope = ClubKitMapping.Announce(Read(snapshot.Club, snapshot.ClubId), snapshot, ClubKitMapping.ColourNames[index], Fm27Editor.Core.History.ChangeValueKind.Colour);
         Write(snapshot.Address + (ulong)(8 + index * 4), after.AsSpan(0, 3));
     }
 
     public void SetStyle(ClubKitItem snapshot, int style)
     {
         RequireCurrent(snapshot);
+        using var scope = ClubKitMapping.Announce(Read(snapshot.Club, snapshot.ClubId), snapshot, "Style");
         Write(snapshot.Address + 0x1C, BitConverter.GetBytes(style));
     }
 

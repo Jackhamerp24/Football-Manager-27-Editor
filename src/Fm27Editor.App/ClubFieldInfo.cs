@@ -148,16 +148,15 @@ public static class ClubFieldInfo
         ClubSection.Staff,
     ];
 
-    /// <summary>
-    /// Club sidebar entries. Tactical Understanding is deliberately absent: the squad-wide control is the "Max" button on
-    /// the club header (it writes every squad player at once), so the per-team section is noise.
-    /// </summary>
+    /// <summary>Club sidebar entries. The per-team Tactical Understanding bars are not offered: only the squad tool's Tactical Understanding button is.</summary>
     public static IReadOnlyList<ClubSection> Sections { get; } =
     [
         ClubSection.Information,
         ClubSection.Squads,
-        .. ScalarSections.Where(s => s is not (ClubSection.TacticalUnderstanding or ClubSection.Information)),
-        .. TopLevelListSections,
+        .. TopLevelListSections.Where(s => s is not ClubSection.RegionalDivisions),
+        ClubSection.RegionalDivisions,
+        ClubSection.Finances,
+        ClubSection.Supporters,
     ];
 
     public static bool IsListSection(ClubSection section) => section is
@@ -381,7 +380,7 @@ public static class ClubFieldInfo
         int day = (int)(yyyymmdd % 100);
         if (year is < 1901 or > 2300 || month is < 1 or > 12 || day < 1 || day > DateTime.DaysInMonth(year, month))
             return "";
-        return new DateOnly(year, month, day).ToString("yyyy-MM-dd", Inv);
+        return DateSetting.Format(new DateOnly(year, month, day));
     }
 
     static string FormatColour(long raw)
@@ -399,7 +398,7 @@ public static class ClubFieldInfo
         string trimmed = text?.Trim() ?? "";
         if (trimmed.Length == 0 || trimmed == "1900-01-01")
             return true;
-        if (!DateOnly.TryParseExact(trimmed, "yyyy-MM-dd", Inv, DateTimeStyles.None, out var date))
+        if (!DateSetting.TryParse(trimmed, out var date))
             return false;
         if (date.Year is < 1901 or > 2300)
             return false;

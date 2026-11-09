@@ -39,6 +39,9 @@ public sealed record RelationOffsets(int Pointer, int RecordSize, int Target, in
 /// <summary>Competition registration. <see cref="Kind"/>: 0 UEFA, 8 Domestic (other codes unknown, kept raw).</summary>
 public sealed record PlayerRegistration(ClubInfo? Club, byte Kind);
 
+/// <summary>Competition registration kinds FMRTE 27's Register presets use (row code 0 UEFA, 8 domestic).</summary>
+public enum RegistrationKind : byte { Uefa = 0, Domestic = 8 }
+
 /// <summary>Formed at club. <see cref="Period"/>: 1 = "3 Years (15-21)", 10 = "Done" (others unknown, kept raw).</summary>
 public sealed record PlayerTrainedAtClub(ClubInfo? Club, byte Period);
 
@@ -323,14 +326,40 @@ public sealed class RelationshipWriter(IProcessMemory memory, OffsetProfile prof
     /// the same bytes as the game's 1,069 UEFA rows; the domestic row differs only in code 8. Returns false when the player is
     /// already registered for UEFA with <paramref name="team"/>.
     /// </summary>
-    public bool AddUefaRegistration(PlayerRecord player, PlayerStatuses current, ulong team, Func<int, ulong> allocate)
+    public bool AddUefaRegistration(PlayerRecord player, PlayerStatuses current, ulong team, Func<int, ulong> allocate) =>
+        AddRegistration(player, current, team, UefaRegistrationCode, allocate);
+
+    /// <summary>"Register for Domestic": the same row as UEFA with code 8 (24,289 game rows).</summary>
+    public bool AddDomesticRegistration(PlayerRecord player, PlayerStatuses current, ulong team, Func<int, ulong> allocate) =>
+        AddRegistration(player, current, team, DomesticRegistrationCode, allocate);
+
+    /// <summary>Competition registration codes FMRTE 27 uses: 0 UEFA, 8 domestic.</summary>
+    public const byte UefaRegistrationCode = 0, DomesticRegistrationCode = 8;
+
+    const byte NationTarget = 8, TeamTarget = 4;
+
+    /// <summary>Adds the competition-registration row for <paramref name="team"/> with <paramref name="code"/>.</summary>
+    public bool AddRegistration(PlayerRecord player, PlayerStatuses current, ulong team, byte code, Func<int, ulong> allocate)
     {
         var o = profile.Relations ?? throw new InvalidOperationException("Profile has no relation offsets");
+        if (code is not (UefaRegistrationCode or DomesticRegistrationCode)) throw new ArgumentOutOfRangeException(nameof(code));
         if (profile.Team is not { } t || memory.ReadUInt64(team) != moduleBase + t.VtableRva) throw new ArgumentException("Not a team", nameof(team));
-        return AddUnique(PersonOwner.Of(player, profile), current, team, TeamTarget, o.RegistrationType, UefaRegistration, 0, allocate);
+        return AddUnique(PersonOwner.Of(player, profile), current, team, TeamTarget, o.RegistrationType, code, 0, allocate);
     }
 
-    const byte NationTarget = 8, TeamTarget = 4, UefaRegistration = 0;
+    /// <summary>
+    /// True when the player already has a competition-registration row for <paramref name="team"/> with <paramref name="code"/>
+    /// (0 UEFA, 8 domestic), so a squad-wide registration can skip him.
+    /// </summary>
+    public bool HasRegistration(PlayerStatuses current, ulong team, byte code)
+    {
+        var o = profile.Relations ?? throw new InvalidOperationException("Profile has no relation offsets");
+        var records = Convert.FromHexString(current.RecordSnapshot);
+        for (int i = 0; i + o.RecordSize <= records.Length; i += o.RecordSize)
+            if (records[i + o.Type] == o.RegistrationType && BitConverter.ToUInt64(records, i + o.Target) == team && records[i + o.Code] == code)
+                return true;
+        return false;
+    }
 
     /// <summary>Adds the Other Nationality record observed on Simeone and Mbappé; info is the FMRTE nationality-info code.</summary>
     public void AddOtherNationality(PersonOwner player, PlayerStatuses current, ulong nation, int info, Func<int, ulong> allocate)
@@ -390,6 +419,44 @@ public sealed class RelationshipWriter(IProcessMemory memory, OffsetProfile prof
         Write(holder, [.. BitConverter.GetBytes(buffer), .. BitConverter.GetBytes(buffer + (ulong)records.Length + (ulong)record.Length), .. BitConverter.GetBytes(buffer + (ulong)(capacity * record.Length))]);
     }
 
+    /// <summary>The relationship type FMRTE 27's dropdown calls International Withdrawal (decimal 81).</summary>
+    public const byte InternationalWithdrawalType = 0x51;
+
+    /// <summary>
+    /// FMRTE 27's "Remove Int. Withdrawal" (Diego León, 9/11/2026): it does not delete the row, it rewrites every International
+    /// Withdrawal row in place as a Likes Person row aimed at the player himself — target = his person object, target kind 3,
+    /// type 1, value 100, flags 0 — so the row count and the vector stay as they were. Returns how many rows were rewritten.
+    /// </summary>
+    public int RemoveInternationalWithdrawal(PlayerRecord player)
+    {
+        var o = profile.Relations ?? throw new InvalidOperationException("Profile has no relation offsets");
+        var owner = PersonOwner.Of(player, profile);
+        if (!owner.IsValid(memory, moduleBase)) throw new StaleObjectException($"{player.DisplayName} changed since it was read");
+        ulong holder = memory.ReadUInt64(owner.At(o.Pointer));
+        if (holder == 0) return 0;
+        ulong begin = memory.ReadUInt64(holder), end = memory.ReadUInt64(holder + 8);
+        if (begin == 0 || end <= begin || (end - begin) % (ulong)o.RecordSize != 0 || (end - begin) / (ulong)o.RecordSize > 512) return 0;
+        var records = memory.Read(begin, (int)(end - begin));
+        ulong person = player.Address + (ulong)o.PlayerPerson;
+        int rewritten = 0;
+        for (int i = 0; i < records.Length; i += o.RecordSize)
+        {
+            if (records[i + o.Type] != InternationalWithdrawalType) continue;
+            var row = new byte[o.RecordSize];
+            BitConverter.GetBytes(person).CopyTo(row, o.Target);
+            row[o.TargetKind] = PersonTarget;
+            row[o.Type] = (byte)o.LikesPersonType;
+            row[o.Code] = 100;
+            row[o.Flags] = 0;
+            row[o.RecordSize - 1] = 0xFF;
+            // Guard: the row must still be the one that was read.
+            if (!memory.Read(begin + (ulong)i, o.RecordSize).AsSpan().SequenceEqual(records.AsSpan(i, o.RecordSize)))
+                throw new StaleObjectException($"{player.DisplayName}'s relationships changed while they were rewritten");
+            Write(begin + (ulong)i, row);
+            rewritten++;
+        }
+        return rewritten;
+    }
     /// <summary>Removes a row like FMRTE 27 (vector erase): later records move up, the end pointer moves back one record.</summary>
     public void Remove(PlayerRecord player, PlayerRelationship relationship) => Remove(PersonOwner.Of(player, profile), relationship);
 

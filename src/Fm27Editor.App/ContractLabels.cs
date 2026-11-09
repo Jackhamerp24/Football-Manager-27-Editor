@@ -55,11 +55,12 @@ public static class ContractLabels
         41 => "Goals + Assists",
         19 => "Caps",
         22 => "Years",
+        3 or 4 or 5 or 14 or 15 => "%",
         _ => null,
     };
 
     /// <summary>Terms whose value is not money (the game stores -1).</summary>
-    public static bool TermHasValue(short type) => type is not (11 or 22 or 12 or 29 or 7);
+    public static bool TermHasValue(short type) => type is not (11 or 22 or 12 or 29 or 7 or 3 or 4 or 5 or 14 or 15);
 
     public static string Spaced(string name) => Regex.Replace(name, "(?<!^)([A-Z])", " $1");
 
@@ -95,7 +96,7 @@ public static class ContractLabels
         TransferClauseKind.CompetitionBonus => string.Join("  ", new[]
         {
             Competition(c),
-            c.Ends is { } d ? $"until {d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}" : "",
+            c.Ends is { } d ? $"until {DateSetting.Format(d)}" : "",
         }.Where(s => s.Length > 0)),
         _ => "",
     };

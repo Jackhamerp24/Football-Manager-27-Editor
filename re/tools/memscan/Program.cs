@@ -69,6 +69,10 @@ static partial class Program
             case "climb": ClimbUp(args[1], Convert.ToUInt64(args[2], 16), int.Parse(args[3])); break;
             case "dump": Dump(Convert.ToUInt64(args[1], 16), Convert.ToInt32(args[2])); break;
             case "name": FindText(string.Join(" ", args.Skip(1))); break;
+            case "stride": StrideScan(Convert.ToInt32(args[1], 16), args.Length > 2 ? int.Parse(args[2]) : 8); break;
+            case "pools": PoolsScan(args.Length > 1 ? int.Parse(args[1]) : 8); break;
+            case "modrefs": ModRefs(Convert.ToUInt64(args[1], 16), args.Length > 2 && args[2] == "two"); break;
+            case "msccscan": MsccScan(Convert.ToUInt64(args[1], 16)); break;
         }
         return 0;
     }
@@ -669,6 +673,161 @@ static partial class Program
             Console.WriteLine($"+{i:X3}  {BitConverter.ToString(b, i, Math.Min(16, len - i)).Replace('-', ' ')}");
     }
 
+    // Name from the person-style fields +0x28 (first) and +0x30 (last).
+    static string? ObjectName(ulong obj)
+    {
+        string? first = EntryText(obj + 0x28), last = EntryText(obj + 0x30);
+        string text = $"{first} {last}".Trim();
+        return text.Length is > 1 and < 60 ? text : null;
+    }
+
+    static string? EntryText(ulong at)
+    {
+        var q = Read(at, 8);
+        ulong entry = BitConverter.ToUInt64(q);
+        if (entry < 0x10000) return null;
+        var e = Read(entry, 8);
+        ulong text = BitConverter.ToUInt64(e);
+        if (text < 0x10000) return null;
+        var head = Read(text, 4);
+        int n = BitConverter.ToInt32(head);
+        if (n <= 0 || n > 60) return null;
+        var body = Read(text + 4, n);
+        return System.Text.Encoding.UTF8.GetString(body);
+    }
+    // Module-data references to a value (and optionally one hop: module slot -> holder -> value).
+    static void ModRefs(ulong value, bool twoHop)
+    {
+        var holders = new HashSet<ulong>();
+        int hits = 0;
+        foreach (var (baseAddr, d) in Regions(true))
+        {
+            if (baseAddr < ModBase || baseAddr >= ModEnd) continue;
+            for (int o = 0; o + 8 <= d.Length; o += 8)
+            {
+                ulong q = BitConverter.ToUInt64(d, o);
+                if (q == value)
+                {
+                    Console.WriteLine($"module 0x{baseAddr + (ulong)o:X} (+0x{baseAddr + (ulong)o - ModBase:X}) = value");
+                    if (++hits >= 40) break;
+                }
+                if (twoHop && q >= 0x10000 && q < 0x7FFFFFFFFFFF && q != value)
+                {
+                    var inner = Read(q, 8);
+                    if (inner.Length == 8 && BitConverter.ToUInt64(inner) == value) holders.Add(baseAddr + (ulong)o);
+                }
+            }
+        }
+        foreach (ulong h in holders)
+            Console.WriteLine($"module 0x{h:X} (+0x{h - ModBase:X}) -> holder -> value");
+        Console.WriteLine($"hits={hits} holders={holders.Count}");
+    }
+    // Candidate 4.6 KB staff-allowance records: 14 bytes at +0x11EA..+0x11FE all in 1..40, and the target pointer
+    // (club or team) somewhere in the first 0x1800 bytes.
+    static void MsccScan(ulong target)
+    {
+        int[] offsets = [4586, 4587, 4588, 4589, 4590, 4591, 4595, 4596, 4597, 4598, 4599, 4600, 4605, 4606];
+        int hits = 0;
+        foreach (var (baseAddr, d) in Regions(true))
+        {
+            int len = d.Length;
+            for (int o = 0; o + 0x1200 <= len; o += 8)
+            {
+                int nz = 0; bool ok = true;
+                for (int i = 0; i < 6; i++) { byte b = d[o + 4586 + i]; if (b > 40) { ok = false; break; } if (b != 0) nz++; }
+                if (!ok) continue;
+                if (d[o + 4605] > 40 || d[o + 4606] > 40 || (d[o + 4605] == 0 && d[o + 4606] == 0)) continue;
+                byte[] rest = new byte[14];
+                bool readable = true;
+                for (int i = 0; i < offsets.Length; i++)
+                {
+                    int at = o + offsets[i];
+                    if (at >= len) { readable = false; break; }
+                    rest[i] = d[at];
+                }
+                if (!readable || rest.Any(x => x > 40) || rest.Count(x => x != 0) < 8) continue;
+                int found = -1;
+                for (int k = 0; k + 8 <= Math.Min(0x1800, len - o); k += 8)
+                    if (BitConverter.ToUInt64(d, o + k) == target) { found = k; break; }
+                Console.WriteLine($"0x{baseAddr + (ulong)o:X} values {string.Join(",", rest)} target@{(found >= 0 ? $"0x{found:X}" : "-")}");
+                if (++hits >= 40) break;
+            }
+        }
+        Console.WriteLine($"hits={hits}");
+    }
+    // Person-like pools grouped by (vtable, stride): the longest run and a sample name per class.
+    static void PoolsScan(int minRun)
+    {
+        int[] strides = [0xC0, 0xD0, 0xE0, 0xF0, 0x100, 0x110, 0x120, 0x140, 0x150, 0x158, 0x160, 0x180, 0x1A0, 0x1C0, 0x200];
+        var classes = new Dictionary<(ulong Vt, int Stride), (int Run, int Total, ulong Addr)>();
+        foreach (var (baseAddr, d) in Regions(true))
+        {
+            int len = d.Length;
+            for (int o = 0; o + 8 <= len; o += 8)
+            {
+                ulong v = BitConverter.ToUInt64(d, o);
+                if (v < ModBase || v >= ModEnd) continue;
+                foreach (int s in strides)
+                {
+                    if (o + 3 * s + 8 > len || BitConverter.ToUInt64(d, o + s) != v || BitConverter.ToUInt64(d, o + 2 * s) != v) continue;
+                    // start only: the previous slot must not carry the same vtable
+                    if (o >= s && BitConverter.ToUInt64(d, o - s) == v) continue;
+                    int run = 3;
+                    while (o + (run + 1) * s + 8 <= len && BitConverter.ToUInt64(d, o + run * s) == v) run++;
+                    if (run < minRun) continue;
+                    var key = (v, s);
+                    classes.TryGetValue(key, out var best);
+                    classes[key] = (Math.Max(run, best.Run), best.Total + run, run > best.Run ? baseAddr + (ulong)o : best.Addr);
+                }
+            }
+        }
+        Console.WriteLine($"classes: {classes.Count}");
+        int shown = 0;
+        foreach (var (key, best) in classes.OrderByDescending(c => c.Value.Run))
+        {
+            int names = 0, uids = 0, rows = 0, small = 0, sampled = 0; string sample = "";
+            for (int i = 0; i < Math.Min(16, best.Run); i++)
+            {
+                ulong at = best.Addr + (ulong)(i * key.Stride);
+                var raw = Read(at, 0xD0);
+                if (raw.Length < 0xD0) continue;
+                sampled++;
+                string? name = ObjectName(at);
+                if (name is { Length: > 0 }) { names++; if (sample.Length == 0) sample = name; }
+                if (BitConverter.ToUInt32(raw, 0xCC) >= 2_000_000_000) uids++;
+                uint row = BitConverter.ToUInt32(raw, 0xC8);
+                if (row is > 0 and < 1_000_000) rows++;
+                if (raw[0xB0] <= 20 && raw[0xB1] <= 20 && raw[0xB2] <= 20 && raw[0xB3] <= 20) small++;
+            }
+            if (names < 2) continue;
+            Console.WriteLine($"vtable +0x{key.Vt - ModBase:X} stride 0x{key.Stride:X} maxrun {best.Run} total {best.Total} at 0x{best.Addr:X} names {names}/{sampled} uid {uids}/{sampled} row {rows}/{sampled} small {small}/{sampled} e.g. '{sample}'");
+            if (++shown >= 50) break;
+        }
+    }
+    // Runs of objects sharing one module vtable at a fixed stride: finds chunked struct pools (agents, staff, ...).
+    static void StrideScan(int stride, int minRun)
+    {
+        int hits = 0;
+        foreach (var (baseAddr, d) in Regions(true))
+        {
+            int len = d.Length;
+            for (int o = 0; o + stride + 8 <= len; )
+            {
+                ulong v = BitConverter.ToUInt64(d, o);
+                if (v < ModBase || v >= ModEnd) { o += 8; continue; }
+                int run = 1;
+                while (o + run * stride + 8 <= len && BitConverter.ToUInt64(d, o + run * stride) == v) run++;
+                if (run >= minRun)
+                {
+                    Console.WriteLine($"0x{baseAddr + (ulong)o:X} vtable +0x{v - ModBase:X} run {run} stride 0x{stride:X}");
+                    if (++hits >= 40) return;
+                    o += run * stride;
+                }
+                else o += 8;
+            }
+        }
+        Console.WriteLine($"hits={hits}");
+    }
     static void FindText(string s)
     {
         var pats = new[] { ("utf16", Encoding.Unicode.GetBytes(s)), ("utf8", Encoding.UTF8.GetBytes(s)) };

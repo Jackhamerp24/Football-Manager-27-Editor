@@ -87,6 +87,10 @@ public sealed class ClubFieldAccess(IProcessMemory memory, OffsetProfile profile
             throw new MemoryAccessException($"Write of {field} at 0x{at:X} failed");
     }
 
+    /// <summary>Address the field is stored at for <paramref name="root"/> (a club or team object), null when it is not mapped or the path is broken.</summary>
+    public ulong? AddressOf(ulong root, ClubField field) =>
+        Map.TryGetValue(field, out var o) && RootOk(root, o.Root) ? Resolve(root, o) : null;
+
     bool RootOk(ulong root, ClubFieldRoot kind)
     {
         uint? rva = kind == ClubFieldRoot.Club ? profile.Club?.ClubVtableRva : profile.Team?.VtableRva;

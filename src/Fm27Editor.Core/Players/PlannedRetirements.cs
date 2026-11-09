@@ -8,24 +8,25 @@ internal sealed record RetirementSnapshot(ulong Root, ulong Manager, byte[] List
     ulong ListBegin, ulong IndexBegin, byte[] Pointers, byte[] Index, IReadOnlyList<byte[]> Entries,
     IReadOnlyDictionary<uint, PlannedRetirement> ByPerson);
 
-/// <summary>Read-only retirement index for the verified Game Pass build.</summary>
+/// <summary>Read-only retirement index; the manager is named by the profile (measured on Game Pass and Steam 27.0.0+2493426).</summary>
 public sealed class PlannedRetirements(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
-    internal const uint GamePassManagerRva = 0x5675060, GamePassManagerVtable = 0x4E6B440;
     const int MaxEntries = 131072;
 
-    public bool IsSupported => profile.ImageSize == 0x175DA000 && profile.PeTimestamp == 0x6AE563A1 && profile.PlayerListRootRva == 0x5683DC0;
+    /// <summary>True when the profile names the manager (slot and vtable); the structure checks below refuse anything that is not it.</summary>
+    public bool IsSupported => profile.RetirementManagerRva is not null && profile.RetirementManagerVtable is not null;
+
+    internal uint ManagerVtable => profile.RetirementManagerVtable ?? throw new InvalidOperationException("Planned retirements are not available for this build");
 
     public IReadOnlyDictionary<uint, PlannedRetirement> ReadAll() => Snapshot().ByPerson;
 
     internal RetirementSnapshot Snapshot()
     {
-        // This RVA and vtable were measured for this exact PE fingerprint; do not assume other builds match.
         if (!IsSupported)
             throw new InvalidOperationException("Planned retirements are not available for this build");
-        ulong root = moduleBase + GamePassManagerRva;
+        ulong root = moduleBase + profile.RetirementManagerRva!.Value;
         ulong manager = memory.ReadUInt64(root);
-        if (manager == 0 || memory.ReadUInt64(manager) != moduleBase + GamePassManagerVtable)
+        if (manager == 0 || memory.ReadUInt64(manager) != moduleBase + ManagerVtable)
             throw new StaleObjectException("Retirement manager is not available");
         var lists = memory.Read(manager + 0x30, 24);
         var index = memory.Read(manager + 0x90, 24);
@@ -57,7 +58,7 @@ public sealed class PlannedRetirements(IProcessMemory memory, OffsetProfile prof
                 throw new StaleObjectException("Retirement index does not match its entries");
             previous = person;
         }
-        if (memory.ReadUInt64(root) != manager || memory.ReadUInt64(manager) != moduleBase + GamePassManagerVtable ||
+        if (memory.ReadUInt64(root) != manager || memory.ReadUInt64(manager) != moduleBase + ManagerVtable ||
             !memory.Read(manager + 0x30, 24).AsSpan().SequenceEqual(lists) ||
             !memory.Read(manager + 0x90, 24).AsSpan().SequenceEqual(index) ||
             (count > 0 && (!memory.Read(begin, pointers.Length).AsSpan().SequenceEqual(pointers) ||

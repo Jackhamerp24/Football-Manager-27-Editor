@@ -23,6 +23,10 @@ public class ClubFieldAccessTests
           "EmbargoStart": { "root": "club", "path": "0x100->0xE4", "type": "date" },
           "SupportersCore": { "root": "club", "path": "0x100->0xE8", "type": "int16", "scale": 10 },
           "AverageTicketPrice": { "root": "club", "path": "0x100->0xEC", "type": "float" },
+          "YouthImportance": { "root": "club", "path": "0x100->0x126", "type": "byte" },
+          "YouthFacilities": { "root": "club", "path": "0x100->0x12B", "type": "byte" },
+          "YouthCoaching": { "root": "club", "path": "0x100->0x12C", "type": "byte" },
+          "YouthRecruitment": { "root": "club", "path": "0x100->0x12D", "type": "byte" },
           "WageBudget": { "root": "club", "path": "0x108->0x40", "type": "int32", "objectVtables": ["0x4CF0CC8"] },
           "TeamReputation": { "root": "team", "path": "0x20", "type": "int16" }
         },
@@ -42,13 +46,15 @@ public class ClubFieldAccessTests
         var fin = _m.Map(Finance, 0x50);
         TestWorld.Set64(fin, 0, TestWorld.ModuleBase + 0x4CF0CC8);
         BitConverter.GetBytes(496589).CopyTo(fin, 0x40);
-        var d = _m.Map(Detail, 0x100);
+        var d = _m.Map(Detail, 0x140);
         BitConverter.GetBytes(1889).CopyTo(d, 0xD8);
         BitConverter.GetBytes((short)6916).CopyTo(d, 0xDE);
         d[0xE0] = 1;
         Convert.FromHexString("01006C07").CopyTo(d, 0xE4); // 1/1/1900
         BitConverter.GetBytes((short)400).CopyTo(d, 0xE8);  // 40 % stored ×10
         BitConverter.GetBytes(35f).CopyTo(d, 0xEC);         // ticket price is a float (C1: Sheffield 35.0)
+        d[0x126] = 19;                                      // Man Utd youth importance on 8/11/2026
+        d[0x12B] = 18; d[0x12C] = 18; d[0x12D] = 18;        // facilities, coaching, recruitment
         var t = _m.Map(Team, 0x40);
         TestWorld.Set64(t, 0, TestWorld.ModuleBase + TeamVt);
         BitConverter.GetBytes((short)6200).CopyTo(t, 0x20);
@@ -123,12 +129,27 @@ public class ClubFieldAccessTests
         Assert.Equal(496589, BitConverter.ToInt32(_m.Read(Finance + 0x40, 4)));
     }
 
+    /// <summary>
+    /// Man Utd's four youth bytes on 8/11/2026 (importance 19, facilities/coaching/recruitment 18); FM Studio's
+    /// MaximizeYouthInfrastructure writes 20 to each of the four.
+    /// </summary>
+    [Fact]
+    public void Youth_academy_reads_and_maximises_the_four_values()
+    {
+        var academy = new YouthAcademy(_m, _profile, TestWorld.ModuleBase);
+        Assert.Equal(new YouthInfrastructure(18, 18, 18, 19), academy.Read(Club));
+        Assert.True(academy.Maximize(Club));
+        Assert.Equal(new YouthInfrastructure(20, 20, 20, 20), academy.Read(Club));
+        Assert.False(academy.Maximize(Club));
+        Assert.Throws<ArgumentOutOfRangeException>(() => academy.Set(Club, new YouthInfrastructure(21, 20, 20, 20)));
+        Assert.Equal(20, _m.Read(Detail + 0x12B, 1)[0]);
+    }
     [Fact]
     public void Profile_round_trips_club_fields_and_rejects_unknown_names()
     {
         var copy = OffsetProfile.Load(_profile.ToJson());
         var f = copy.Club!.Fields!;
-        Assert.Equal(8, f.Count);
+        Assert.Equal(12, f.Count); // eight club/team fields plus the four youth values
         Assert.Equal([0x4CF0CC8u], f[ClubField.WageBudget].ObjectVtables);
         Assert.Equal([0x100, 0xD8], f[ClubField.YearFounded].Path);
         Assert.Equal(ClubFieldRoot.Team, f[ClubField.TeamReputation].Root);

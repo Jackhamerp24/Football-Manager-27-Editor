@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         try { snapshot = backend.Session.StaffFormations.Read(staff); }
         catch (Exception ex) { outer.Children.Add(new TextBlock { Text = ex.Message }); return outer; }
         var boxes = new ComboBox[8];
-        var save = new Button { Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
+        var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var discard = new Button { Content = "Discard", IsEnabled = false };
 
         var rows = new StackPanel { Spacing = 0 };
@@ -55,7 +55,7 @@ public sealed partial class MainWindow
         save.Click += (_, _) =>
         {
             var values = boxes.Select(b => ((FormationChoice)b.SelectedItem!).Code).ToArray();
-            try { backend.Edits.Execute(() => backend.Session.StaffFormations.Save(staff, snapshot, values)); RenderStaffEditor(); status.Text = "Saved formations. Continue in FM to see updates."; }
+            try { backend.Edits.Execute("Staff", staff.DisplayName, "Formations", () => backend.Session.StaffFormations.Save(staff, snapshot, values)); RenderStaffEditor(); status.Text = "Saved formations. Continue in FM to see updates."; }
             catch (Exception ex) { status.Text = ex.Message; }
         };
         discard.Click += (_, _) => RenderStaffEditor();

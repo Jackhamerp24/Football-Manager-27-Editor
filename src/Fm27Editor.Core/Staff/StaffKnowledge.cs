@@ -38,6 +38,14 @@ public sealed class StaffKnowledge(IProcessMemory memory, OffsetProfile profile,
             ulong team = memory.ReadUInt64(nation.Address + (ulong)nationTeam.Team);
             if (team != 0 && memory.ReadUInt64(team) == moduleBase + nationTeam.TeamVtable)
                 names.TryAdd(team, nation.DisplayName);
+            // Staff knowledge can name the women's team (nation + 0x110). Measured on Steam 27.0.0+2493426:
+            // all 440 unmatched rows pointed here, so they are real data, not a broken record.
+            if (profile.Nation?.WomenTeam is { } womenOffset)
+            {
+                ulong women = memory.ReadUInt64(nation.Address + (ulong)womenOffset);
+                if (women != 0 && women != team && memory.ReadUInt64(women) == moduleBase + nationTeam.TeamVtable)
+                    names.TryAdd(women, nation.DisplayName + " (Women)");
+            }
         }
         var rows = new List<StaffKnowledgeRow>();
         for (ulong p = begin; p < end; p += 8)

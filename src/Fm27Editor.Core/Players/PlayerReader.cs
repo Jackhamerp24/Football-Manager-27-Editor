@@ -116,7 +116,11 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
         int size = Math.Max(NationReadSize, Math.Max(nat.Name, nat.ShortName) + 8);
         var b = new byte[size];
         if (memory.TryRead(address, b) && BitConverter.ToUInt64(b) == ModuleBase + nat.VtableRva)
-            nation = new NationInfo(address, StringAt(BitConverter.ToUInt64(b, nat.Name)), StringAt(BitConverter.ToUInt64(b, nat.ShortName)));
+        {
+            int? natId = nat.Id is { } idOff && idOff + 4 <= b.Length ? BitConverter.ToInt32(b, idOff) : null;
+            if (natId <= 0) natId = null;
+            nation = new NationInfo(address, StringAt(BitConverter.ToUInt64(b, nat.Name)), StringAt(BitConverter.ToUInt64(b, nat.ShortName)), natId);
+        }
         _nations[address] = nation;
         return nation;
     }

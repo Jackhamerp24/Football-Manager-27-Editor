@@ -28,9 +28,10 @@ public sealed partial class MainWindow
         public BanWriter.BanFields? Parse(int scopeFallback, int reasonFallback, out string error)
         {
             error = "Unavailability: enter whole numbers, a date like 2026-11-25, 0–127 matches and a fulfilled count within that total";
-            if (!int.TryParse(Item.Text, out var item) || !int.TryParse(Points.Text, out var points) || !int.TryParse(Days.Text, out var days)
+            int days = -1;
+            if (!int.TryParse(Item.Text, out var item) || !int.TryParse(Points.Text, out var points) || (!string.IsNullOrWhiteSpace(Days.Text) && !int.TryParse(Days.Text, out days))
                 || !int.TryParse(Matches.Text, out var matches) || !int.TryParse(Fulfilled.Text, out var fulfilled)
-                || !DateOnly.TryParseExact(Start.Text, "yyyy-MM-dd", Inv, System.Globalization.DateTimeStyles.None, out var start)
+                || !DateSetting.TryParse(Start.Text, out var start)
                 || points is < 0 or > 127 || days is < -1 or > short.MaxValue || matches is < 0 or > 127 || fulfilled < 0 || fulfilled > matches)
                 return null;
             int scope = ScopeCode(scopeFallback);
@@ -39,7 +40,7 @@ public sealed partial class MainWindow
         }
     }
 
-    BanEditor BanCard(StackPanel panel, int scope, int item, int reason, int points, DateOnly? start, int days, int matches, int fulfilled, Control? actions)
+    BanEditor BanCard(StackPanel panel, int scope, int item, int reason, int points, DateOnly? start, int days, int matches, int fulfilled, Control? actions, string? title = null)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 24, RowSpacing = 4, Margin = new Thickness(12, 8) };
         TextBox Box(string text) => new() { Text = text, Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
@@ -47,10 +48,11 @@ public sealed partial class MainWindow
         {
             Scope = new ComboBox { Width = 300, ItemsSource = BanEditor.ScopeItems(scope) },
             Reason = new ComboBox { Width = 300, ItemsSource = BanEditor.ReasonItems(reason) },
-            Item = Box(item.ToString(Inv)), Points = Box(points.ToString(Inv)), Start = Box(start?.ToString("yyyy-MM-dd", Inv) ?? ""),
-            Days = Box(days.ToString(Inv)), Matches = Box(matches.ToString(Inv)), Fulfilled = Box(fulfilled.ToString(Inv)),
+            Item = Box(item.ToString(Inv)), Points = Box(points.ToString(Inv)), Start = new DateBox { Text = DateSetting.Format(start), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right },
+            Days = Box(days == -1 ? "" : days.ToString(Inv)), Matches = Box(matches.ToString(Inv)), Fulfilled = Box(fulfilled.ToString(Inv)),
             ItemRow = new TextBlock { Text = "Item", VerticalAlignment = VerticalAlignment.Center },
         };
+        e.Days.Watermark = "None";
         int si = BanLabels.Scopes.ToList().FindIndex(s => s.Code == scope);
         e.Scope.SelectedIndex = si >= 0 ? si : BanLabels.Scopes.Count;
         int ri = BanLabels.Reasons.ToList().FindIndex(r => r.Code == reason);
@@ -74,7 +76,7 @@ public sealed partial class MainWindow
         e.Scope.SelectionChanged += (_, _) => e.ShowItem();
         var body = new StackPanel { Children = { grid } };
         if (actions is not null) body.Children.Add(new Border { BorderBrush = UiKit.BorderSubtle, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(12, 8), Child = actions });
-        panel.Children.Add(UiKit.Card(BanLabels.ScopeName(scope), body));
+        panel.Children.Add(UiKit.Card(title ?? BanLabels.ScopeName(scope), body));
         return e;
     }
 
@@ -87,38 +89,55 @@ public sealed partial class MainWindow
         string done = "Continue in FM to see updates.";
         foreach (var ban in bans)
         {
-            var save = new Button { Content = "Save", Classes = { "accent" } };
+            var save = new Button { IsVisible = false, Content = "Save", Classes = { "accent" } };
             var remove = new Button { Content = "Remove" };
             var e = BanCard(panel, ban.Scope, ban.ItemId, ban.Reason, ban.Points, ban.Start, ban.Days, ban.Matches, ban.MatchesFulfilled,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, remove } });
             save.Click += (_, _) =>
             {
                 if (e.Parse(ban.Scope, ban.Reason, out var error) is not { } f) { status.Text = error; return; }
-                try { backend.Edits.Execute(() => Writer().SetFields(player, ban, f)); status.Text = $"Saved unavailability. {done}"; RenderEditor(); }
+                try { backend.Edits.Execute("Player", player.DisplayName, "Page save", () => Writer().SetFields(player, ban, f)); status.Text = $"Saved unavailability. {done}"; RenderEditor(); }
                 catch (Exception ex) { status.Text = ex.Message; }
             };
             remove.Click += (_, _) =>
             {
-                try { backend.Edits.Execute(() => Writer().Remove(player, ban)); status.Text = $"Removed {BanLabels.ScopeName(ban.Scope)}. {done}"; RenderEditor(); }
+                try { backend.Edits.Execute("Player", player.DisplayName, "Page save", () => Writer().Remove(player, ban)); status.Text = $"Removed {BanLabels.ScopeName(ban.Scope)}. {done}"; RenderEditor(); }
                 catch (Exception ex) { status.Text = ex.Message; }
             };
         }
 
-        // New card with FMRTE's defaults for +: Global Ban, Sending off, 2 points, today, no day count, 3 matches.
-        var add = new Button { Content = "Add" };
-        var today = session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
-        var n = BanCard(panel, 25, -1, 2, 2, today, -1, 3, 0, add);
-        add.Click += (_, _) =>
+        var addHost = new StackPanel { Spacing = 8 };
+        var showAddBtn = new Button { Content = "Add unavailability" };
+        addHost.Children.Add(showAddBtn);
+
+        showAddBtn.Click += (_, _) =>
         {
-            if (n.Parse(25, 2, out var error) is not { } f) { status.Text = error; return; }
-            try
+            addHost.Children.Clear();
+            var add = new Button { Content = "Add", Classes = { "accent" } };
+            var cancel = new Button { Content = "Cancel" };
+            var today = session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
+            var n = BanCard(addHost, 25, -1, 2, 2, today, -1, 3, 0,
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { add, cancel } },
+                "New Unavailability");
+            add.Click += (_, _) =>
             {
-                backend.Edits.Execute(() => session.AddBan(player, bans, f));
-                status.Text = $"Added {BanLabels.ScopeName(f.Scope)}. Its record lives outside the game's allocator; keep a backup of the save. {done}";
-                RenderEditor();
-            }
-            catch (Exception ex) { status.Text = ex.Message; }
+                if (n.Parse(25, 2, out var error) is not { } f) { status.Text = error; return; }
+                try
+                {
+                    backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.AddBan(player, bans, f));
+                    status.Text = $"Added {BanLabels.ScopeName(f.Scope)}. Its record lives outside the game's allocator; keep a backup of the save. {done}";
+                    RenderEditor();
+                }
+                catch (Exception ex) { status.Text = ex.Message; }
+            };
+            cancel.Click += (_, _) =>
+            {
+                addHost.Children.Clear();
+                addHost.Children.Add(showAddBtn);
+            };
         };
+
+        panel.Children.Add(addHost);
         return panel;
     }
 }

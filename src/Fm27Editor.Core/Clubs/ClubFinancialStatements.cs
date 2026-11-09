@@ -23,7 +23,7 @@ public sealed record ClubFinancialPeriod(
 /// Reads the monthly statement blocks of one club's finance object. Index 0 is the most recent month; the reader does
 /// not label months, because the game date is not part of the block.
 /// </summary>
-public sealed class ClubFinancialStatements(IProcessMemory memory, OffsetProfile profile)
+public sealed class ClubFinancialStatements(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
     const int MaxPeriods = 24;
 
@@ -63,11 +63,31 @@ public sealed class ClubFinancialStatements(IProcessMemory memory, OffsetProfile
             income[0], income[1], income[2], income[3], income[4], income[5], income[6], income[7], income[8], income[9]);
     }
 
+    /// <summary>The club is still a club object (vtable match) and its finance pointer is readable.</summary>
+    public bool IsClub(ulong clubAddress)
+    {
+        if (profile.Club is not { } club || memory.Read(clubAddress, 8) is not { Length: 8 } head) return false;
+        if (BitConverter.ToUInt64(head, 0) != moduleBase + club.ClubVtableRva) return false;
+        return FinancePointer(clubAddress) is not null;
+    }
+
+    /// <summary>The finance object the club currently points at, or null when unreadable/gone.</summary>
+    public ulong? FinancePointer(ulong clubAddress)
+    {
+        if (profile.Club?.FinanceLists?.Statements is not { } o) return null;
+        var pointer = memory.Read(clubAddress + (ulong)o.FinancePointer, 8);
+        if (pointer.Length < 8) return null;
+        ulong finance = BitConverter.ToUInt64(pointer, 0);
+        return finance == 0 ? null : finance;
+    }
+
     /// <summary>
-    /// Writes one statement figure after checking the block still holds the snapshot value. Income and expenditure keys
-    /// come from <see cref="ClubStatementOffsets.IncomeKeys"/> / <see cref="ClubStatementOffsets.ExpenditureKeys"/>.
+    /// Writes one statement figure after checking the club object, the finance pointer and the block value all still
+    /// match what the caller read. Income/expenditure keys come from <see cref="ClubStatementOffsets.IncomeKeys"/> /
+    /// <see cref="ClubStatementOffsets.ExpenditureKeys"/>.
     /// </summary>
-    public void Set(ulong clubAddress, int periodIndex, bool income, string key, long expected, long value)
+    public void Set(ulong clubAddress, int periodIndex, bool income, string key, long expected, long value,
+        ulong? expectedFinance = null)
     {
         if (profile.Club?.FinanceLists?.Statements is not { } o)
             throw new InvalidOperationException("Profile has no statement offsets");
@@ -79,10 +99,15 @@ public sealed class ClubFinancialStatements(IProcessMemory memory, OffsetProfile
         if (value is < int.MinValue or > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(value));
         if (!Fits(o)) throw new InvalidOperationException("Statement offsets are not usable for this build");
 
+        if (profile.Club is not { } clubLayout || memory.Read(clubAddress, 8) is not { Length: 8 } clubHead
+            || BitConverter.ToUInt64(clubHead, 0) != moduleBase + clubLayout.ClubVtableRva)
+            throw new StaleObjectException("The club object changed since it was read");
         var pointer = memory.Read(clubAddress + (ulong)o.FinancePointer, 8);
         if (pointer.Length < 8) throw new MemoryAccessException("Club finance pointer is unreadable");
         ulong finance = BitConverter.ToUInt64(pointer, 0);
         if (finance == 0) throw new StaleObjectException("Club finance object is gone");
+        if (expectedFinance is { } wantedFinance && wantedFinance != finance)
+            throw new StaleObjectException("The club's finance object was rebuilt since it was read");
 
         ulong address = finance + (ulong)(o.Base + o.Stride * periodIndex + (income ? o.IncomeBase : 0) + offsets[index]);
         var current = memory.Read(address, 4);

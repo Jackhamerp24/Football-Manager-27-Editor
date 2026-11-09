@@ -114,18 +114,41 @@ public sealed class StadiumRepository(IProcessMemory memory, OffsetProfile profi
     public IReadOnlyList<StadiumRecord> LoadAll()
     {
         var s = S;
-        ulong root = memory.ReadUInt64(moduleBase + s.ListRootRva);
-        ulong begin = memory.ReadUInt64(root + (ulong)s.ListOffset), end = memory.ReadUInt64(root + (ulong)s.ListOffset + 8);
-        if (root == 0 || begin == 0 || end < begin || (end - begin) % 8 != 0 || (end - begin) / 8 > MaxStadiums)
-            throw new MemoryAccessException($"Stadium list looks invalid (begin 0x{begin:X}, end 0x{end:X}); is a save loaded?");
-        var raw = memory.Read(begin, (int)(end - begin));
         var reader = new PlayerReader(memory, profile) { ModuleBase = moduleBase };
-        var result = new List<StadiumRecord>(raw.Length / 8);
-        for (int i = 0; i < raw.Length; i += 8)
-            if (Decode(BitConverter.ToUInt64(raw, i), reader) is { } r) result.Add(r);
+        var result = new List<StadiumRecord>();
+        try
+        {
+            ulong root = memory.ReadUInt64(moduleBase + s.ListRootRva);
+            ulong begin = memory.ReadUInt64(root + (ulong)s.ListOffset), end = memory.ReadUInt64(root + (ulong)s.ListOffset + 8);
+            if (root != 0 && begin != 0 && end >= begin && (end - begin) % 8 == 0 && (end - begin) / 8 <= MaxStadiums)
+            {
+                var raw = memory.Read(begin, (int)(end - begin));
+                for (int i = 0; i < raw.Length; i += 8)
+                    if (Decode(BitConverter.ToUInt64(raw, i), reader) is { } r) result.Add(r);
+            }
+        }
+        catch (MemoryAccessException) { }
+        if (result.Count > 1) return result;
+        // The configured slot is stale (Game Pass moves it): look in the neighbouring slots for the real list.
+        var found = PointerListFinder.Find(memory, moduleBase, (uint)s.ListRootRva, moduleBase + s.VtableRva, MaxStadiums);
+        var rescued = new List<StadiumRecord>(found.Count);
+        foreach (ulong address in found)
+            if (Decode(address, reader) is { } r) rescued.Add(r);
+        if (rescued.Count > result.Count) return rescued;
+        if (result.Count == 0) throw new MemoryAccessException("Stadium list looks invalid; is a save loaded?");
         return result;
     }
 
+    /// <summary>Where the stadium stands: the city object its location pointer (<c>stadium +0x60</c>) leads to, 0 when unset.</summary>
+    public const int LocationOffset = 0x60;
+
+    public ulong LocationPointer(ulong stadium) => memory.TryRead(stadium + LocationOffset, new byte[8].AsSpan()) ? memory.ReadUInt64(stadium + LocationOffset) : 0;
+
+    /// <summary>The nearby-stadium pointer (<c>stadium.nearby</c>, +0x68), 0 when unset.</summary>
+    public ulong NearbyPointer(ulong stadium) => profile.Stadium is { } s && memory.TryRead(stadium + (ulong)s.Nearby, new byte[8].AsSpan()) ? memory.ReadUInt64(stadium + (ulong)s.Nearby) : 0;
+
+    public Fm27Editor.Core.Players.CityRecord? LocationOf(ulong stadium) =>
+        LocationPointer(stadium) is var city and not 0 ? new Fm27Editor.Core.Players.CityRepository(memory, profile, moduleBase).Read(city) : null;
     public StadiumRecord? Reload(ulong address) => Decode(address, new PlayerReader(memory, profile) { ModuleBase = moduleBase });
 
     StadiumRecord? Decode(ulong address, PlayerReader reader)
@@ -192,6 +215,61 @@ public sealed class StadiumWriter(IProcessMemory memory, OffsetProfile profile, 
         Write(at, bytes);
     }
 
+    /// <summary>
+    /// Owner: FMRTE 27's "Change Owner" writes only the 8-byte club pointer at <c>stadium.owner</c> (Old Trafford, 9/11/2026). The
+    /// pointer must still be the one that was read and the new one must be a club object.
+    /// </summary>
+    public void SetOwner(StadiumRecord stadium, ulong club)
+    {
+        var s = S;
+        Require(stadium.Address);
+        if (profile.Club is not { } k || memory.ReadUInt64(club) != moduleBase + k.ClubVtableRva) throw new ArgumentException("Not a club", nameof(club));
+        ulong at = stadium.Address + (ulong)s.Owner;
+        if (memory.ReadUInt64(at) != (stadium.Owner?.Address ?? 0)) throw new StaleObjectException("The stadium owner changed since it was read");
+        Write(at, BitConverter.GetBytes(club));
+    }
+
+    /// <summary>Latitude / Longitude: two floats at <c>stadium.latitude</c> / <c>stadium.longitude</c>, each written only when asked and only if still what was read.</summary>
+    public void SetCoordinates(StadiumRecord stadium, float? latitude, float? longitude)
+    {
+        var s = S;
+        if (latitude is < -90 or > 90) throw new ArgumentOutOfRangeException(nameof(latitude), "Latitude is -90 to 90");
+        if (longitude is < -180 or > 180) throw new ArgumentOutOfRangeException(nameof(longitude), "Longitude is -180 to 180");
+        Require(stadium.Address);
+        if (latitude is { } lat)
+        {
+            ulong at = stadium.Address + (ulong)s.Latitude;
+            if (!memory.Read(at, 4).AsSpan().SequenceEqual(BitConverter.GetBytes(stadium.Latitude))) throw new StaleObjectException("Latitude changed since it was read");
+            Write(at, BitConverter.GetBytes(lat));
+        }
+        if (longitude is { } lon)
+        {
+            ulong at = stadium.Address + (ulong)s.Longitude;
+            if (!memory.Read(at, 4).AsSpan().SequenceEqual(BitConverter.GetBytes(stadium.Longitude))) throw new StaleObjectException("Longitude changed since it was read");
+            Write(at, BitConverter.GetBytes(lon));
+        }
+    }
+
+    /// <summary>Nearby Stadium: "Change Nearby Stadium" writes only the 8-byte stadium pointer at <c>stadium.nearby</c> (+0x68; Old Trafford → Anfield, 9/11/2026).</summary>
+    public void SetNearby(StadiumRecord stadium, ulong currentNearby, ulong nearby)
+    {
+        var s = S;
+        Require(stadium.Address);
+        if (nearby == stadium.Address || memory.ReadUInt64(nearby) != moduleBase + s.VtableRva) throw new ArgumentException("Not another stadium", nameof(nearby));
+        ulong at = stadium.Address + (ulong)s.Nearby;
+        if (memory.ReadUInt64(at) != currentNearby) throw new StaleObjectException("The nearby stadium changed since it was read");
+        Write(at, BitConverter.GetBytes(nearby));
+    }
+
+    /// <summary>Location: "Change Stadium Location" writes only the 8-byte city pointer at <see cref="StadiumRepository.LocationOffset"/>.</summary>
+    public void SetLocation(StadiumRecord stadium, ulong currentCity, ulong city)
+    {
+        Require(stadium.Address);
+        if (profile.Cities is not { } c || memory.ReadUInt64(city) != moduleBase + c.Vtable) throw new ArgumentException("Not a city", nameof(city));
+        ulong at = stadium.Address + StadiumRepository.LocationOffset;
+        if (memory.ReadUInt64(at) != currentCity) throw new StaleObjectException("The stadium location changed since it was read");
+        Write(at, BitConverter.GetBytes(city));
+    }
     /// <summary>Seat Colour is four bytes B, G, R, A at <c>stadium.seatColour</c>; FMRTE edits it with a colour picker
     /// and wrote #FF00BEEF to Old Trafford at +0x78 (5/11/2026).</summary>
     public void SetSeatColour(StadiumRecord stadium, uint argb)
