@@ -16,7 +16,7 @@ For single-player, offline saves only. Do not use it online or in shared saves.
 |---|---|
 | Players | Attributes, positions, personality, CA/PA, reputation, height, date of birth, nationality and other details; contract and future contract, bonuses and transfer clauses; career plans, relationships, languages, preferred moves; injuries, bans, unhappiness, national call-ups; work permit and promises |
 | Moving players | Move to club as a transfer with fee and sell-on, as a loan, or as a **future transfer** with a date and all the transfer terms (instalments, appearance and goal payments, buy-back fee, sell-on, wage contribution, friendly), which can also be removed again; swap two players; release; captain / vice captain; clone attributes to other players; comparison |
-| Staff | Attributes, CA/PA, personality, contract, career plans, relationships, languages, knowledge, formations, tendencies, move to another club |
+| Staff | Attributes, CA/PA, personality, contract, career plans, relationships, languages, knowledge, formations, tendencies, move to another club with a new role and wage |
 | Clubs | Information, finances, debt, affiliations, club vision, kits and colours, relationships, staff, squads, transfer center |
 | Nations, stadiums, cities, competitions, awards, referees, injury types | Details, reputation and settings, each in its own screen. Stadiums: owner, location, nearby stadium and coordinates. Cities: nation, region, language and weather |
 | Tools | Squad presets with preview and Undo (heal, fitness, morale, lift bans, remove unhappiness, max attributes, prevent retirement, tactical understanding, team cohesion), freezer, export to CSV / JSON, advanced filters, favourites, reload of the current screen (Ctrl+R), settings (date format) |
@@ -178,22 +178,20 @@ Done:
   agreements, transfer preferences and EuroCoefficients; stadium owner, location, nearby stadium and coordinates; city
   nation, region, language and weather.
 
-In progress:
-
-- Clicking through every screen on the Steam build, and rebuilding the profile for a new game build with one command.
-
 Next:
 
+- A macOS build.
+- Prices shown in the game's currency, or in a currency the user picks.
+- Deeper analysis: the player stats radar tab and player visualisation.
+- Mass edit.
+- Shortlist.
 - Transfer terms for a move that happens now (today only the sell-on is supported).
 - Scout Information and Stats tabs; Possible Signings.
 - Kit items: change type, add, remove, duplicate.
 - Training calendar.
-- Name for relation type 105 (shown as "Unknown (105)").
+- Coach allowances.
 - A smaller, faster-starting exe.
 - Women's football (teams, players, competitions), possibly later.
-
-Not planned: unlocking squad registration, shortlists, renaming players, mass edit, a player progress page, the
-team-level tactical understanding bars (the formula is not known).
 
 ## Disclaimer
 

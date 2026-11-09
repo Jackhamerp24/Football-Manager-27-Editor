@@ -12,6 +12,8 @@ public sealed partial class MainWindow
 {
     readonly Stack<StaffMovePlan> staffMoveUndo = new();
 
+    sealed record RoleOption(byte Code, string Name) { public override string ToString() => Name; }
+
     Control StaffMovePanel(StaffRecord staff)
     {
         var session = backend.Session;
@@ -30,6 +32,14 @@ public sealed partial class MainWindow
         };
         var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextPrimary, FontSize = 13.5, IsVisible = false };
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#F59E0B"), FontSize = 13, IsVisible = false };
+        // Role and weekly wage the member gets at the new club (the current ones to start with); the move itself takes effect today.
+        var roles = StaffMoveService.SupportedJobs.Select(j => new RoleOption(j, StaffLabels.Job(j))).ToList();
+        var currentRole = roles.FirstOrDefault(r => r.Code == staff.JobCode);
+        if (currentRole is null && staff.JobCode is { } unlisted) roles.Insert(0, currentRole = new RoleOption((byte)unlisted, StaffLabels.Job(unlisted)));
+        var roleBox = new ComboBox { ItemsSource = roles, SelectedItem = currentRole, Width = 220 };
+        int? currentWage = null;
+        try { currentWage = session.StaffContracts.Read(staff)?.Wage; } catch (Exception) { }
+        var wageBox = new NumericUpDown { Minimum = 0, Maximum = 1_000_000_000, Increment = 100, FormatString = "0", Width = 140, Value = currentWage ?? 0, IsEnabled = currentWage is not null };
         var apply = new Button { Content = "Confirm transfer", IsEnabled = false, Classes = { "accent" } };
         var undo = new Button { Content = "Undo last staff move", IsEnabled = staffMoveUndo.Count > 0, IsVisible = staffMoveUndo.Count > 0 };
 
@@ -56,14 +66,16 @@ public sealed partial class MainWindow
         }
 
         search.TextChanged += (_, _) => Filter();
-        clubs.SelectionChanged += (_, _) =>
+        void Replan()
         {
             Invalidate();
             if (clubs.SelectedItem is not ClubOption option) return;
             try
             {
                 var from = all.Single(c => c.Address == staff.Club?.Address);
-                plan = service.Plan(staff, from, option.Club, session.ReadGameDate());
+                byte? newJob = roleBox.SelectedItem is RoleOption r && r.Code != staff.JobCode ? r.Code : null;
+                int? newWage = currentWage is { } w && wageBox.Value is { } v && (int)v != w ? (int)v : null;
+                plan = service.Plan(staff, from, option.Club, session.ReadGameDate(), newJob, newWage);
                 details.Text = $"{plan.From.DisplayName}  →  {plan.To.DisplayName}\n{string.Join(", ", plan.Departments)}";
                 details.IsVisible = true;
                 apply.IsEnabled = true;
@@ -73,7 +85,10 @@ public sealed partial class MainWindow
                 error.Text = UserMessage.For(ex);
                 error.IsVisible = true;
             }
-        };
+        }
+        clubs.SelectionChanged += (_, _) => Replan();
+        roleBox.SelectionChanged += (_, _) => Replan();
+        wageBox.ValueChanged += (_, _) => Replan();
         apply.Click += (_, _) =>
         {
             if (plan is not { } selectedPlan) return;
@@ -135,6 +150,8 @@ public sealed partial class MainWindow
             Margin = new Thickness(12, 10),
             Children =
             {
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Role", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, roleBox } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Wages", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, wageBox } },
                 details,
                 error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } },

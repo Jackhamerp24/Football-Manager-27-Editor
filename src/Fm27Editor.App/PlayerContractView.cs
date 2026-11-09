@@ -61,13 +61,12 @@ public sealed partial class MainWindow
         }
         catch (Exception ex) { panel.Children.Add(new TextBlock { Text = UserMessage.For(ex), Foreground = Brush("#94A3B8") }); return panel; }
         var s = draft.Snapshot;
-        Button? save = null, discard = null;
+        Button? save = null;
         void Changed(string key, string original, string value)
         {
             if (key == "Future Year") value = ContractYearInput.NormalizeDraftValue(value, s.FuturePlayingTimeYear);
             if (value == original) draft.Changes.Remove(key); else draft.Changes[key] = value;
             if (save is not null) save.IsEnabled = draft.Changes.Count > 0;
-            if (discard is not null) discard.IsEnabled = draft.Changes.Count > 0;
             status.Text = draft.Changes.Count > 0 ? $"{draft.Changes.Count} unsaved contract change(s)" : "";
         }
         Control Text(string key, string original, double width = 140)
@@ -288,7 +287,7 @@ public sealed partial class MainWindow
     void ClauseChange(PlayerRecord player, ContractDraft draft, Action change, string done)
     {
         if (draft.Changes.Keys.Any(k => k.StartsWith("xfer ", StringComparison.Ordinal)))
-        { status.Text = "Save or discard the clause edits first"; return; }
+        { status.Text = "Save the clause edits first"; return; }
         try
         {
             backend.Edits.Execute("Player", player.DisplayName, "Contract: Clauses", change);
@@ -303,7 +302,7 @@ public sealed partial class MainWindow
     void ChangeTerms(PlayerRecord player, ContractDraft draft, Action change, string done, ulong future = 0)
     {
         if (draft.Changes.Keys.Any(k => k.StartsWith("term ", StringComparison.Ordinal)))
-        { status.Text = "Save or discard the clause edits first"; return; }
+        { status.Text = "Save the clause edits first"; return; }
         try
         {
             backend.Edits.Execute("Player", player.DisplayName, "Contract: Clauses", change);

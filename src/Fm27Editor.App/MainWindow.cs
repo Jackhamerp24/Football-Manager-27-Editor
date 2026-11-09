@@ -111,7 +111,6 @@ public sealed partial class MainWindow : Window
     PlayerPosition? selectedPosition;
     readonly Dictionary<ulong, PlayerDraft> drafts = [];
     Button? saveButton;
-    Button? discardButton;
     Func<bool>? informationDirty;
     Func<bool>? saveInformation;
 
@@ -903,14 +902,6 @@ public sealed partial class MainWindow : Window
 
         saveButton = new Button { IsVisible = false, Content = "Save changes", IsEnabled = draft.Count > 0, Classes = { "accent" }, Margin = new Thickness(4, 0, 0, 0) };
         saveButton.Click += (_, _) => SavePlayerChanges(player);
-        discardButton = new Button { Content = "Discard", IsEnabled = draft.Count > 0 };
-        discardButton.Click += (_, _) =>
-        {
-            drafts.Remove(player.Address);
-            playerScalarDrafts.Remove(player.Address);
-            RenderEditor();
-            status.Text = "Changes discarded";
-        };
 
         var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (player.Id is { } pid)

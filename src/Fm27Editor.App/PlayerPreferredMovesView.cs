@@ -14,11 +14,10 @@ public sealed partial class MainWindow
         var access = new PreferredMovesAccess(session.Memory, session.Profile, session.Game.ModuleBase);
         if (access.Read(player) is not { } current) return panel;
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Margin = new Thickness(12, 8) };
         var boxes = new CheckBox[PreferredMovesAccess.Count];
         ulong Moves() => boxes.Select((b, i) => b.IsChecked == true ? 1UL << i : 0).Aggregate(0UL, (a, b) => a | b);
-        void Changed() => save.IsEnabled = discard.IsEnabled = Moves() != (current & PreferredMovesAccess.Editable);
+        void Changed() => save.IsEnabled = Moves() != (current & PreferredMovesAccess.Editable);
         for (int i = 0; i < boxes.Length; i++)
         {
             if (i % 2 == 0) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
@@ -43,8 +42,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        discard.Click += (_, _) => RenderEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { all, clear, save, discard } });
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { all, clear, save } });
         return panel;
     }
 }

@@ -35,7 +35,6 @@ public sealed partial class MainWindow
         var promises = store.Read(owner);
         var editors = promises.Select(p => new PromiseEditor(p)).ToList();
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
 
         IReadOnlyList<Fm27Editor.Core.Competitions.CompetitionRecord> Competitions() =>
             unifiedCompetitions.Count > 0 ? unifiedCompetitions : unifiedCompetitions = session.Competitions.LoadAll();
@@ -53,11 +52,11 @@ public sealed partial class MainWindow
             return e.TypeId != r.TypeId || e.Made.Text != Day(r.Made) || e.Deadline.Text != Day(r.Deadline)
                 || e.Parameter0 != r.Parameter0 || e.Parameter1 != r.Parameter1;
         }
-        void Refresh() => save.IsEnabled = discard.IsEnabled = editors.Any(Pending);
+        void Refresh() => save.IsEnabled = editors.Any(Pending);
 
         void Change(Action change, string done)
         {
-            if (editors.Any(Pending)) { status.Text = "Save or discard the promise edits first"; return; }
+            if (editors.Any(Pending)) { status.Text = "Save the promise edits first"; return; }
             try { backend.Edits.Execute("Player", player.DisplayName, "Promises", change); status.Text = done; RenderEditor(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
@@ -184,8 +183,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        discard.Click += (_, _) => RenderEditor();
-        if (editors.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        if (editors.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 

@@ -333,12 +333,6 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
         return true;
     }
 
-    protected void Discard(TRecord record)
-    {
-        Drafts.Remove(AddressOf(record));
-        Render();
-    }
-
     void Save(TRecord record, TDraft draft)
     {
         if (Validate(record, draft, out var write) is { } problem) { Host.SetStatus(problem); return; }

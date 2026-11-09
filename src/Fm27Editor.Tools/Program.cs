@@ -174,6 +174,7 @@ try
         "offerlist" => OfferList(args.Length > 1 ? string.Join(" ", args[1..]) : null),
         "careers" => CareersCommand(string.Join(" ", args[1..])),
         "careerprobe" => CareerProbe(string.Join(" ", args[1..])),
+        "staffjobdept" => StaffJobDepartments(),
         "pfhist" => PlayerFieldHistogram(Enum.Parse<PlayerField>(args[1]), args.Length > 2 ? int.Parse(args[2]) : 0),
         "personidx" => PersonIndexCommand(Convert.ToUInt64(args[1], 16)),
         "near32" => Near32Command(int.Parse(args[1]), args[2..]),
@@ -206,7 +207,7 @@ try
         "setstaff" =>SetStaffCommand(string.Join(" ", args[1..^2]), args[^2], int.Parse(args[^1])),
         "staff" => StaffCommand(string.Join(" ", args[1..])),
         "staffid" => StaffById(args[1..].Select(int.Parse).ToArray()),
-        "staffmove" => StaffMove(int.Parse(args[1]), int.Parse(args[2]), args.Contains("--write")),
+        "staffmove" => StaffMove(int.Parse(args[1]), int.Parse(args[2]), args.Contains("--write"), args.SkipWhile(a => a != "--job").Skip(1).Select(a => (byte?)byte.Parse(a)).FirstOrDefault(), args.SkipWhile(a => a != "--wage").Skip(1).Select(a => (int?)int.Parse(a)).FirstOrDefault()),
         "staffmovesurvey" => StaffMoveSurvey(int.Parse(args[1])),
         "setstaffabilityid" => SetStaffAbilityById(int.Parse(args[1]), int.Parse(args[2]), int.Parse(args[3])),
         "staffcontractid" => StaffContractById(int.Parse(args[1]), null),
@@ -1136,7 +1137,7 @@ int MaxAttributesCommand(int id, bool write)
     return 0;
 }
 
-int StaffMove(int id, int buyerId, bool write)
+int StaffMove(int id, int buyerId, bool write, byte? newJob = null, int? newWage = null)
 {
     using var session = Attach(writable: write);
     var staff = session.Staff.LoadAll().Single(s => s.Id == id);
@@ -1144,12 +1145,12 @@ int StaffMove(int id, int buyerId, bool write)
     var from = clubs.Single(c => c.Address == staff.Club?.Address);
     var to = clubs.Single(c => c.Id == buyerId);
     var service = new Fm27Editor.Core.Staff.StaffMoveService(session.Memory, session.Profile, session.ModuleBase);
-    var plan = service.Plan(staff, from, to, session.ReadGameDate());
+    var plan = service.Plan(staff, from, to, session.ReadGameDate(), newJob, newWage);
     Console.WriteLine($"{staff.DisplayName}: {from.DisplayName} -> {to.DisplayName}, {string.Join(", ", plan.Departments)}, {plan.Writes.Count} writes");
     if (!write) { Console.WriteLine("plan only; add --write to apply"); return 0; }
     service.Apply(plan);
     var after = session.Staff.Reload(staff.Address) ?? throw new StaleObjectException("Staff no longer readable");
-    Console.WriteLine($"applied; club now {after.Club?.DisplayName ?? "-"}");
+    Console.WriteLine($"applied; club now {after.Club?.DisplayName ?? "-"}, job {after.JobCode}, wage {session.StaffContracts.Read(after)?.Wage}");
     return 0;
 }
 
@@ -4252,6 +4253,32 @@ int CareerProbe(string query)
 }
 
 // careers <name>   career plans of players matching the name (read only)
+// staffjobdept   which club department vector (medical / coaching / scouting) holds the staff of each job code, over every club (read only)
+int StaffJobDepartments()
+{
+    using var session = Attach(writable: false);
+    var m = session.Memory; var k = session.Profile.Club!;
+    var clubs = session.LoadClubs(session.Players.LoadAll());
+    var staff = session.Staff.LoadAll().Where(x => x.Club is not null).ToDictionary(x => x.StaffAddress, x => x);
+    var map = new SortedDictionary<int, Dictionary<string, int>>();
+    var departments = new[] { ("Medical", k.MedicalStaff), ("Coaching", k.CoachingStaff), ("Scouting", k.ScoutingStaff) };
+    foreach (var club in clubs)
+        foreach (var (name, at) in departments)
+        {
+            if (at is not { } off) continue;
+            ulong begin = m.ReadUInt64(club.Address + (ulong)off), end = m.ReadUInt64(club.Address + (ulong)off + 8);
+            if (begin == 0 || end < begin || (end - begin) / 8 > 400) continue;
+            for (ulong p = begin; p < end; p += 8)
+                if (staff.TryGetValue(m.ReadUInt64(p), out var member) && member.JobCode is { } job)
+                {
+                    if (!map.TryGetValue(job, out var d)) map[job] = d = [];
+                    d[name] = d.GetValueOrDefault(name) + 1;
+                }
+        }
+    foreach (var (job, d) in map) Console.WriteLine($"job {job,3}: {string.Join(", ", d.Select(x => $"{x.Key} {x.Value}"))}");
+    return 0;
+}
+
 int CareersCommand(string query)
 {
     using var session = Attach(writable: false);

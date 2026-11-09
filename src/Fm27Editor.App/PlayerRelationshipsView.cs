@@ -23,7 +23,6 @@ public sealed partial class MainWindow
         var statuses = backend.Session.ReadStatuses(player);
         var fields = new List<(PlayerRelationship Row, TextBox Value, ComboBox Reason, CheckBox? Permanent)>();
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         bool Changed((PlayerRelationship Row, TextBox Value, ComboBox Reason, CheckBox? Permanent) f) =>
             f.Value.Text != f.Row.Value.ToString(Inv) || f.Reason.SelectedIndex != f.Row.Reason || (f.Permanent is { } p && p.IsChecked != (f.Row.Flags != 0));
         // Other Nationality rows: only Nationality Info is editable (the record's +0xD byte).
@@ -31,12 +30,12 @@ public sealed partial class MainWindow
         var infoCodes = RelationshipWriter.OtherNationalityInfos;
         bool InfoChanged((PlayerRelationship Row, ComboBox Info) f) => f.Info.SelectedIndex >= 0 && infoCodes[f.Info.SelectedIndex] != f.Row.Flags;
         bool AnyChanged() => fields.Any(Changed) || infos.Any(InfoChanged);
-        void Refresh() => save.IsEnabled = discard.IsEnabled = AnyChanged();
+        void Refresh() => save.IsEnabled = AnyChanged();
 
         // Add and Remove write at once, like FMRTE's +/−; they refuse while edits are pending since the list moves.
         void Change(Action change, string done)
         {
-            if (AnyChanged()) { status.Text = "Save or discard the relationship edits first"; return; }
+            if (AnyChanged()) { status.Text = "Save the relationship edits first"; return; }
             try { backend.Edits.Execute("Person", player.Name, "Relationships", change); status.Text = done; rerender(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
@@ -178,8 +177,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        discard.Click += (_, _) => rerender();
-        if (statuses.Relationships.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        if (statuses.Relationships.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 }

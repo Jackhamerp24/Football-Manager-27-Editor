@@ -96,6 +96,37 @@ public class StaffMoveTests
     }
 
     [Fact]
+    public void A_new_role_and_wage_move_the_staff_to_that_roles_department_and_undo_restores_everything()
+    {
+        var service = new StaffMoveService(memory, profile, Module);
+        var original = memory.Read(Contract, 0x60);
+        var plan = service.Plan(member, from, to, newJob: 12, newWage: 5000);   // 12 = a medical role
+        Assert.Equal(new[] { "Medical" }, plan.Departments);
+        service.Apply(plan);
+        Assert.Equal(12, memory.Read(Contract + 0x26, 1)[0]);
+        Assert.Equal(5000, BitConverter.ToInt32(memory.Read(Contract + 0x20, 4)));
+        Assert.Equal(ToTeam, Q(Contract + 0x10));
+        Assert.Equal(new[] { Other, Other + 8, 0UL }, new[] { Q(FromCoaching), Q(FromCoaching + 8), Q(FromCoaching + 16) });   // left the coaching list
+        Assert.Equal(Staff, Q(ToMedical + 8));                                                                                   // joined the medical list
+        Assert.Equal(ToMedical + 16, Q(To + 0x68));
+        Assert.Equal(ToCoaching + 8, Q(To + 0x80));                                                                              // coaching list untouched
+        service.Undo(plan);
+        Assert.Equal(original, memory.Read(Contract, 0x60));
+        Assert.Equal(ToMedical + 8, Q(To + 0x68));
+        Assert.Equal(new[] { Other, Staff, Other + 8 }, new[] { Q(FromCoaching), Q(FromCoaching + 8), Q(FromCoaching + 16) });
+    }
+
+    [Fact]
+    public void A_role_a_move_cannot_give_is_refused_before_any_write()
+    {
+        var service = new StaffMoveService(memory, profile, Module);
+        int writes = memory.Writes;
+        Assert.Throws<InvalidOperationException>(() => service.Plan(member, from, to, newJob: 16));   // 16 = Manager
+        Assert.Throws<ArgumentOutOfRangeException>(() => service.Plan(member, from, to, newWage: -1));
+        Assert.Equal(writes, memory.Writes);
+    }
+
+    [Fact]
     public void Refuses_changed_team_before_any_write()
     {
         var service = new StaffMoveService(memory, profile, Module);

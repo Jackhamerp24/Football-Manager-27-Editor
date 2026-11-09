@@ -26,10 +26,9 @@ public sealed partial class MainWindow
 
         var fields = new List<(StaffTendency Row, ComboBox Type, TextBox Box)>();
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         static byte Code(ComboBox box) => ((TendencyChoice)box.SelectedItem!).Code;
         bool Pending() => fields.Any(f => f.Box.Text != f.Row.Level.ToString(Inv) || Code(f.Type) != f.Row.Type);
-        void Refresh() => save.IsEnabled = discard.IsEnabled = Pending();
+        void Refresh() => save.IsEnabled = Pending();
 
         var list = new StackPanel { Spacing = 0 };
         int idx = 0;
@@ -81,8 +80,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }
         };
-        discard.Click += (_, _) => RenderStaffEditor();
-        outer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        outer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return outer;
     }
 }

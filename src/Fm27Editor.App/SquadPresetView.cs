@@ -120,6 +120,8 @@ public sealed partial class MainWindow
             }
         }
         catch (Exception ex) { status.Text = $"Preset: {ex.Message}"; return; }
+        if (preventRetirement && !undoing && changes.Count == 0) { status.Text = "Nothing to change: already set to keep playing"; return; }
+        string? result = null;
         var window = new Window { Title = undoing ? "Undo preset" : $"{(preventRetirement ? "Prevent retirement" : maxAttributes ? "Max attributes" : heal ? "Heal" : removeUnhappiness ? "Remove unhappiness" : liftBans ? "Lift bans" : preset.ToString())} — Preview", Width = 600, Height = 500, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var table = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = false, ItemsSource = changes, RowHeight = 27 };
         table.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding("Player.Id"), Width = new DataGridLength(103) });
@@ -198,6 +200,7 @@ public sealed partial class MainWindow
                 if (undoing && batch.Count == 0) squadPresetUndo.Pop();
                 else if (!undoing && batch.Count > 0) squadPresetUndo.Push(batch);
                 text.Text = failure is null ? $"{count:N0} changes applied" : $"{count:N0} completed. {failure.Message}";
+                result = text.Text;
             }
             finally { running = busy = false; }
         };
@@ -206,6 +209,8 @@ public sealed partial class MainWindow
         {
             if (clubsActive) RenderClubEditor();
             else nationScreen.Reopen();
+            ReloadCurrentScreen();
         }
+        if (result is not null) status.Text = result;
     }
 }

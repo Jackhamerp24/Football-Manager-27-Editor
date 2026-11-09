@@ -27,7 +27,6 @@ public sealed partial class MainWindow
         var rowsHost = new StackPanel { Spacing = 8 };
         var rows = new List<InjuryRow>();
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         var session = backend.Session;
         var existing = session.ReadInjuries(player);
 
@@ -44,7 +43,7 @@ public sealed partial class MainWindow
         bool RowChanged(InjuryRow r) => r.Injury is not { } i
             || r.Minimum.Text != i.MinimumDays.ToString(Inv) || r.Extra.Text != i.ExtraDays.ToString(Inv) || Treatment(r.Boxes) != i.Treatment
             || r.Type.SelectedItem is InjuryType t && t.Id != i.TypeId;
-        void Changed() => save.IsEnabled = discard.IsEnabled = rows.Any(r => r.Removed || RowChanged(r));
+        void Changed() => save.IsEnabled = rows.Any(r => r.Removed || RowChanged(r));
 
         InjuryRow BuildRow(PlayerInjury? injury)
         {
@@ -173,8 +172,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
-        discard.Click += (_, _) => RenderEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { add, discard, save } });
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { add, save } });
         panel.Children.Add(rowsHost);
         return panel;
     }

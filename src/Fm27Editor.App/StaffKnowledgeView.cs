@@ -24,13 +24,12 @@ public sealed partial class MainWindow
         catch (Exception ex) { panel.Children.Add(new TextBlock { Text = ex.Message }); return panel; }
         var fields = new List<(StaffKnowledgeRow Row, TextBox Box)>();
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         bool Pending() => fields.Any(f => f.Box.Text != f.Row.Value.ToString(Inv));
 
         // Add and Remove write at once, like FMRTE's +/−; they refuse while edits are pending since the list moves.
         void Change(Action change, string done)
         {
-            if (Pending()) { status.Text = "Save or discard the knowledge edits first"; return; }
+            if (Pending()) { status.Text = "Save the knowledge edits first"; return; }
             try { backend.Edits.Execute("Staff", staff.DisplayName, "Knowledge: Add/Remove", change, StaffChangeLabels.ForKnowledge(rows)); status.Text = done; RenderStaffEditor(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
@@ -47,7 +46,7 @@ public sealed partial class MainWindow
             DockPanel.SetDock(box, Dock.Right); line.Children.Add(box);
             line.Children.Add(new TextBlock { Text = row.Nation, Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
             fields.Add((row, box));
-            box.TextChanged += (_, _) => save.IsEnabled = discard.IsEnabled = Pending();
+            box.TextChanged += (_, _) => save.IsEnabled = Pending();
             list.Children.Add(new Border
             {
                 Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
@@ -111,8 +110,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }
         };
-        discard.Click += (_, _) => RenderStaffEditor();
-        if (fields.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        if (fields.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 }

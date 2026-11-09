@@ -8,7 +8,11 @@ namespace Fm27Editor.Core.Staff;
 
 public sealed record StaffMoveGuard(ulong Address, byte[] Bytes, string What);
 public sealed record StaffMovePlan(StaffRecord Staff, ClubEntry From, ClubEntry To, ulong Contract, ulong DestinationTeam,
-    IReadOnlyList<string> Departments, IReadOnlyList<StaffMoveGuard> Guards, IReadOnlyList<PlannedWrite> Writes);
+    IReadOnlyList<string> Departments, IReadOnlyList<StaffMoveGuard> Guards, IReadOnlyList<PlannedWrite> Writes)
+{
+    public byte? NewJob { get; init; }
+    public int? NewWage { get; init; }
+}
 
 /// <summary>Moves an ordinary staff member between club department vectors without allocating game memory.</summary>
 public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
@@ -18,9 +22,10 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
     TeamOffsets T => profile.Team ?? throw new InvalidOperationException("No team offsets");
     StaffOffsets S => profile.Staff ?? throw new InvalidOperationException("No staff offsets");
 
-    public StaffMovePlan Plan(StaffRecord staff, ClubEntry from, ClubEntry to, DateOnly? gameDate = null)
+    public StaffMovePlan Plan(StaffRecord staff, ClubEntry from, ClubEntry to, DateOnly? gameDate = null, byte? newJob = null, int? newWage = null)
     {
         ValidateStaff(staff);
+        if (newJob is { } wanted && !SupportedJob(wanted)) throw new InvalidOperationException("That role cannot be given by a move");
         if (staff.Kind.Manager || staff.Kind.StaffPart != 0x100) throw new InvalidOperationException("Human managers and unusual staff objects cannot be moved");
         if (from.Address == to.Address) throw new InvalidOperationException("Staff already belongs to that club");
         var guards = new List<StaffMoveGuard>();
@@ -38,7 +43,7 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
         int jobAt = C.Job ?? throw new InvalidOperationException("No contract job offset");
         int seniorAt = C.SeniorTeam ?? throw new InvalidOperationException("No contract senior team offset");
         var contractBytes = Capture(contract, Math.Max(Math.Max(C.JoinedDate + 4, (C.Started ?? 0) + 4),
-            Math.Max(jobAt + 1, Math.Max(seniorAt + 8, owner + 8))), "contract");
+            Math.Max(jobAt + 2, Math.Max(seniorAt + 8, Math.Max(owner + 8, C.Wage + 4)))), "contract");
         ulong contractOwner = BitConverter.ToUInt64(contractBytes, owner);
         ulong employer = BitConverter.ToUInt64(contractBytes, C.Team);
         ulong senior = BitConverter.ToUInt64(contractBytes, seniorAt);
@@ -97,7 +102,9 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
         {
             ("Medical", K.MedicalStaff), ("Coaching", K.CoachingStaff), ("Scouting", K.ScoutingStaff),
         };
+        // Where the staff member sits now (read from the source club) and where the new role belongs at the destination.
         var active = new List<string>();
+        var sourceEntries = new Dictionary<string, (Vector Vector, int Index)>();
         foreach (var (name, offset) in departments)
         {
             if (offset is not { } at) throw new InvalidOperationException("Missing staff department offset");
@@ -106,6 +113,14 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
             int[] indices = Enumerable.Range(0, entries.Length).Where(i => entries[i] == staff.StaffAddress).ToArray();
             if (indices.Length > 1) throw new InvalidOperationException("Staff appears more than once in a department");
             if (indices.Length == 0) continue;
+            active.Add(name);
+            sourceEntries[name] = (source, indices[0]);
+        }
+        if (active.Count == 0) throw new InvalidOperationException("Staff is not in any supported source department");
+        var targets = newJob is { } role ? new List<string> { DepartmentOf(role) } : active;
+        foreach (var name in targets)
+        {
+            int at = departments.Single(d => d.Item1 == name).Item2 ?? throw new InvalidOperationException("Missing staff department offset");
             var destination = ReadVector(to.Address + (ulong)at, "destination " + name);
             if (destination.Pointers().Contains(staff.StaffAddress)) throw new InvalidOperationException("Destination already contains this staff member");
             if (destination.End == destination.Capacity)
@@ -121,19 +136,33 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
                 var spare = Capture(destination.Capacity, checked(block - (int)bytes), "destination " + name + " allocator spare");
                 if (spare.Any(b => b != 0)) throw new InvalidOperationException($"Destination {name} allocator spare is not empty");
             }
-            active.Add(name);
             writes.Add(new(destination.End, memory.Read(destination.End, 8), BitConverter.GetBytes(staff.StaffAddress), "destination " + name + " slot"));
             writes.Add(new(destination.Header + 8,
                 [.. BitConverter.GetBytes(destination.End), .. BitConverter.GetBytes(destination.Capacity)],
                 [.. BitConverter.GetBytes(destination.End + 8), .. BitConverter.GetBytes(Math.Max(destination.Capacity, destination.End + 8))],
                 "destination " + name + " end and capacity"));
-            int index = indices[0], last = entries.Length - 1;
+        }
+        foreach (var (name, (source, index)) in sourceEntries)
+        {
+            var entries = source.Pointers();
+            int last = entries.Length - 1;
             if (index < last)
                 writes.Add(new(source.Begin + (ulong)index * 8, source.Items[(index * 8)..(last * 8)], source.Items[((index + 1) * 8)..], "source " + name + " shift"));
             writes.Add(new(source.Header + 8, BitConverter.GetBytes(source.End), BitConverter.GetBytes(source.End - 8), "source " + name + " end"));
             writes.Add(new(source.End - 8, source.Items[(last * 8)..], new byte[8], "source " + name + " last slot"));
         }
-        if (active.Count == 0) throw new InvalidOperationException("Staff is not in any supported source department");
+        if (newJob is { } changedJob && changedJob != job)
+        {
+            if (contractBytes[jobAt + 1] != 0)
+                throw new InvalidOperationException("Staff job code is wider than one byte");
+            writes.Add(new(contract + (ulong)jobAt, [job], [changedJob], "contract job"));
+        }
+        if (newWage is { } wage)
+        {
+            if (wage < 0) throw new ArgumentOutOfRangeException(nameof(newWage), "Wage cannot be negative");
+            int oldWage = BitConverter.ToInt32(contractBytes, C.Wage);
+            if (wage != oldWage) writes.Add(new(contract + (ulong)C.Wage, BitConverter.GetBytes(oldWage), BitConverter.GetBytes(wage), "contract wage"));
+        }
         writes.Add(new(contract + (ulong)C.Team, BitConverter.GetBytes(employer), BitConverter.GetBytes(destinationTeam), "contract team"));
         writes.Add(new(contract + (ulong)seniorAt, BitConverter.GetBytes(senior), BitConverter.GetBytes(destinationTeam), "contract senior team"));
         if (gameDate is { Year: > 1900 and <= 2300 } date && C.Started is { } started)
@@ -148,7 +177,7 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
                 if (!old.AsSpan().SequenceEqual(value)) writes.Add(new(contract + (ulong)offset, old, value, "contract date"));
             }
         }
-        return new(staff, from, to, contract, destinationTeam, active, guards, writes);
+        return new(staff, from, to, contract, destinationTeam, targets, guards, writes) { NewJob = newJob, NewWage = newWage };
     }
 
     public void Apply(StaffMovePlan plan) => Change(plan, undo: false);
@@ -197,6 +226,11 @@ public sealed class StaffMoveService(IProcessMemory memory, OffsetProfile profil
             BitConverter.ToInt32(memory.Read(staff.Address + (ulong)S.Id, 4)) != staff.Id)
             throw new StaleObjectException("Staff identity changed");
     }
+
+    /// <summary>Roles a move can give, with the club department each lives in (measured over every club: staff of a role sit in one department vector).</summary>
+    public static readonly byte[] SupportedJobs = [2, 20, 22, 26, 34, 60, 64, 12, 40, 48, 50, 14, 44, 58];
+
+    public static string DepartmentOf(byte job) => job switch { 12 or 40 or 48 or 50 => "Medical", 14 or 44 or 58 => "Scouting", _ => "Coaching" };
 
     static bool SupportedJob(byte job) => job is 2 or 20 or 22 or 26 or 34 or 60 or 64 or 12 or 40 or 48 or 50 or 14 or 44 or 58;
 

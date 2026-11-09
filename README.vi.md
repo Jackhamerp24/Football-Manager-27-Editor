@@ -16,7 +16,7 @@ Chỉ dùng cho save chơi một mình, offline. Không dùng khi chơi online h
 |---|---|
 | Cầu thủ | Chỉ số, vị trí, tính cách, CA/PA, danh tiếng, chiều cao, ngày sinh, quốc tịch và thông tin khác; hợp đồng và hợp đồng tương lai, thưởng và điều khoản chuyển nhượng; kế hoạch sự nghiệp, quan hệ, ngôn ngữ, động tác ưa thích; chấn thương, án treo giò, bất mãn, triệu tập đội tuyển; giấy phép lao động và lời hứa |
 | Chuyển cầu thủ | Chuyển CLB dưới dạng chuyển nhượng (có phí và % bán lại), cho mượn, hoặc **chuyển nhượng tương lai** có ngày và đủ điều khoản (trả góp, tiền theo số trận và bàn thắng, phí mua lại, bán lại, đóng góp lương, giao hữu); đổi chỗ hai cầu thủ; giải phóng hợp đồng; đội trưởng / đội phó; chép chỉ số sang cầu thủ khác; so sánh |
-| Nhân sự | Chỉ số, CA/PA, tính cách, hợp đồng, kế hoạch sự nghiệp, quan hệ, ngôn ngữ, hiểu biết, sơ đồ, xu hướng, chuyển sang CLB khác |
+| Nhân sự | Chỉ số, CA/PA, tính cách, hợp đồng, kế hoạch sự nghiệp, quan hệ, ngôn ngữ, hiểu biết, sơ đồ, xu hướng, chuyển sang CLB khác kèm vai trò và lương mới |
 | CLB | Thông tin, tài chính, nợ, CLB liên kết, tầm nhìn CLB, áo đấu và màu, quan hệ, nhân sự, đội hình, trung tâm chuyển nhượng |
 | Quốc gia, sân, thành phố, giải đấu, giải thưởng, trọng tài, loại chấn thương | Thông tin, danh tiếng và thiết lập, mỗi loại một màn riêng. Sân: chủ sở hữu, vị trí, sân lân cận và toạ độ. Thành phố: quốc gia, vùng, ngôn ngữ và khí hậu |
 | Công cụ | Preset cả đội có xem trước và Undo (hồi phục, thể lực, tinh thần, xoá án treo giò, xoá bất mãn, chỉ số tối đa, chặn giải nghệ, tactical understanding, team cohesion), khoá giá trị, xuất CSV / JSON, bộ lọc nâng cao, yêu thích, tải lại màn hình hiện tại (Ctrl+R) |
@@ -175,22 +175,20 @@ sách, hiện không có nhãn hoặc sai dữ liệu, và việc sửa chúng c
   ưu tiên chuyển nhượng và EuroCoefficients của quốc gia; chủ sở hữu, vị trí, sân lân cận và toạ độ của sân; quốc gia,
   vùng, ngôn ngữ và khí hậu của thành phố.
 
-Đang làm:
-
-- Bấm thử mọi màn trên bản Steam, và dựng lại profile cho bản game mới bằng một lệnh.
-
 Tiếp theo:
 
+- Bản build cho macOS.
+- Hiển thị giá tiền theo tiền tệ trong game, hoặc tiền tệ do người dùng tự đặt.
+- Phân tích chuyên sâu: tab thông số radar và visualisation của cầu thủ.
+- Sửa hàng loạt (mass edit).
+- Danh sách theo dõi (shortlist).
 - Điều khoản chuyển nhượng cho lần chuyển diễn ra ngay (hiện chỉ hỗ trợ % bán lại).
 - Tab Scout Information và Stats; Possible Signings.
 - Item áo đấu: đổi loại, thêm, xoá, nhân bản.
 - Lịch tập.
-- Tên cho loại quan hệ 105 (đang hiện là "Unknown (105)").
+- Phụ cấp huấn luyện viên (coach allowances).
 - File exe nhỏ hơn, khởi động nhanh hơn.
 - Bóng đá nữ (đội, cầu thủ, giải đấu), có thể làm sau.
-
-Không làm: mở khoá đăng ký đội hình, danh sách theo dõi (shortlist), đổi tên cầu thủ, sửa hàng loạt (mass edit), trang tiến
-bộ cầu thủ, thanh tactical understanding cấp đội (chưa biết công thức).
 
 ## Tuyên bố miễn trừ
 

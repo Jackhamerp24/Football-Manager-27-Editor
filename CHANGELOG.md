@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 1.0.1
+
+### Staff
+- **Move to club** can set the role and the weekly wage the staff member gets at the new club. A role from another department
+  (coaching, medical, scouting) puts the member in that department of the club. The move takes effect on the game's current day.
+
+### Players
+- **Prevent retirement** (Tools card of a player) now applies at once: it removes the planned retirement, sets the keep-playing
+  traits, reloads the screen and says what it did in the status bar. A player with nothing to change gets a message instead of an empty window.
+- **Career Plans**: Add puts an empty row in the list, Remove takes a row out, and nothing is written until the one Save.
+- **Clone Center** searches every player, not only the ones shown in the Players table.
+- The Discard buttons are gone; Save is the global Save, Reload (Ctrl+R) drops unsaved edits.
+- A message shown after a save stays in the status bar instead of being cleared when the screen redraws.
+
+## 1.0.0
 
 ### Reporting problems
 - A bug icon at the bottom right of the window creates a report zip on the Desktop: the player's description, the state of the

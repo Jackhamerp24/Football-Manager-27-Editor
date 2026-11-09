@@ -18,13 +18,12 @@ public sealed partial class MainWindow
         var languages = backend.Session.ReadLanguages(player);
         var fields = new List<(PlayerLanguage Language, TextBox Value)>();
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         bool Pending() => fields.Any(f => f.Value.Text != f.Language.Value.ToString(Inv));
 
         // Add and Remove write at once, like FMRTE's +/−; they refuse while value edits are pending since the list moves.
         void Change(Action change, string done)
         {
-            if (Pending()) { status.Text = "Save or discard the language edits first"; return; }
+            if (Pending()) { status.Text = "Save the language edits first"; return; }
             try { backend.Edits.Execute("Person", player.Name, "Languages", change); status.Text = done; rerender(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
@@ -41,7 +40,7 @@ public sealed partial class MainWindow
             Grid.SetRow(name, row); Grid.SetRow(value, row); Grid.SetColumn(value, 1); Grid.SetRow(remove, row); Grid.SetColumn(remove, 2);
             grid.Children.Add(name); grid.Children.Add(value); grid.Children.Add(remove);
             fields.Add((language, value));
-            value.TextChanged += (_, _) => save.IsEnabled = discard.IsEnabled = Pending();
+            value.TextChanged += (_, _) => save.IsEnabled = Pending();
         }
 
         if (languageCatalogue is not { Count: > 0 }) languageCatalogue = backend.Session.LanguageCatalogue(Players());
@@ -84,8 +83,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        discard.Click += (_, _) => rerender();
-        if (fields.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        if (fields.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 }

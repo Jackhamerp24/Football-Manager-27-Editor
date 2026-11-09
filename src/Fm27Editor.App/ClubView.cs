@@ -963,12 +963,11 @@ public sealed partial class MainWindow : IClubPanels
         int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, entries.Count - 1) : 0;
         clubListSelectedRow[key] = selected;
 
-        Button? saveBtn = null, discardBtn = null;
+        Button? saveBtn = null;
         void UpdateSaveState()
         {
             bool dirty = drafts.Values.Any(d => d.HasChanges);
             if (saveBtn is not null) saveBtn.IsEnabled = dirty;
-            if (discardBtn is not null) discardBtn.IsEnabled = dirty;
         }
 
         Control Detail(int index)
@@ -1068,7 +1067,6 @@ public sealed partial class MainWindow : IClubPanels
             } });
 
             saveBtn = new Button { IsVisible = false, Content = "Save changes", Classes = { "accent" }, IsEnabled = drafts.Values.Any(r => r.HasChanges) };
-            discardBtn = new Button { Content = "Discard", IsEnabled = drafts.Values.Any(r => r.HasChanges) };
             saveBtn.Click += (_, _) =>
             {
                 var actions = new List<Action>();
@@ -1090,12 +1088,6 @@ public sealed partial class MainWindow : IClubPanels
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
-            discardBtn.Click += (_, _) =>
-            {
-                drafts.Clear();
-                RenderClubEditor();
-            };
-
             var duplicate = new Button { Content = "Duplicate row" };
             duplicate.Click += (_, _) =>
             {
@@ -1127,7 +1119,7 @@ public sealed partial class MainWindow : IClubPanels
                 await ShowAddClubVisionObjectiveDialogAsync(session, teamAddr, entries[0]);
             };
 
-            var buttonsBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 4, 0, 0), Children = { saveBtn, discardBtn, duplicate, remove, addBtn } };
+            var buttonsBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 4, 0, 0), Children = { saveBtn, duplicate, remove, addBtn } };
             panel.Children.Add(buttonsBar);
             return panel;
         }
@@ -1231,12 +1223,11 @@ public sealed partial class MainWindow : IClubPanels
         int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, entries.Count - 1) : 0;
         clubListSelectedRow[key] = selected;
 
-        Button? saveBtn = null, discardBtn = null;
+        Button? saveBtn = null;
         void UpdateSaveState()
         {
             bool dirty = drafts.Values.Any(d => d.HasChanges) || pendingAffiliationRemovals.ContainsKey(club.Address);
             if (saveBtn is not null) saveBtn.IsEnabled = dirty;
-            if (discardBtn is not null) discardBtn.IsEnabled = dirty;
         }
 
         Control Detail(int index)
@@ -1392,10 +1383,9 @@ public sealed partial class MainWindow : IClubPanels
             }
             if (inputRow.Children.Count > 0) panel.Children.Add(inputRow);
 
-            // 3. Actions: Save changes, Discard, Remove
+            // 3. Actions: Save changes, Remove
             bool isDirty = drafts.Values.Any(r => r.HasChanges) || pendingAffiliationRemovals.ContainsKey(club.Address);
             saveBtn = new Button { IsVisible = false, Content = "Save changes", Classes = { "accent" }, IsEnabled = isDirty };
-            discardBtn = new Button { Content = "Discard", IsEnabled = isDirty };
 
             bool removing = pendingAffiliationRemovals.TryGetValue(club.Address, out var removal) && removal.Address == entry.Address;
             var removeBtn = new Button { Content = removing ? "Undo Remove" : "Remove", IsEnabled = removing || !pendingAffiliationRemovals.ContainsKey(club.Address) };
@@ -1435,14 +1425,6 @@ public sealed partial class MainWindow : IClubPanels
                 }
             };
 
-            discardBtn.Click += (_, _) =>
-            {
-                drafts.Clear();
-                pendingAffiliationRemovals.Remove(club.Address);
-                RenderClubEditor();
-                status.Text = "Changes discarded";
-            };
-
             removeBtn.Click += (_, _) =>
             {
                 if (removing) pendingAffiliationRemovals.Remove(club.Address);
@@ -1456,7 +1438,7 @@ public sealed partial class MainWindow : IClubPanels
                 Orientation = Orientation.Horizontal,
                 Spacing = 8,
                 Margin = new Thickness(0, 4, 0, 0),
-                Children = { saveBtn, discardBtn, removeBtn }
+                Children = { saveBtn, removeBtn }
             });
 
             return panel;

@@ -279,10 +279,9 @@ public sealed partial class MainWindow
         if (proposals.Count == 0) return panel;
 
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         var fees = new List<(TransferProposal Proposal, TextBox Fee)>();
         var editors = new List<OfferContractEditor>();
-        void Refresh() => save.IsEnabled = discard.IsEnabled =
+        void Refresh() => save.IsEnabled =
             fees.Any(f => f.Fee.Text != f.Proposal.Value.ToString("N0", Inv)) || editors.Any(e => e.Changed());
 
         foreach (var p in proposals)
@@ -327,8 +326,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        discard.Click += (_, _) => RenderEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 
@@ -465,9 +463,8 @@ public sealed partial class MainWindow
 
         var panel = new StackPanel { Spacing = 8 };
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         var rowsOf = new List<(FutureTransfer Transfer, TextBox Date, TextBox Fee, OfferContractEditor? Contract)>();
-        void Refresh() => save.IsEnabled = discard.IsEnabled = rowsOf.Any(r => r.Date.Text != D(r.Transfer.Date)
+        void Refresh() => save.IsEnabled = rowsOf.Any(r => r.Date.Text != D(r.Transfer.Date)
             || r.Fee.Text != r.Transfer.Offer.Value.ToString("N0", Inv) || r.Contract?.Changed() == true);
         foreach (var t in transfers)
         {
@@ -528,8 +525,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        discard.Click += (_, _) => RenderEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 }

@@ -130,7 +130,6 @@ public sealed partial class MainWindow
         int total = scalarCount + stdCount + (informationDirty?.Invoke() == true ? 1 : 0);
 
         if (saveButton is not null) saveButton.IsEnabled = total > 0;
-        if (discardButton is not null) discardButton.IsEnabled = total > 0;
         status.Text = total > 0 ? $"{total} unsaved change(s)" : "";
     }
 
@@ -167,17 +166,6 @@ public sealed partial class MainWindow
             };
         }
 
-        if (discardButton is not null)
-        {
-            discardButton.Click += (_, _) =>
-            {
-                if (playerScalarDrafts.Remove(player.Address))
-                {
-                    status.Text = "Changes discarded";
-                    RenderEditor();
-                }
-            };
-        }
     }
 
     void RegisterPlayerLabels(PlayerRecord p) =>
@@ -456,12 +444,30 @@ public sealed partial class MainWindow
         {
             var retirement = new PlannedRetirements(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase);
             if (retirement.IsSupported)
-                panel.Children.Add(ActionBtn("Prevent retirement", () => _ = ShowSquadPresetAsync([player], PlayerPreset.Fitness, false, false, false, false, false, true)));
+                panel.Children.Add(ActionBtn("Prevent retirement", () => PreventRetirementNow(player)));
         }
 
         var card = UiKit.Card(isSquadMode ? "Presets" : "Tools", panel);
         card.Width = isSquadMode ? 196 : 168;
         card.VerticalAlignment = VerticalAlignment.Top;
         return card;
+    }
+
+    /// <summary>Removes the player's planned retirement and sets the keep-playing traits at once; no preview. The History window can undo it.</summary>
+    void PreventRetirementNow(PlayerRecord player)
+    {
+        try
+        {
+            var session = backend.Session;
+            var writer = new KeepPlayingWriter(session.Memory, session.Profile, session.ModuleBase);
+            var plan = writer.TryPlan(player);
+            if (plan is null) { status.Text = $"{player.DisplayName}: already set to keep playing"; return; }
+            backend.Edits.Execute("Player", player.DisplayName, "Prevent retirement", () => writer.Apply(plan));
+            ReloadCurrentScreen();
+            status.Text = plan.RetirementDate is { } was
+                ? $"{player.DisplayName} will not retire on {DateSetting.Format(was)}. Continue in FM to see updates."
+                : $"{player.DisplayName} will keep playing. Continue in FM to see updates.";
+        }
+        catch (Exception ex) { status.Text = $"Prevent retirement: {ex.Message}"; }
     }
 }

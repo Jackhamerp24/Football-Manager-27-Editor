@@ -412,14 +412,13 @@ public sealed partial class MainWindow : IStaffPanels
         return new StackPanel { Children = { strip, host } };
     }
 
-    /// <summary>One contract's fields with Discard; its own Save is hidden and run by the page's Save button.</summary>
+    /// <summary>One contract's fields; its own Save is hidden and run by the page's Save button.</summary>
     Control ContractEditor(StaffRecord s, string title, Fm27Editor.Core.Players.OfferContract contract, Action<Fm27Editor.Core.Players.OfferContractFields> write)
     {
         var panel = new StackPanel { Spacing = 10, MaxWidth = 540, HorizontalAlignment = HorizontalAlignment.Left };
         var save = new Button { IsVisible = false, Content = "Save contract", IsEnabled = false, Classes = { "accent" } };
-        var discard = new Button { Content = "Discard", IsEnabled = false };
         OfferContractEditor? editor = null;
-        editor = OfferContractBox(contract, () => save.IsEnabled = discard.IsEnabled = editor?.Changed() == true, out var view);
+        editor = OfferContractBox(contract, () => save.IsEnabled = editor?.Changed() == true, out var view);
         view.Margin = new Thickness(12, 10);
         panel.Children.Add(UiKit.Card(title, view));
         save.Click += (_, _) =>
@@ -433,8 +432,7 @@ public sealed partial class MainWindow : IStaffPanels
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
-        discard.Click += (_, _) => RenderStaffEditor();
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, discard } });
+        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
         return panel;
     }
 }
