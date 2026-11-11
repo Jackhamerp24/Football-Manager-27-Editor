@@ -10,11 +10,14 @@ namespace Fm27Editor.App;
 public sealed partial class MainWindow
 {
     readonly DispatcherTimer saveWatcher = new() { Interval = TimeSpan.FromSeconds(3) };
-    PlayerListMark? watchedPlayerList;
+    SaveFingerprint? watchedSave;
+    /// <summary>Consecutive checks that saw no save, or a different one; a single odd read while the game is processing a day is ignored.</summary>
+    int emptyChecks, differentChecks;
 
     /// <summary>
-    /// Every address in the game changes when a save is loaded, so what the editor read earlier is stale. The player list's
-    /// start pointer tells a new save from the one read: when it changes, a small window asks the user to press Load Game.
+    /// Every address in the game changes when a save is loaded, so what the editor read earlier is stale. A few player objects
+    /// of the save that was read tell it from another save (see <see cref="SaveFingerprint"/>): when they are gone, the page
+    /// asks the user to press Load Game.
     /// </summary>
     void StartSaveWatcher()
     {
@@ -22,7 +25,23 @@ public sealed partial class MainWindow
         saveWatcher.Start();
     }
 
-    PlayerListMark? ReadPlayerListMark()
+    /// <summary>The player id at <paramref name="address"/>, or null when it no longer holds a player object.</summary>
+    int? PlayerIdAt(ulong address)
+    {
+        try
+        {
+            var session = backend.Session;
+            var profile = session.Profile;
+            if (profile.Fields.Id is not { } idOffset) return null;
+            ulong vtable = session.Memory.ReadUInt64(address);
+            if (!profile.PlayerVtableRvas.Any(r => vtable == session.Game.ModuleBase + r)) return null;
+            return BitConverter.ToInt32(session.Memory.Read(address + (ulong)idOffset, 4));
+        }
+        catch (MemoryAccessException) { return null; }
+    }
+
+    /// <summary>The player pointers at the sample positions of the game's list (only those are read).</summary>
+    SaveFingerprint? TakeFingerprint()
     {
         try
         {
@@ -31,9 +50,20 @@ public sealed partial class MainWindow
             ulong root = session.Game.ModuleBase + profile.PlayerListRootRva;
             ulong begin = session.Memory.ReadUInt64(root + (ulong)profile.PlayerListBeginOffset);
             ulong end = session.Memory.ReadUInt64(root + (ulong)profile.PlayerListEndOffset);
-            return begin == 0 ? null : new PlayerListMark(begin, end, session.Memory.ReadUInt64(begin));
+            if (begin == 0 || end <= begin) return null;
+            int count = (int)((end - begin) / 8);
+            var list = new LazyPointerList(i => session.Memory.ReadUInt64(begin + (ulong)i * 8), count);
+            return SaveFingerprint.Take(list, PlayerIdAt);
         }
-        catch { return null; }
+        catch (MemoryAccessException) { return null; }
+    }
+
+    sealed class LazyPointerList(Func<int, ulong> at, int count) : IReadOnlyList<ulong>
+    {
+        public ulong this[int index] => at(index);
+        public int Count => count;
+        public IEnumerator<ulong> GetEnumerator() { for (int i = 0; i < count; i++) yield return at(i); }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     Border? staleOverlay;
@@ -74,25 +104,30 @@ public sealed partial class MainWindow
 
     void CheckForNewSave()
     {
-        if (backend.State.Status != ConnectionStatus.Connected || busy) { watchedPlayerList = null; return; }
+        if (backend.State.Status != ConnectionStatus.Connected || busy) { watchedSave = null; emptyChecks = differentChecks = 0; return; }
         if (!SaveIsLoaded())
         {
             // Back at the start screen (or the game dropped its save): the player list is empty, so what the editor shows belongs
-            // to a save that is gone. Watching only the list pointer misses this, the game reuses the same list buffer.
-            if (watchedPlayerList is not null && !backend.SaveChanged) MarkSaveChanged("The game has no save loaded");
+            // to a save that is gone. Seen twice in a row, so a list emptied for a moment while the game processes a day is not it.
+            if (++emptyChecks >= 2 && watchedSave is not null && !backend.SaveChanged) MarkSaveChanged("The game has no save loaded");
             return;
         }
-        if (ReadPlayerListMark() is not { } mark) return;
+        emptyChecks = 0;
+        // The game moves on while the editor is open; keep the date in the status bar current (it was only set at Load Game).
+        if (!backend.SaveChanged && backend.GameDate is { } today) gameDateText.Text = today.ToString("dd MMM yyyy", Inv);
         if (backend.SaveChanged) staleHeading.Text = "A save was loaded in the game";   // the start screen was shown, a save is back
         if (noSaveAtConnect)
         {
-            noSaveAtConnect = false; watchedPlayerList = mark;
+            if (TakeFingerprint() is not { } first) return;
+            noSaveAtConnect = false; watchedSave = first;
             MarkSaveChanged("A save was loaded in the game");
             return;
         }
-        if (watchedPlayerList is not { } before) { watchedPlayerList = mark; return; }
-        if (!mark.IsAnotherSaveThan(before)) { watchedPlayerList = mark; return; }
-        watchedPlayerList = mark;                    // one reminder per change
+        if (watchedSave is not { } read) { watchedSave = TakeFingerprint(); return; }
+        if (backend.SaveChanged || read.StillHolds(PlayerIdAt)) { differentChecks = 0; return; }
+        if (++differentChecks < 2) return;
+        differentChecks = 0;
+        watchedSave = TakeFingerprint();             // one reminder per change
         MarkSaveChanged("A different save was loaded in the game");
     }
 
@@ -156,7 +191,7 @@ public sealed partial class MainWindow
         unifiedCities = [];
         WorkPermitTable.Forget();
         status.Text = "Loading game…";
-        watchedPlayerList = null;
+        watchedSave = null;
         await ConnectAsync();
         if (backend.State.Status == ConnectionStatus.Connected && staleOverlay is not null) staleOverlay.IsVisible = false;
         _ = Task.Run(() => EnsureUnifiedCache());
@@ -164,11 +199,31 @@ public sealed partial class MainWindow
 }
 
 /// <summary>
-/// What the game's player list looks like at one moment. A different save shows as another list start or another first player;
-/// a list that only grew (new players generated while playing) is still the same save, one that shrank is not. The start
-/// alone is not enough: the game may refill the same list buffer when another save is loaded.
+/// A few players of the save the editor read, by object address and id. Playing on keeps those objects where they are: the
+/// player list itself may grow, shrink (retirements) or move to a new buffer when the game adds regens, so the list's shape
+/// says nothing about which save is loaded. Loading another save frees every object, so most samples stop being the same
+/// player at the same address.
 /// </summary>
-public readonly record struct PlayerListMark(ulong Begin, ulong End, ulong First)
+public sealed record SaveFingerprint(IReadOnlyList<(ulong Address, int Id)> Samples)
 {
-    public bool IsAnotherSaveThan(PlayerListMark before) => Begin != before.Begin || First != before.First || End < before.End;
+    public const int Size = 8;
+
+    /// <summary>
+    /// Samples spread across the list. <paramref name="idOf"/> returns the player id at an address, or null when the address no
+    /// longer holds a player object. Null when no sample could be read.
+    /// </summary>
+    public static SaveFingerprint? Take(IReadOnlyList<ulong> players, Func<ulong, int?> idOf)
+    {
+        var samples = new List<(ulong, int)>(Size);
+        if (players.Count == 0) return null;
+        for (int i = 0; i < Size; i++)
+        {
+            ulong address = players[(int)((long)i * players.Count / Size)];
+            if (idOf(address) is { } id && !samples.Exists(s => s.Item1 == address)) samples.Add((address, id));
+        }
+        return samples.Count == 0 ? null : new(samples);
+    }
+
+    /// <summary>True while at least half of the samples are still the same player at the same address.</summary>
+    public bool StillHolds(Func<ulong, int?> idOf) => Samples.Count(s => idOf(s.Address) == s.Id) * 2 >= Samples.Count;
 }

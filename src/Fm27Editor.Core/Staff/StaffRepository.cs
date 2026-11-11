@@ -17,6 +17,7 @@ public sealed record StaffRecord
     public string? CommonName { get; init; }
     public string DisplayName => !string.IsNullOrEmpty(CommonName) ? CommonName : $"{FirstName} {LastName}".Trim();
     public DateOnly? DateOfBirth { get; init; }
+    public Gender Gender { get; init; }
     public NationInfo? Nationality { get; init; }
     public ClubInfo? Club { get; init; }
     /// <summary>Team name when its classification is independently identified; otherwise null.</summary>
@@ -123,6 +124,7 @@ public sealed class StaffRepository(IProcessMemory memory, OffsetProfile profile
             CommonName = reader.EntryString(BitConverter.ToUInt64(p, s.CommonName)),
             DateOfBirth = year > 1900 && year < 2300 && day >= 1 && day <= (DateTime.IsLeapYear(year) ? 366 : 365)
                 ? new DateOnly(year, 1, 1).AddDays(day - 1) : null,
+            Gender = GenderReader.FromPersonBytes(p, profile.Relations),
             Nationality = profile.Nation is { } n ? reader.ReadNation(BitConverter.ToUInt64(p, s.Nation), n) : null,
             Club = club,
             TeamName = teamName,

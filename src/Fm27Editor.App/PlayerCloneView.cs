@@ -40,7 +40,8 @@ public sealed partial class MainWindow
         var pick = new AutoCompleteBox
         {
             Width = 340, MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300,
-            ItemsSource = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address))
+            ItemsSource = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address)
+                && p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women)
                 .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToList(),
             ItemFilter = (q, o) => o is RelationTarget t && Matches(t.Label, q ?? ""),
         };

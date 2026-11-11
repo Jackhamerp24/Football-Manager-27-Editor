@@ -20,7 +20,7 @@ public class ClubAffiliationFeeTests
     // FMRTE: Metz→Forbach shares scouting knowledge; Hibernian→Stranraer does not.
     const string Metz = "A0D7D4697302000040BAD96973020000000000000108000000000000084000003101DB0701006C0701006C0701006C07033232FFFFFF0000";
     readonly FakeMemory memory = new();
-    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
     ulong parent, feeder;
 
     void Build(string raw, int parentId, int feederId)
@@ -157,7 +157,7 @@ public class ClubAffiliationFeeTests
     public void Start_date_writer_refuses_older_profile_with_valid_clubs_and_record()
     {
         Build(Hibernian, 1575, 1600);
-        var oldProfile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2486695.json"));
+        var oldProfile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2486695-steam.json"));
         Assert.True(memory.TryWrite(parent, BitConverter.GetBytes(TestWorld.ModuleBase + 0x4CDA1F8UL)));
         Assert.True(memory.TryWrite(feeder, BitConverter.GetBytes(TestWorld.ModuleBase + 0x4CDA1F8UL)));
         var row = Assert.Single(new ClubListReader(memory, oldProfile, TestWorld.ModuleBase).ReadAffiliations(parent));

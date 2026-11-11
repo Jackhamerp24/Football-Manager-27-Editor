@@ -218,6 +218,8 @@ public sealed class ChangeJournal
                 { error = $"Could not write 0x{entry.Address:X}"; return false; }
             }
             finally { _suppress--; }
+            // A code patch undone must also leave the instruction cache behind, or a thread may run the patched bytes.
+            if (memory is WindowsProcessMemory windows) windows.FlushInstructionCache(entry.Address, entry.Before.Length);
             entry.Undone = true;
         }
         Changed?.Invoke();

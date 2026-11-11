@@ -198,7 +198,7 @@ public class TransferDealReaderTests
     public void Steam_deals_are_recognised_by_the_steam_profile_vtable_only()
     {
         // Measured on the live Steam game (27.0.0+2493426): the offer class vtable is +0x4F3B2E8 there, +0x4EE4098 on Game Pass.
-        var steam = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var steam = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var memory = new FakeMemory();
         var good = memory.Map(Deal, 0x100); BitConverter.GetBytes(Module + 0x4F3B2E8).CopyTo(good, 0);
         var other = memory.Map(Deal + 0x1000, 0x100); BitConverter.GetBytes(Module + 0x4EE4098).CopyTo(other, 0);

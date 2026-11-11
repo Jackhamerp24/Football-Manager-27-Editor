@@ -28,8 +28,18 @@ public sealed class FreezeRunner
         key = FreezeStore.SaveKey(session);
         rootBegin = CurrentRoot();
         if (rootBegin == 0) throw new StaleObjectException("Player list is not available");
-        var all = session.Players.LoadAll();
         var saved = FreezeStore.Load(path, key);
+        if (saved.Players.Length == 0 && saved.Clubs.Length == 0 && saved.Staff is not { Length: > 0 })
+        {
+            // Nothing is frozen for this save: reading every player, club and staff member to resolve an empty store
+            // made every attach wait for two extra loads.
+            players = [];
+            clubs = [];
+            staff = [];
+            CheckSave();
+            return;
+        }
+        var all = session.Players.LoadAll();
         var allStaff = session.Profile.Staff is not null ? session.Staff.LoadAll() : [];
         var entries = FreezeStore.Resolve(saved, all, session.LoadClubs(all), allStaff);
         if (entries.Players.Count != saved.Players.Length || entries.Clubs.Count != saved.Clubs.Length ||

@@ -62,10 +62,14 @@ static class SteamCheck
         Feature("player languages", players, p => s.ReadLanguages(p));
         Feature("player unhappiness", players, p => s.ReadUnhappiness(p));
         Feature("player work permit grants", players, p => s.ReadWorkPermits(p));
-        Feature("player work permit denied", players, p => s.ReadWorkPermitDenied(p));
+        Feature("player work permit denied", allPlayers, p => s.ReadWorkPermitDenied(p));
         Feature("player injuries", players, p => s.ReadInjuries(p));
         Feature("player career plans", players, p => s.CareerPlans.Read(p));
         Feature("player proposals", players, p => s.Proposals.Read(p));
+        Feature("player loan offers", allPlayers, p => s.Proposals.Read(p).Where(x => x.Type == ProposalType.Loan).ToList());
+        Feature("player trial offers", allPlayers, p => s.Proposals.Read(p).Where(x => x.Type == ProposalType.Trial).ToList());
+        Feature("player B club move offers", allPlayers, p => s.Proposals.Read(p).Where(x => x.Type == ProposalType.BClubMove).ToList());
+        Feature("player gender", players, p => p.Gender == Fm27Editor.Core.Offsets.Gender.Unknown ? null : p.Gender);
         Feature("player contract", players, p => s.Contracts.Read(p));
         Feature("player clauses", players, p => s.ReadClauses(p));
         Feature("player current loan", players, p => s.ReadCurrentLoan(p));
@@ -83,6 +87,7 @@ static class SteamCheck
 
         Feature("club finance", clubs, c => s.ReadFinance(c.Address));
         Feature("club fields", clubs, c => c.FirstTeam is { } t ? s.ClubFields.ReadAll(c.Address, t.Address) : null);
+        Feature("club gender", clubs, c => c.Gender == Fm27Editor.Core.Offsets.Gender.Unknown ? null : c.Gender);
         Feature("club affiliations", clubs, c => s.ReadAffiliations(c.Address));
         Feature("club regional divisions", clubs, c => s.ReadRegionalDivisions(c.Address));
         Feature("club sponsors", clubs, c => s.ReadSponsors(c.Address));
@@ -114,7 +119,6 @@ static class SteamCheck
         Feature("cities", new object[] { 0 }, _ => s.Cities.LoadAll());
         Feature("awards", new object[] { 0 }, _ => s.Awards.LoadAll());
         Feature("referees", new object[] { 0 }, _ => s.ReadReferees());
-        Feature("agents", new object[] { 0 }, _ => s.ReadAgents());
         Feature("injury types", new object[] { 0 }, _ => s.InjuryTypes());
         Feature("continents", new object[] { 0 }, _ => continents);
         Feature("planned retirements", new object[] { 0 }, _ => new PlannedRetirements(s.Memory, s.Profile, s.ModuleBase).ReadAll());
@@ -136,6 +140,30 @@ static class SteamCheck
         Named("stadiums", s.Stadiums.LoadAll(), x => x.Name);
         Named("cities", s.Cities.LoadAll(), c => c.Name);
         Named("awards", s.Awards.LoadAll(), x => x.DisplayName);
+
+        // Rows that point at a player must resolve that player's person object (the 27.0.1 person vtable was
+        // missing, so every player target in a club's relationships showed a blank name).
+        var relationshipRows = clubs.SelectMany(c => s.ReadClubRelationships(c.Address))
+            .Where(r => r.Kind is Fm27Editor.Core.Clubs.ClubRelationshipKind.Rival
+                or Fm27Editor.Core.Clubs.ClubRelationshipKind.LikesPerson
+                or Fm27Editor.Core.Clubs.ClubRelationshipKind.DislikesPerson).ToList();
+        bool KnownPersonTarget(ulong target)
+        {
+            if (target == 0 || s.Profile.Relations is not { } rel) return false;
+            Span<byte> bytes = stackalloc byte[8];
+            if (!s.Memory.TryRead(target, bytes)) return false;
+            ulong vt = BitConverter.ToUInt64(bytes) - s.ModuleBase;
+            return vt == rel.PersonVtable || vt == rel.StaffPersonVtable ||
+                (s.Profile.Staff?.Kinds.Any(k => vt == k.PersonVtableRva) ?? false);
+        }
+        var knownRows = relationshipRows.Where(r => !string.IsNullOrWhiteSpace(r.Name) || KnownPersonTarget(r.Target)).ToList();
+        int blankNames = knownRows.Count(r => string.IsNullOrWhiteSpace(r.Name));
+        int unknownTargets = relationshipRows.Count(r => string.IsNullOrWhiteSpace(r.Name) && !KnownPersonTarget(r.Target));
+        if (blankNames > 0) failures++;
+        string relationshipLine = $"{(blankNames == 0 ? "ok   " : "NAMES")} {"club relationship target names",-36} {knownRows.Count - blankNames}/{knownRows.Count}" +
+            (unknownTargets > 0 ? $" ({unknownTargets} retired/official targets have no name reader)" : "");
+        Report.Add(relationshipLine); Console.WriteLine(relationshipLine); Console.Out.Flush();
+
         Console.WriteLine($"{Report.Count} features, {failures} empty or failing");
         return failures == 0 ? 0 : 1;
     }

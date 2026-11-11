@@ -10,7 +10,7 @@ public sealed record TeamEntry(ulong Address, ulong Club, ulong SquadBegin, int 
     public bool HasRoom => SquadCount < SquadCapacity;
 }
 
-public sealed record ClubEntry(ulong Address, int? Id, string? Name, string? ShortName, ulong Finance, IReadOnlyList<TeamEntry> Teams)
+public sealed record ClubEntry(ulong Address, int? Id, string? Name, string? ShortName, ulong Finance, IReadOnlyList<TeamEntry> Teams, Gender Gender = Gender.Unknown)
 {
     public string DisplayName => ShortName ?? Name ?? $"club {Id}";
     public TeamEntry? FirstTeam => Teams.FirstOrDefault(t => t.IsFirstTeam);
@@ -98,7 +98,7 @@ public static class ClubDirectory
             ulong finance = k.Finance is { } f && TryQ(memory, club + (ulong)f.Pointer, out ulong fp) ? fp : 0;
             return new ClubEntry(club, k.Id is { } id ? BitConverter.ToInt32(b, id) : null,
                 StringAt(memory, BitConverter.ToUInt64(b, k.Name)), StringAt(memory, BitConverter.ToUInt64(b, k.ShortName)),
-                finance, teamsByClub.TryGetValue(club, out var ts) ? ts : []);
+                finance, teamsByClub.TryGetValue(club, out var ts) ? ts : [], GenderReader.FromClubBytes(b, k.Gender));
         }).ToList();
     }
 

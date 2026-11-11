@@ -1,3 +1,5 @@
+using Fm27Editor.Core.Offsets;
+
 namespace Fm27Editor.Core.Staff;
 
 /// <summary>Criteria for the Coach scope of Advanced Search; every set value must match.</summary>
@@ -18,12 +20,16 @@ public sealed record StaffSearchCriteria(
     int? MinCurrentReputation = null,
     int? MaxCurrentReputation = null,
     int? MinWorldReputation = null,
-    int? MaxWorldReputation = null);
+    int? MaxWorldReputation = null,
+    Gender? Gender = null,
+    bool ExcludeWomenClubs = false);
 
 public static class StaffSearch
 {
     public static bool Matches(StaffRecord staff, StaffSearchCriteria criteria, DateOnly today)
     {
+        if (criteria.Gender is { } gender && staff.Gender != gender) return false;
+        if (criteria.ExcludeWomenClubs && staff.Club?.Gender == Gender.Women) return false;
         if (!string.IsNullOrWhiteSpace(criteria.NameContains) &&
             !staff.DisplayName.Contains(criteria.NameContains.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
         if (!string.IsNullOrWhiteSpace(criteria.Nationality) &&

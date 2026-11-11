@@ -39,6 +39,6 @@ public static class ClubRelationshipLabels
         UsesTeamRoot: false,
         [new("Type", 120), new("Name", 1, IsStar: true), new("Value", 60, RightAlign: true)],
         ordered.Select(r => new ClubListRowModel(
-            [new(TypeName(r)), new(r.Name ?? ""), new(r.Value.ToString(CultureInfo.InvariantCulture), RightAlign: true)],
+            [new(TypeName(r)), new(r.Name ?? "Unknown"), new(r.Value.ToString(CultureInfo.InvariantCulture), RightAlign: true)],
             [])).ToArray());
 }

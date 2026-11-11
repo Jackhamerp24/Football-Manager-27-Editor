@@ -137,6 +137,8 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
     /// <summary>Runs on the window thread before rows load in the background, to collect what the load needs from the window.</summary>
     protected virtual void BeforeLoad() { }
     protected virtual string LoadedMessage(int count) => $"{count:N0} {plural}";
+    protected virtual string FilteredMessage(int shown, int total) => $"{shown:N0} of {total:N0} {plural} shown ({total - shown:N0} hidden by filter)";
+    protected string SearchText => (search.Text ?? "").Trim();
     /// <summary>A save that stopped part-way: what was written stays written. Return true when the screen has told the user.</summary>
     protected virtual bool OnSaveFailed(TRecord record, Exception error) => false;
     protected abstract TRecord? Reload(TRecord record);
@@ -246,23 +248,49 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
             BeforeLoad();
             Rows = await Task.Run(() => LoadRows(session));
             RowsLoaded();
-            Filter();
-            Host.SetStatus(LoadedMessage(Rows.Count));
+            Filter(reportStatus: true);
+            if (Rows.Count == 0) Host.SetStatus(LoadedMessage(0));
         }
         catch (Exception ex) { Host.SetStatus(ex.Message); }
     }
 
-    protected void Filter()
+    protected void Filter() => Filter(reportStatus: true);
+
+    int filterVersion;
+
+    protected void Filter(bool reportStatus)
     {
-        string q = Fold((search.Text ?? "").Trim());
+        string q = Fold(SearchText);
         var keep = Selected;
-        ListGrid.ItemsSource = Apply(Rows, q);
+        // A long list (tens of thousands of cities or stadiums) is filtered in the background per keystroke;
+        // only the newest filter is shown. Short lists keep the immediate synchronous path.
+        if (q.Length > 0 && Rows.Count > 2000)
+        {
+            int version = ++filterVersion;
+            var snapshot = Rows;
+            _ = Task.Run(() => Apply(snapshot, q)).ContinueWith(task =>
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (task.IsFaulted || version != filterVersion || !ReferenceEquals(Rows, snapshot)) return;
+                    ShowFiltered(task.Result, keep, reportStatus);
+                }));
+            return;
+        }
+        filterVersion++;
+        ShowFiltered(Apply(Rows, q), keep, reportStatus);
+    }
+
+    void ShowFiltered(IReadOnlyList<TRow> filtered, TRecord? keep, bool reportStatus)
+    {
+        ListGrid.ItemsSource = filtered;
         if (keep is not null)
         {
             ulong kept = AddressOf(keep);
-            if ((ListGrid.ItemsSource as IEnumerable<TRow>)?.FirstOrDefault(r => AddressOf(RecordOf(r)) == kept) is { } same)
+            if (filtered.FirstOrDefault(r => AddressOf(RecordOf(r)) == kept) is { } same)
                 ListGrid.SelectedItem = same;
         }
+        if (reportStatus && Rows.Count > 0)
+            Host.SetStatus(filtered.Count == Rows.Count ? LoadedMessage(Rows.Count) : FilteredMessage(filtered.Count, Rows.Count));
     }
 
     // Opening one item.
@@ -358,7 +386,7 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
         {
             Selected = fresh;
             Rows = Rows.Select(r => AddressOf(RecordOf(r)) == address ? Refresh(r, fresh) : r).ToList();
-            Filter();
+            Filter(reportStatus: false);
             ListGrid.SelectedItem = (ListGrid.ItemsSource as IEnumerable<TRow>)?.FirstOrDefault(r => AddressOf(RecordOf(r)) == address);
         }
         Render();

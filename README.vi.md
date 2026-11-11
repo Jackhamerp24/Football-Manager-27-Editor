@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/icon.png" alt="Football Manager 27 Editor" width="128"></p>
+<p align="center"><img src="docs/images/icon.png" alt="Football Manager 27 Editor" width="220"></p>
 
 # Football Manager 27 Editor
 
@@ -37,7 +37,7 @@ app cấp một danh sách mới ngoài bộ cấp phát của game. Hãy sao l�
 ## Yêu cầu
 
 - Windows 10/11 x64
-- Football Manager 27 `27.0.0+2493426`, Xbox / Game Pass hoặc Steam. Bản game khác cần profile offset mới, xem
+- Football Manager 27 `27.0.1+2494687` (hoặc `27.0.0+2493426`), Xbox / Game Pass hoặc Steam. Bản game khác cần profile offset mới, xem
   [Khi game có patch](#khi-game-có-patch).
 - [.NET 10 SDK](https://dotnet.microsoft.com/download), chỉ khi bạn tự build
 
@@ -45,8 +45,9 @@ app cấp một danh sách mới ngoài bộ cấp phát của game. Hãy sao l�
 
 | Bản | Tình trạng |
 |---|---|
-| Xbox / Game Pass `27.0.0+2493426` | Bản chính. Mọi màn đều đã đo ở đây |
-| Steam `27.0.0+2493426` | Cùng chuỗi build, profile riêng với địa chỉ riêng. Mọi phần đọc và mọi họ thao tác ghi đã chạy trên game Steam thật và đọc lại để xác nhận; giá trị CLB, giải đấu, lời hứa, cầu thủ khớp FMRTE trên cùng save. Chưa bấm thử hết các màn trên Steam |
+| Xbox / Game Pass `27.0.1+2494687` | Bản hiện tại. Mọi phần đọc (71 tính năng) và mọi loại ghi (24 lượt ghi rồi trả lại) đã chạy trên game thật; 88 giá trị đối chiếu với save hiệu chuẩn và FMRTE |
+| Steam `27.0.1+2494687` | Bản hiện tại. Mọi phần đọc (71 tính năng) và mọi loại ghi (24 lượt ghi rồi trả lại) đã chạy trên game thật |
+| Xbox / Game Pass và Steam `27.0.0+2493426` | Bản trước, vẫn hỗ trợ |
 | Steam `27.0.0+2486695` | Bản cũ, dùng cho test |
 
 ## Tải về

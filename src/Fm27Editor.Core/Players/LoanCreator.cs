@@ -88,6 +88,8 @@ public sealed class LoanCreator(IProcessMemory memory, OffsetProfile profile, ul
         if (offer.AgreedPrice < 0 || offer.BuyBackFee < 0) throw new ArgumentOutOfRangeException(nameof(offer), "Prices cannot be negative");
         if (offer.PurchaseAfterMatches is < 0 or > 100) throw new ArgumentOutOfRangeException(nameof(offer), "Purchase after matches must be 0-100");
         if (offer.Expires < offer.Start) throw new ArgumentOutOfRangeException(nameof(offer), "The loan cannot end before it starts");
+        GenderGuard.EnsureMalePlayer(memory, profile, player.Address);
+        GenderGuard.EnsureMenClubOfTeamIfPresent(memory, profile, moduleBase, borrowingTeam);
         if (!IsPlayer(player.Address)) throw new StaleObjectException($"0x{player.Address:X} is no longer a player object");
         if (!IsTeam(borrowingTeam)) throw new StaleObjectException("The destination is not a team object");
         if (!Q(player.Address + (ulong)C.PlayerContract, out var contract) ||

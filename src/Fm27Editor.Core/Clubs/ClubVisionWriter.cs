@@ -46,6 +46,30 @@ public sealed class ClubVisionWriter(IProcessMemory memory, OffsetProfile profil
         Write(entry.Address + (ulong)layout.VisionTarget, BitConverter.GetBytes(target), 4, "target");
     }
 
+    /// <summary>
+    /// Entity item index (u16 at the profile's <c>itemIndex</c> offset): a nation, club, competition or continent index.
+    /// For the "non-Nation" and "Sign Players Of Nationality" objectives this is the nation index observed in FMRTE.
+    /// </summary>
+    public void SetItemIndex(ulong team, ClubVisionEntry entry, ushort itemIndex)
+    {
+        var layout = profile.Club?.Lists ?? throw new InvalidOperationException("Profile has no club vision offsets");
+        if (layout.ItemIndex < 0 || layout.ItemIndex > layout.CultureSize - 2)
+            throw new InvalidOperationException("Club vision item index is unavailable for this build");
+        Require(team, entry);
+        byte[] value = BitConverter.GetBytes(itemIndex);
+        Write(entry.Address + (ulong)layout.ItemIndex, value, 2, "item index");
+    }
+    /// <summary>Changes an existing row's entity target: item index plus the marker that selects its table.</summary>
+    public void SetItemTarget(ulong team, ClubVisionEntry entry, ClubVisionItemKind kind, ushort itemIndex)
+    {
+        var layout = profile.Club?.Lists ?? throw new InvalidOperationException("Profile has no club vision offsets");
+        if (layout.ItemIndex < 0 || layout.ItemIndex > layout.CultureSize - 2
+            || layout.ItemMarker < 0 || layout.ItemMarker > layout.CultureSize - 2)
+            throw new InvalidOperationException("Club vision item target is unavailable for this build");
+        Require(team, entry);
+        Write(entry.Address + (ulong)layout.ItemIndex, BitConverter.GetBytes(itemIndex), 2, "item index");
+        Write(entry.Address + (ulong)layout.ItemMarker, BitConverter.GetBytes(ClubVisionTypes.ItemMarker(kind)), 2, "item marker");
+    }
     /// <summary>Board-objective status byte (values 1 and 2 observed in RAM; the profile's <c>visionStatus</c> offset).</summary>
     public void SetStatus(ulong team, ClubVisionEntry entry, byte status)
     {
@@ -131,12 +155,16 @@ public sealed class ClubVisionWriter(IProcessMemory memory, OffsetProfile profil
     /// then overwrites type, importance, target and both dates and appends it to the club's vector.
     /// </summary>
     public ClubVisionEntry Create(ulong team, ClubVisionEntry template, byte type, byte importance, int target,
-        DateOnly startDate, DateOnly endDate, Func<int, ulong>? allocate)
+        DateOnly startDate, DateOnly endDate, Func<int, ulong>? allocate,
+        ushort? itemIndex = null, ClubVisionItemKind itemKind = ClubVisionItemKind.Unknown)
     {
         var (layout, snapshot) = Require(team, template);
         if (allocate is null) throw new StaleObjectException("No allocator is available to add a vision row");
         if (layout.VisionTarget < 0 || layout.VisionTarget + 4 > layout.CultureSize)
             throw new InvalidOperationException("Club vision target is unavailable for this build");
+        if (layout.ItemIndex < 0 || layout.ItemIndex + 2 > layout.CultureSize
+            || layout.ItemMarker < 0 || layout.ItemMarker + 2 > layout.CultureSize)
+            throw new InvalidOperationException("Club vision item target is unavailable for this build");
         if (startDate.Year is <= 1900 or > 2300 || endDate.Year is <= 1900 or > 2300)
             throw new ArgumentOutOfRangeException(nameof(startDate), "Club vision date cannot be read back by this profile");
 
@@ -144,6 +172,16 @@ public sealed class ClubVisionWriter(IProcessMemory memory, OffsetProfile profil
         bytes[layout.VisionType] = type;
         bytes[layout.Importance] = importance;
         BitConverter.GetBytes(target).CopyTo(bytes, layout.VisionTarget);
+        if (itemIndex is { } index)
+        {
+            BitConverter.GetBytes(index).CopyTo(bytes, layout.ItemIndex);
+            BitConverter.GetBytes(ClubVisionTypes.ItemMarker(itemKind)).CopyTo(bytes, layout.ItemMarker);
+        }
+        else
+        {
+            BitConverter.GetBytes((ushort)0xFFFF).CopyTo(bytes, layout.ItemIndex);
+            BitConverter.GetBytes((ushort)0xFF7F).CopyTo(bytes, layout.ItemMarker);
+        }
         PutDate(bytes, layout.VisionStart, startDate);
         PutDate(bytes, layout.VisionEnd, endDate);
 

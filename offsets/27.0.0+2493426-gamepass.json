@@ -1,7 +1,5 @@
 {
   "build": "27.0.0+2493426 Game Pass",
-  "agentPoolSlotRva": "0x5685B30",
-  "agentVtableRva": "0x4DDEB18",
   "matchBuild": "27.0.0+2493426",
   "variant": "gamepass",
   "module": "game_plugin.dll",
@@ -222,6 +220,8 @@
       "personCommonName": "0x60",
       "targetKind": "0xA",
       "playerPerson": "0x288",
+      "personGender": "0x19",
+      "personGenderMask": "0x10",
       "retiredInternationalType": "0xA",
       "otherNationalityType": "0x9"
     },
@@ -1031,7 +1031,17 @@
     "winterBallColour": "0x15C",
     "substitutionRules": "0xFD",
     "winterBallStart": "0x150",
-    "winterBallEnd": "0x154"
+    "winterBallEnd": "0x154",
+    "threeLetterName": "0x50",
+    "type": "0xF4",
+    "usesExtraOfficials": "0xF6",
+    "seatedStadiumsOnly": "0xF7",
+    "lastContinentalPosition": "0x17C",
+    "continentalPosition": "0x17E",
+    "competitionLevel": "0x199",
+    "trophy": "0x19C",
+    "lowestOfficialCategory": "0x19E",
+    "flags": "0x1A0"
   },
   "award": {
     "vtable": "0x4CA5198",

@@ -179,7 +179,8 @@ public sealed partial class MainWindow
         Func<IReadOnlyList<PlayerRecord>>? getSelectedPlayers = null,
         Action? onApplied = null,
         Action<Action>? registerSelectionUpdater = null,
-        bool allowGoldenGeneration = false)
+        Func<IReadOnlyList<PlayerRecord>>? getYouthPlayers = null,
+        ulong? squadClub = null)
     {
         var panel = new StackPanel
         {
@@ -295,6 +296,7 @@ public sealed partial class MainWindow
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 IsEnabled = enabled,
             };
+            if (ToolTips.TryGetValue(text, out var tip)) ToolTip.SetTip(btn, tip);
             btn.Click += (_, _) => onClick();
             return btn;
         }
@@ -370,6 +372,9 @@ public sealed partial class MainWindow
             ActionBtn("−1 Year", () => RunAction("−1 Year", p => SquadAdapter.ShiftExpiry(backend.Session, p, -1))),
             ActionBtn("+1 Year", () => RunAction("+1 Year", p => SquadAdapter.ShiftExpiry(backend.Session, p, 1)))));
 
+        if (isSquadMode && squadClub is { } clubAddress)
+            panel.Children.Add(ActionBtn("Grant work permit", () => GrantClubNationPermits(clubAddress, getSelectedPlayers, onStatus, onApplied)));
+
         if (!isSquadMode && player is not null)
         {
             panel.Children.Add(ActionBtn("Release Player", () => _ = ShowReleasePlayerAsync(player), enabled: player.Contract is not null));
@@ -429,16 +434,42 @@ public sealed partial class MainWindow
         panel.Children.Add(ActionBtn("Team Cohesion", () => RunPreset("Improve Team Cohesion", p => backend.Session.SetTeamCohesion(p, TeamCohesionWriter.Improve))));
         panel.Children.Add(ActionBtn("Tactical Understanding", () => RunAction("Tactical Understanding", p => backend.Session.TacticalUnderstanding(p))));
         panel.Children.Add(ActionBtn("All-in-one", () => RunAction("All-in-one", p => backend.Session.AllInOne(p))));
-        if (allowGoldenGeneration)
+        if (getYouthPlayers is not null)
         {
-            var minPa = new NumericUpDown { Minimum = 1, Maximum = 200, Value = Fm27Editor.Core.Players.GoldenGenerationWriter.DefaultMinPa, Height = 24, MinHeight = 24, FontSize = 12.5, FormatString = "0" };
-            var maxPa = new NumericUpDown { Minimum = 1, Maximum = 200, Value = Fm27Editor.Core.Players.GoldenGenerationWriter.DefaultMaxPa, Height = 24, MinHeight = 24, FontSize = 12.5, FormatString = "0" };
-            ToolTip.SetTip(minPa, "Minimum PA");
-            ToolTip.SetTip(maxPa, "Maximum PA");
+            // Plain number boxes with their names beside them; the range is checked when the button is pressed.
+            TextBox PaBox(int value) => new() { Text = value.ToString(), Width = 52, Height = 24, MinHeight = 24, FontSize = 12.5, HorizontalContentAlignment = HorizontalAlignment.Right };
+            var minPa = PaBox(Fm27Editor.Core.Players.GoldenGenerationWriter.DefaultMinPa);
+            var maxPa = PaBox(Fm27Editor.Core.Players.GoldenGenerationWriter.DefaultMaxPa);
+            Control Labelled(string label, TextBox box)
+            {
+                var row = new DockPanel { LastChildFill = true };
+                DockPanel.SetDock(box, Dock.Right);
+                row.Children.Add(box);
+                row.Children.Add(new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
+                return row;
+            }
             panel.Children.Add(Subhead("YOUTH"));
-            panel.Children.Add(Pair(minPa, maxPa));
-            panel.Children.Add(ActionBtn("Golden Generation", () => RunAction("Golden Generation", p =>
-                backend.Session.GoldenGeneration(p, (int)(minPa.Value ?? 150), (int)(maxPa.Value ?? 180)))));
+            panel.Children.Add(Labelled("Lowest PA", minPa));
+            panel.Children.Add(Labelled("Highest PA", maxPa));
+            panel.Children.Add(ActionBtn("Golden Generation", () =>
+            {
+                if (!int.TryParse(minPa.Text, out int lo) || !int.TryParse(maxPa.Text, out int hi) || lo is < 1 or > 200 || hi is < 1 or > 200 || lo > hi)
+                { onStatus?.Invoke("Golden Generation: enter PA from 1 to 200, lowest first"); return; }
+                var youth = getYouthPlayers();
+                if (youth.Count == 0) { onStatus?.Invoke("Golden Generation: the club has no youth or reserve players"); return; }
+                int done = 0;
+                var failed = new List<string>();
+                foreach (var p in youth)
+                {
+                    try { RegisterPlayerLabels(p); backend.Edits.Execute("Player", p.DisplayName, "Golden Generation", () => backend.Session.GoldenGeneration(p, lo, hi)); done++; }
+                    catch (Exception ex) { failed.Add($"{p.DisplayName}: {ex.Message}"); }
+                }
+                onApplied?.Invoke();
+                onStatus?.Invoke(failed.Count == 0
+                    ? $"Golden Generation: {done} youth and reserve player(s) updated. Continue in FM to see updates."
+                    : $"Golden Generation: {done} updated, {failed.Count} failed ({string.Join(", ", failed.Take(2))}).");
+            }));
+            panel.Children.Add(ActionBtn("Golden Batch", () => ShowGoldenBatch(getYouthPlayers, onStatus, onApplied)));
         }
         if (!isSquadMode && player is not null)
         {
@@ -446,6 +477,7 @@ public sealed partial class MainWindow
             if (retirement.IsSupported)
                 panel.Children.Add(ActionBtn("Prevent retirement", () => PreventRetirementNow(player)));
         }
+        AddDevelopmentSpeed(panel, player, isSquadMode, getSelectedPlayers, onStatus, onApplied, ActionBtn);
 
         var card = UiKit.Card(isSquadMode ? "Presets" : "Tools", panel);
         card.Width = isSquadMode ? 196 : 168;

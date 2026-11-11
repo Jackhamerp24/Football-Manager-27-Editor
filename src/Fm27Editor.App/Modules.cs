@@ -51,6 +51,8 @@ public sealed record PlayerFilter
     public ulong RequiredPreferredMoves { get; init; }
     public int PositionMinRating { get; init; } = 15;
     public IReadOnlyList<AttributeThreshold> AttributeThresholds { get; init; } = [];
+    public Fm27Editor.Core.Offsets.Gender? Gender { get; init; }
+    public bool ExcludeWomenClubs { get; init; }
 }
 
 public enum PlayerSortKey
@@ -251,6 +253,10 @@ public sealed class PlayersModule : IEditorModule
 
     public bool MatchesFilter(PlayerRecord p, PlayerFilter filter)
     {
+        if (filter.Gender is { } gender && p.Gender != gender)
+            return false;
+        if (filter.ExcludeWomenClubs && p.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women)
+            return false;
         if (!string.IsNullOrWhiteSpace(filter.NameQuery) && !Matches(p, filter.NameQuery.Trim()))
             return false;
         if (!string.IsNullOrWhiteSpace(filter.Club))

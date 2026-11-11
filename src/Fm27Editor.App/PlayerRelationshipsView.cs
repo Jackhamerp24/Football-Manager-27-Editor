@@ -34,18 +34,14 @@ public sealed partial class MainWindow
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };
         var infoCodes = RelationshipWriter.OtherNationalityInfos;
 
-        bool AnyChanged() => edits.Any(e => e.Changed());
+        var removed = new List<RelationEntry>();
+        var drafts = new List<DraftRow>();
+        bool AnyChanged() => removed.Count > 0 || drafts.Count > 0 || edits.Any(e => !removed.Contains(e.Entry) && e.Changed());
         void Refresh() => save.IsEnabled = AnyChanged();
-
-        void Change(Action change, string done)
-        {
-            if (AnyChanged()) { status.Text = "Save the relationship edits first"; return; }
-            try { backend.Edits.Execute("Person", player.Name, "Relationships", change); status.Text = done; rerender(); }
-            catch (Exception ex) { status.Text = ex.Message; }
-        }
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*,80,80,160,Auto"), ColumnSpacing = 8, RowSpacing = 4, Margin = new Thickness(12, 8) };
         void Cell(Control c, int row, int col) { Grid.SetRow(c, row); Grid.SetColumn(c, col); grid.Children.Add(c); }
+        void HideRow(int at) { foreach (var c in grid.Children.Where(c => Grid.GetRow(c) == at)) c.IsVisible = false; }
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
         string[] headers = ["Type", "Name", "Caps / Value", "Goals", "Info / Reason", ""];
         for (int i = 0; i < headers.Length; i++) Cell(new TextBlock { Text = headers[i], Foreground = Brush("#8A8DA3") }, 0, i);
@@ -55,8 +51,7 @@ public sealed partial class MainWindow
             int row = grid.RowDefinitions.Count;
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             var remove = new Button { Content = "Remove" };
-            remove.Click += (_, _) => Change(() => new RelationshipWriter(backend.Session.Memory, backend.Session.Profile, backend.Session.Game.ModuleBase).RemoveEntry(player, entry),
-                $"Removed {RelationCatalog.NameOf(entry.Type)}. Continue in FM to see updates.");
+            remove.Click += (_, _) => { removed.Add(entry); HideRow(row); Refresh(); };
             Cell(new TextBlock { Text = RelationCatalog.NameOf(entry.Type), VerticalAlignment = VerticalAlignment.Center }, row, 0);
             Cell(new TextBlock { Text = entry.TargetName ?? "", VerticalAlignment = VerticalAlignment.Center }, row, 1);
 
@@ -100,106 +95,94 @@ public sealed partial class MainWindow
             edits.Add(edit);
         }
 
-        // Add row: any catalog type, target by kind, Caps/Goals for the two caps types.
-        var addType = new ComboBox { Width = 320, MinWidth = 320, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left, ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, PlaceholderText = "Select type...", MaxDropDownHeight = 260, ItemTemplate = new FuncDataTemplate<string>((text, _) => new TextBlock { Text = text, MaxWidth = 284, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }) };
-        var search = new TextBox { Width = 150, Watermark = "Name" };
-        var targets = new ComboBox { Width = 230, MinWidth = 230, MaxWidth = 230, ItemTemplate = new FuncDataTemplate<RelationTarget>((target, _) => new TextBlock { Text = target.Label, MaxWidth = 194, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }) };
-        var addCaps = new TextBox { Text = "0", Width = 64, HorizontalContentAlignment = HorizontalAlignment.Right, IsVisible = false };
-        var addGoals = new TextBox { Text = "0", Width = 64, HorizontalContentAlignment = HorizontalAlignment.Right, IsVisible = false };
-        var addValue = new TextBox { Text = "50", Width = 64, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var addInfo = new ComboBox { Width = 150, ItemsSource = infoCodes.Select(c => InformationLabels.Name(InformationLabels.NationalityInfos, c)).ToArray(), SelectedIndex = infoCodes.ToList().IndexOf(80), IsVisible = false };
-        var add = new Button { Content = "Add", IsEnabled = false };
-
-        RelationType? AddType() => addType.SelectedIndex < 0 ? null : RelationCatalog.All[addType.SelectedIndex];
-        void Find()
+        // What a new row can point at, by the kind its type needs; built the first time a draft asks.
+        var choices = new Dictionary<RelationTargetKind, IReadOnlyList<RelationTarget>>();
+        IReadOnlyList<RelationTarget> TargetChoices(RelationTargetKind kind)
         {
-            string q = (search.Text ?? "").Trim();
-            if (q.Length < 2) { targets.ItemsSource = null; return; }
-            var type = AddType();
-            if (type is null) { targets.ItemsSource = null; return; }
-            IEnumerable<RelationTarget> found = type.Target switch
+            if (choices.TryGetValue(kind, out var known)) return known;
+            var session = backend.Session;
+            IEnumerable<RelationTarget> found = kind switch
             {
-                RelationTargetKind.Nation => (nationCatalogue ??= backend.Session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList())
-                    .Where(n => Matches(n.DisplayName, q)).Select(n => new RelationTarget(n.Id is { } id ? $"{n.DisplayName} ({id})" : n.DisplayName, n.Address)),
-                RelationTargetKind.Club => (clubCache ??= backend.Session.LoadClubs(Players()))
-                    .Where(c => Matches(c.DisplayName, q) || Matches(c.Name, q)).Select(c => new RelationTarget(c.DisplayName, c.Address)),
-                RelationTargetKind.Team => (clubCache ??= backend.Session.LoadClubs(Players()))
-                    .Where(c => c.FirstTeam is not null && (Matches(c.DisplayName, q) || Matches(c.Name, q))).Select(c => new RelationTarget(c.DisplayName, c.FirstTeam!.Address)),
-                RelationTargetKind.Person => Players().Where(p => p.Address != player.Address && Matches(p.DisplayName, q))
-                    .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", backend.Session.PersonOf(p))),
+                RelationTargetKind.Nation => (nationCatalogue ??= session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList())
+                    .Select(n => new RelationTarget(n.Id is { } id ? $"{n.DisplayName} ({id})" : n.DisplayName, n.Address)),
+                RelationTargetKind.Club => (clubCache ??= session.LoadClubs(Players())).Where(c => c.Gender != Fm27Editor.Core.Offsets.Gender.Women).Select(c => new RelationTarget(c.DisplayName, c.Address)),
+                RelationTargetKind.Team => (clubCache ??= session.LoadClubs(Players())).Where(c => c.FirstTeam is not null && c.Gender != Fm27Editor.Core.Offsets.Gender.Women).Select(c => new RelationTarget(c.DisplayName, c.FirstTeam!.Address)),
+                RelationTargetKind.Person => Players().Where(p => p.Address != player.Address && p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women).Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", session.PersonOf(p))),
                 _ => [],
             };
-            targets.ItemsSource = found.Take(40).ToArray();
-            targets.SelectedIndex = targets.ItemCount > 0 ? 0 : -1;
+            return choices[kind] = found.ToList();
         }
-        void TypeChanged()
+
+        // Add puts a draft row in the table; the type decides which of its cells show. Nothing is written until Save.
+        void AddDraft()
         {
-            var type = AddType();
-            if (type is null)
+            int row = grid.RowDefinitions.Count;
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            var d = new DraftRow();
+            var typeBox = new ComboBox { Width = 150, ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, MaxDropDownHeight = 300 };
+            var target = new AutoCompleteBox { MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300, IsVisible = false,
+                ItemFilter = (q, o) => o is RelationTarget t && Matches(t.Label, q ?? "") };
+            var value = new TextBox { Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right, IsVisible = false };
+            var goals = new TextBox { Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right, IsVisible = false };
+            var info = new ComboBox { Width = 150, ItemsSource = infoCodes.Select(c => InformationLabels.Name(InformationLabels.NationalityInfos, c)).ToArray(), SelectedIndex = infoCodes.ToList().IndexOf(80), IsVisible = false };
+            var removeDraft = new Button { Content = "Remove" };
+            d.TargetBox = target; d.Value = value; d.Goals = goals; d.Info = info;
+            Cell(typeBox, row, 0); Cell(target, row, 1); Cell(value, row, 2); Cell(goals, row, 3); Cell(info, row, 4); Cell(removeDraft, row, 5);
+            typeBox.SelectionChanged += (_, _) =>
             {
-                addCaps.IsVisible = addGoals.IsVisible = addValue.IsVisible = addInfo.IsVisible = false;
-                search.IsVisible = targets.IsVisible = false;
-                add.IsEnabled = false;
-                return;
-            }
-            bool caps = type.Code is CapsType or YouthCapsType;
-            bool nationality = type.Code == OtherNationalityType;
-            addCaps.IsVisible = addGoals.IsVisible = caps;
-            addValue.IsVisible = !caps && !nationality;
-            addInfo.IsVisible = nationality;
-            search.IsVisible = targets.IsVisible = type.Target != RelationTargetKind.None;
-            addValue.Text = "";
-            addValue.Watermark = "Value"; addCaps.Watermark = "Caps"; addGoals.Watermark = "Goals";
-            Find();
-            add.IsEnabled = type.Target == RelationTargetKind.None || targets.SelectedItem is RelationTarget;
+                d.Type = typeBox.SelectedIndex < 0 ? null : RelationCatalog.All[typeBox.SelectedIndex];
+                bool targeted = d.Type is { Target: not RelationTargetKind.None };
+                target.IsVisible = targeted;
+                target.Text = ""; target.SelectedItem = null;
+                target.ItemsSource = targeted ? TargetChoices(d.Type!.Target) : null;
+                value.IsVisible = d.Type is not null && d.Type.Code != OtherNationalityType;
+                goals.IsVisible = d.Type?.Code is CapsType or YouthCapsType;
+                info.IsVisible = d.Type?.Code == OtherNationalityType;
+                value.Text = d.Type?.Value.ToString(Inv) ?? ""; goals.Text = "0";
+                Refresh();
+            };
+            removeDraft.Click += (_, _) => { drafts.Remove(d); HideRow(row); Refresh(); };
+            drafts.Add(d);
+            Refresh();
         }
-        addType.SelectionChanged += (_, _) => TypeChanged();
-        search.TextChanged += (_, _) => Find();
-        targets.SelectionChanged += (_, _) => add.IsEnabled = AddType() is { } t && (t.Target == RelationTargetKind.None || targets.SelectedItem is RelationTarget);
-        TypeChanged();
-        add.Click += (_, _) =>
-        {
-            if (AddType() is not { } type) return;
-            ulong target = type.Target == RelationTargetKind.None ? 0 : (targets.SelectedItem as RelationTarget)?.Address ?? 0;
-            byte value = type.Value, flags = type.Flags;
-            if (type.Code is CapsType or YouthCapsType)
-            {
-                if (!byte.TryParse(addCaps.Text, out value) || value > 127 || !byte.TryParse(addGoals.Text, out flags) || flags > 127)
-                { status.Text = "Other Nation Caps: Caps and Goals are 0–127"; return; }
-            }
-            else if (type.Code == OtherNationalityType)
-            {
-                if (addInfo.SelectedIndex < 0) return;
-                flags = (byte)infoCodes[addInfo.SelectedIndex];
-            }
-            else if (!byte.TryParse(addValue.Text, out value)) { status.Text = "Relationships: enter a value"; return; }
-            Change(() => new RelationshipWriter(backend.Session.Memory, backend.Session.Profile, backend.Session.Game.ModuleBase)
-                    .AddEntry(player, statuses, new RelationDraft(type, target, type.Plus8, value, flags), backend.Session.AllocateGameBlock),
-                $"Added {type.Name}. Continue in FM to see updates.");
-        };
+        var add = new Button { Content = "Add", HorizontalAlignment = HorizontalAlignment.Left };
+        add.Click += (_, _) => AddDraft();
 
         var list = new StackPanel();
-        if (statuses.Entries.Count > 0) list.Children.Add(new ScrollViewer { Content = grid, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
-        var addRow = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6, LineSpacing = 6 };
-        addRow.Children.Add(addType); addRow.Children.Add(search); addRow.Children.Add(targets);
-        addRow.Children.Add(addCaps); addRow.Children.Add(addGoals); addRow.Children.Add(addValue); addRow.Children.Add(addInfo); addRow.Children.Add(add);
+        list.Children.Add(new ScrollViewer { Content = grid, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         list.Children.Add(new Border
         {
             BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, statuses.Entries.Count > 0 ? 1 : 0, 0, 0),
             Padding = new Thickness(12, 8),
-            Child = addRow,
+            Child = add,
         });
         if (statuses.Holder != 0) panel.Children.Add(UiKit.Card("Relationships", list));
+        RelationDraft ToDraft(DraftRow d)
+        {
+            var type = d.Type ?? throw new InvalidOperationException("Relationships: choose a type for every new row");
+            ulong target = type.Target == RelationTargetKind.None ? 0
+                : (d.TargetBox!.SelectedItem as RelationTarget)?.Address ?? throw new InvalidOperationException($"{type.Name}: choose a target");
+            byte value = type.Value, flags = type.Flags;
+            if (type.Code is CapsType or YouthCapsType)
+            {
+                if (!byte.TryParse(d.Value!.Text, out value) || value > 127 || !byte.TryParse(d.Goals!.Text, out flags) || flags > 127)
+                    throw new InvalidOperationException("Other Nation Caps: Caps and Goals are 0–127");
+            }
+            else if (type.Code == OtherNationalityType) flags = (byte)infoCodes[d.Info!.SelectedIndex];
+            else if (!byte.TryParse(d.Value!.Text, out value)) throw new InvalidOperationException($"{type.Name}: enter a value");
+            return new RelationDraft(type, target, type.Plus8, value, flags);
+        }
         save.Click += (_, _) =>
         {
             try
             {
                 var session = backend.Session;
+                var toAdd = drafts.Select(ToDraft).ToList();
                 backend.Edits.Execute("Player", player.Name, "Page save", () =>
                 {
                     var writer = new RelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase);
-                    foreach (var e in edits.Where(x => x.Changed()))
+                    foreach (var e in edits.Where(x => !removed.Contains(x.Entry) && x.Changed()))
                     {
                         var entry = e.Entry;
                         if (entry.Type is CapsType or YouthCapsType)
@@ -219,14 +202,31 @@ public sealed partial class MainWindow
                             writer.UpdateEntry(player, entry, e.Reason!.SelectedIndex, value, entry.Flags);
                         }
                     }
+                    // Removing and adding move the list, so it is read again before each one.
+                    foreach (var gone in removed)
+                    {
+                        var now = session.ReadStatuses(player).Entries.FirstOrDefault(x => x.Type == gone.Type && x.Target == gone.Target && x.Snapshot == gone.Snapshot)
+                            ?? throw new StaleObjectException("The relationship is no longer in the list");
+                        writer.RemoveEntry(player, now);
+                    }
+                    foreach (var draft in toAdd) writer.AddEntry(player, session.ReadStatuses(player), draft, session.AllocateGameBlock);
                 });
-                status.Text = "Saved relationships. Continue in FM to see updates.";
                 rerender();
+                status.Text = "Saved relationships. Continue in FM to see updates.";
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };
-        if (statuses.Entries.Count > 0) panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });
+        panel.Children.Add(save);
         return panel;
+    }
+
+    /// <summary>A row added with Add and not yet saved; its controls sit in the table like any other row.</summary>
+    sealed class DraftRow
+    {
+        public RelationType? Type;
+        public AutoCompleteBox? TargetBox;
+        public TextBox? Value, Goals;
+        public ComboBox? Info;
     }
 
     sealed class EntryEdit(RelationEntry entry)

@@ -21,6 +21,8 @@ public sealed class FutureTransferCreator(IProcessMemory memory, OffsetProfile p
     {
         // Every address comes from the profile, so the same code runs on Game Pass and Steam; the guards below refuse any object that is not the expected kind.
         if (fee < 0 || date <= today) throw new ArgumentException("A future date and non-negative fee are required");
+        GenderGuard.EnsureMalePlayer(memory, profile, player.Address);
+        GenderGuard.EnsureMenClubOfTeamIfPresent(memory, profile, moduleBase, buyer);
         var po = profile.Proposals ?? throw new InvalidOperationException("Missing proposal offsets");
         var fo = profile.FutureTransfers ?? throw new InvalidOperationException("Missing future-transfer offsets");
         var co = profile.Contract ?? throw new InvalidOperationException("Missing contract offsets");

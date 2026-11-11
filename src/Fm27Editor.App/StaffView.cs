@@ -41,10 +41,18 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
     : EntityScreen<StaffRecord, StaffRow, StaffDraft>(host, "staff", "Staff", "staff", "Search staff name or ID...")
 {
     const string AllClubs = "All clubs", AllJobs = "All jobs";
+    readonly ComboBox genderFilter = new() { ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch, MaxDropDownHeight = 260 };
     readonly ComboBox clubFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox jobFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     bool updatingFilters;
     string sectionKey = "Information";
+
+    Fm27Editor.Core.Offsets.Gender? SelectedGender() => genderFilter.SelectedIndex switch
+    {
+        0 => Fm27Editor.Core.Offsets.Gender.Men,
+        1 => Fm27Editor.Core.Offsets.Gender.Women,
+        _ => null,
+    };
 
     /// <summary>Runs when the game connection changes, so undo stacks of batch edits are dropped.</summary>
     public Action? ClearUndo { get; set; }
@@ -54,16 +62,24 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
     protected override Control BuildSearchHeader(TextBox searchBox)
     {
         searchBox.Margin = new Thickness(0, 0, 6, 0);
+        ToolTip.SetTip(genderFilter, "Gender filter");
         var searchControls = new DockPanel();
         searchControls.Children.Add(searchBox);
-        var filters = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8 };
-        Grid.SetColumn(clubFilter, 0); filters.Children.Add(clubFilter);
-        Grid.SetColumn(jobFilter, 1); filters.Children.Add(jobFilter);
+        var filters = new Grid { ColumnDefinitions = new ColumnDefinitions("104,*,*"), ColumnSpacing = 8 };
+        Grid.SetColumn(genderFilter, 0); filters.Children.Add(genderFilter);
+        Grid.SetColumn(clubFilter, 1); filters.Children.Add(clubFilter);
+        Grid.SetColumn(jobFilter, 2); filters.Children.Add(jobFilter);
+        genderFilter.SelectionChanged += (_, _) => { if (!updatingFilters) { PopulateFilters(); Filter(); } };
         clubFilter.SelectionChanged += (_, _) => { if (!updatingFilters) Filter(); };
         jobFilter.SelectionChanged += (_, _) => { if (!updatingFilters) Filter(); };
         ResetFilters();
         return new StackPanel { Spacing = 6, Children = { searchControls, filters } };
     }
+
+    protected override string FilteredMessage(int shown, int total) =>
+        SelectedGender() is { } g && SearchText.Length == 0 && clubFilter.SelectedIndex == 0 && jobFilter.SelectedIndex == 0
+            ? $"{shown:N0} of {total:N0} staff shown ({total - shown:N0} hidden by {g} filter)"
+            : base.FilteredMessage(shown, total);
 
     protected override void ConfigureColumns(DataGrid grid)
     {
@@ -102,6 +118,7 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
     void ResetFilters()
     {
         updatingFilters = true;
+        genderFilter.SelectedIndex = 0;
         clubFilter.ItemsSource = new[] { AllClubs }; clubFilter.SelectedIndex = 0;
         jobFilter.ItemsSource = new[] { AllJobs }; jobFilter.SelectedIndex = 0;
         updatingFilters = false;
@@ -110,9 +127,12 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
     void PopulateFilters()
     {
         string? oldClub = clubFilter.SelectedItem as string, oldJob = jobFilter.SelectedItem as string;
-        var clubs = new[] { AllClubs }.Concat(Rows.Select(r => r.Club).Where(s => !string.IsNullOrWhiteSpace(s))
+        var g = SelectedGender();
+        var visible = Rows.Where(r => (g is null || r.Staff.Gender == g)
+            && (g != Fm27Editor.Core.Offsets.Gender.Men || r.Staff.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women));
+        var clubs = new[] { AllClubs }.Concat(visible.Select(r => r.Club).Where(s => !string.IsNullOrWhiteSpace(s))
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s, StringComparer.OrdinalIgnoreCase)).ToArray();
-        var jobs = new[] { AllJobs }.Concat(Rows.Select(r => r.Job).Where(s => !string.IsNullOrWhiteSpace(s))
+        var jobs = new[] { AllJobs }.Concat(visible.Select(r => r.Job).Where(s => !string.IsNullOrWhiteSpace(s))
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s, StringComparer.OrdinalIgnoreCase)).ToArray();
         updatingFilters = true;
         clubFilter.ItemsSource = clubs;
@@ -132,7 +152,9 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
     protected override IReadOnlyList<StaffRow> Apply(IReadOnlyList<StaffRow> rows, string foldedQuery) =>
         StaffFilter.Apply(rows, foldedQuery,
             clubFilter.SelectedItem is string c && c != AllClubs ? c : null,
-            jobFilter.SelectedItem is string j && j != AllJobs ? j : null);
+            jobFilter.SelectedItem is string j && j != AllJobs ? j : null,
+            SelectedGender(),
+            SelectedGender() == Fm27Editor.Core.Offsets.Gender.Men);
 
     protected override bool Matches(StaffRow row, string q) =>
         row.SearchName.Contains(q, StringComparison.Ordinal) || row.Staff.Id.ToString(Inv).Contains(q, StringComparison.Ordinal);

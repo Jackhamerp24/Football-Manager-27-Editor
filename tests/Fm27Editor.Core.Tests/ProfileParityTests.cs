@@ -28,7 +28,7 @@ public class ProfileParityTests
     }
 
     static readonly Dictionary<string, string> GamePass = Flatten("27.0.0+2493426-gamepass.json");
-    static readonly Dictionary<string, string> Steam = Flatten("27.0.0+2493426.json");
+    static readonly Dictionary<string, string> Steam = Flatten("27.0.0+2493426-steam.json");
 
     // Entries that exist only on Game Pass on purpose.
     static readonly string[] GamePassOnly =

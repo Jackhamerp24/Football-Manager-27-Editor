@@ -58,19 +58,58 @@ public sealed class SaveChangedTests
     }
 }
 
-public sealed class PlayerListMarkTests
+/// <summary>
+/// Which save is loaded is told by player objects, not by the list's shape. Each case is a hand-built game: a map of address to
+/// the player id living there (absent = no player object any more).
+/// </summary>
+public sealed class SaveFingerprintTests
 {
-    static readonly PlayerListMark Saved = new(0x1000, 0x1000 + 8 * 50_000, 0xAAAA);
+    // A save of 1,000 players at 0x10000 + 0x700 * i with ids 5000 + i.
+    static readonly List<ulong> List = Enumerable.Range(0, 1000).Select(i => 0x10000UL + 0x700UL * (ulong)i).ToList();
+    static Dictionary<ulong, int> Game() => List.Select((a, i) => (a, i)).ToDictionary(x => x.a, x => 5000 + x.i);
+    static Func<ulong, int?> Reader(Dictionary<ulong, int> game) => a => game.TryGetValue(a, out int id) ? id : null;
 
-    [Fact] public void TheSameListIsTheSameSave() => Assert.False(Saved.IsAnotherSaveThan(Saved));
+    static SaveFingerprint Read(Dictionary<ulong, int> game) => SaveFingerprint.Take(List, Reader(game))!;
 
-    [Fact] public void ANewListBufferIsAnotherSave() => Assert.True((Saved with { Begin = 0x2000 }).IsAnotherSaveThan(Saved));
+    [Fact]
+    public void Samples_are_spread_over_the_list()
+    {
+        var f = Read(Game());
+        Assert.Equal(SaveFingerprint.Size, f.Samples.Count);
+        Assert.Equal([0, 125, 250, 375, 500, 625, 750, 875], f.Samples.Select(s => s.Id - 5000));
+    }
 
-    [Fact] public void ANewFirstPlayerIsAnotherSaveEvenInTheSameBuffer() => Assert.True((Saved with { First = 0xBBBB }).IsAnotherSaveThan(Saved));
+    [Fact]
+    public void Playing_on_is_the_same_save_even_when_the_list_moves_grows_or_loses_players()
+    {
+        var game = Game();
+        var f = Read(game);
+        // Regens added (list grows and the game copies it to a new buffer: neither touches the player objects) and two of
+        // the sampled players retire, so their objects are gone.
+        for (int i = 0; i < 300; i++) game[0x900000UL + 0x700UL * (ulong)i] = 9000 + i;
+        game.Remove(f.Samples[1].Address);
+        game.Remove(f.Samples[6].Address);
+        Assert.True(f.StillHolds(Reader(game)));
+    }
 
-    [Fact] public void AShorterListInTheSameBufferIsAnotherSave() => Assert.True((Saved with { End = Saved.End - 8 * 26_000 }).IsAnotherSaveThan(Saved));
+    [Fact]
+    public void Another_save_frees_the_objects_and_is_seen()
+    {
+        var f = Read(Game());
+        var other = Enumerable.Range(0, 1000).ToDictionary(i => 0x800000UL + 0x700UL * (ulong)i, i => 7000 + i);
+        Assert.False(f.StillHolds(Reader(other)));
+    }
 
-    [Fact] public void NewPlayersGeneratedWhilePlayingAreStillTheSameSave() => Assert.False((Saved with { End = Saved.End + 8 * 300 }).IsAnotherSaveThan(Saved));
+    [Fact]
+    public void Another_save_reusing_the_same_addresses_is_seen_by_the_ids()
+    {
+        var f = Read(Game());
+        var other = List.Select((a, i) => (a, i)).ToDictionary(x => x.a, x => 70000 + x.i);
+        Assert.False(f.StillHolds(Reader(other)));
+    }
+
+    [Fact]
+    public void An_empty_list_gives_no_fingerprint() => Assert.Null(SaveFingerprint.Take([], _ => 1));
 }
 
 public sealed class ClubVisionItemNameTests

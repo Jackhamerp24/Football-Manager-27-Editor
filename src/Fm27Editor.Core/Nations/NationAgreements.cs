@@ -24,11 +24,14 @@ public sealed class NationAgreements(IProcessMemory memory, OffsetProfile profil
     public const int EuVector = 0xA8, NonForeignVector = 0x90;
     public const int RecordSize = 0x30, RegionSlot = 0x18, AgreementSlot = 0x20, FromOffset = 0x28, UntilOffset = 0x2C;
     const int MaxRows = 64, MaxName = 200;
+    List<AgreementRegion>? _regions;
 
     /// <summary>Region catalogue in the game database; unknown names remain numeric IDs.</summary>
     public IReadOnlyList<AgreementRegion> Regions()
     {
-        if (profile.AgreementRegionVtable is null || profile.Nation?.ListRootRva is not { } rootRva) return [];
+        if (_regions is not null) return _regions;
+        if (profile.AgreementRegionVtable is not { } regionVtable || profile.Nation?.ListRootRva is not { } rootRva)
+            return _regions = [];
         var holderBytes = new byte[0x810];
         Span<byte> pointer = stackalloc byte[8];
         List<AgreementRegion> best = [];
@@ -54,7 +57,34 @@ public sealed class NationAgreements(IProcessMemory memory, OffsetProfile profil
                 if (regions.Count == (int)count && regions.Select(r => r.Id).Distinct().Count() == regions.Count) best = regions;
             }
         }
-        return best.OrderBy(r => r.Id).ToList();
+        // 27.0.1+ keeps the region catalogue only in the database table (no vector next to the nation list),
+        // so fall back to every heap object of the region class, keyed by its ID.
+        return _regions = best.Count > 0 ? best.OrderBy(r => r.Id).ToList() : ScannedRegions(regionVtable);
+    }
+
+    List<AgreementRegion> ScannedRegions(uint regionVtable)
+    {
+        if (memory is not WindowsProcessMemory windows) return [];
+        ulong vtable = moduleBase + regionVtable;
+        var byId = new Dictionary<int, AgreementRegion>();
+        var buffer = new byte[1 << 22];
+        foreach (var region in windows.EnumerateWritableRegions())
+        {
+            if (region.IsModuleData) continue;
+            for (ulong offset = 0; offset + 8 <= region.Size; offset += (ulong)buffer.Length)
+            {
+                int length = (int)Math.Min((ulong)buffer.Length, region.Size - offset);
+                if (!memory.TryRead(region.Start + offset, buffer.AsSpan(0, length))) break;
+                for (int i = 0; i + 0x18 <= length; i += 8)
+                {
+                    if (BitConverter.ToUInt64(buffer, i) != vtable) continue;
+                    int id = BitConverter.ToInt32(buffer, i + 0x10);
+                    if (id is < 1 or > 255) continue;
+                    byId.TryAdd(id, new AgreementRegion(region.Start + offset + (ulong)i, id, RegionName(id)));
+                }
+            }
+        }
+        return byId.Values.OrderBy(r => r.Id).ToList();
     }
 
     AgreementRegion? ReadRegion(ulong address)
@@ -64,19 +94,22 @@ public sealed class NationAgreements(IProcessMemory memory, OffsetProfile profil
         if (!memory.TryRead(address, bytes) || BitConverter.ToUInt64(bytes) != moduleBase + profile.AgreementRegionVtable.Value) return null;
         int id = BitConverter.ToInt32(bytes, 0x10);
         if (id is < 1 or > 255) return null;
-        // FMRTE's NativeAOT metadata lists these names in this order. Only UK/Ireland = 14 was
-        // independently observed; keep the other labels explicitly tentative until mapped individually.
-        string? name = id switch
-        {
-            1 => "Africa", 2 => "Asia", 3 => "Caribbean", 4 => "Central America", 5 => "Central Europe",
-            6 => "Eastern Europe", 7 => "Middle Eastern", 8 => "North Africa", 9 => "North America",
-            10 => "Oceania", 11 => "Scandinavia", 12 => "South America", 13 => "South Europe", 14 => "Uk And Ireland",
-            15 => "Central Asia", 16 => "East Asia", 17 => "South Asia", 18 => "Southeast Asia",
-            19 => "Western Africa", 20 => "Central Africa", 21 => "East Africa", 22 => "Southern Africa",
-            _ => null
-        };
-        return new(address, id, name ?? id.ToString());
+        return new(address, id, RegionName(id));
     }
+
+    /// <summary>
+    /// FMRTE's region labels, in the order its metadata lists them. Only UK/Ireland = 14 was independently
+    /// observed; keep the others tentative and show the numeric ID for anything not mapped.
+    /// </summary>
+    static string RegionName(int id) => id switch
+    {
+        1 => "Africa", 2 => "Asia", 3 => "Caribbean", 4 => "Central America", 5 => "Central Europe",
+        6 => "Eastern Europe", 7 => "Middle Eastern", 8 => "North Africa", 9 => "North America",
+        10 => "Oceania", 11 => "Scandinavia", 12 => "South America", 13 => "South Europe", 14 => "Uk And Ireland",
+        15 => "Central Asia", 16 => "East Asia", 17 => "South Asia", 18 => "Southeast Asia",
+        19 => "Western Africa", 20 => "Central Africa", 21 => "East Africa", 22 => "Southern Africa",
+        _ => id.ToString()
+    };
 
     public IReadOnlyList<NationAgreementRow> Read(ulong nation, int vector, IReadOnlyList<ContinentRecord> continents, IReadOnlyList<NationRecord>? nations = null)
     {

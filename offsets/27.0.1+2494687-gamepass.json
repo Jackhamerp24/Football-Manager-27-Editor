@@ -1,24 +1,25 @@
 {
-  "build": "27.0.0+2493426",
-  "agentPoolSlotRva": "0x57075D0",
-  "agentVtableRva": "0x4E36E08",
+  "build": "27.0.1+2494687 Game Pass",
+  "matchBuild": "27.0.1+2494687",
+  "variant": "gamepass",
   "module": "game_plugin.dll",
-  "buildStringRva": "0x4AE3492",
-  "retirementManagerRva": "0x56F7D10",
-  "retirementManagerVtable": "0x4EC38A0",
-  "nationAppointmentVtable": "0x4B03058",
-  "agreementRegionVtable": "0x4DCAC08",
-  "agreementVtable": "0x4CB24E8",
-  "imageSize": "0x1821C000",
-  "peTimestamp": "0x6AE565AF",
+  "buildStringRva": "0x483A533",
+  "retirementManagerRva": "0x53A9070",
+  "retirementManagerVtable": "0x4BB9978",
+  "nationAppointmentVtable": "0x4859B88",
+  "agreementRegionVtable": "0x4AEAEF8",
+  "agreementVtable": "0x49F8D78",
+  "imageSize": "0x17969000",
+  "peTimestamp": "0x6AE8CF77",
   "playerList": {
-    "rootRva": "0x57057C0",
-    "beginOffset": "0x10",
-    "endOffset": "0x18"
+    "rootRva": "0x53B7DE0",
+    "beginOffset": "0x0",
+    "endOffset": "0x8"
   },
   "playerVtables": [
-    "0x4D29228",
-    "0x4F77A08"
+    "0x4A54258",
+    "0x4A54738",
+    "0x4A54788"
   ],
   "player": {
     "objectSize": "0x3C8",
@@ -200,7 +201,7 @@
       "start": "0x20",
       "minimumDays": "0x28",
       "extraDays": "0x2A",
-      "typeVtable": "0x4CB2238",
+      "typeVtable": "0x49F8AC8",
       "typeId": "0x8",
       "typeName": "0x18",
       "treatment": "0x30"
@@ -219,14 +220,16 @@
       "likesPersonType": "0x1",
       "dislikesPersonType": "0x2",
       "likesTeamType": "0x3",
-      "personVtable": "0x4D29758",
-      "staffPersonVtable": "0x4D8DE78",
+      "personVtable": "0x4A54788",
+      "staffPersonVtable": "0x4AB4DD8",
       "personName": "0x40",
       "personFirstName": "0x50",
       "personLastName": "0x58",
       "personCommonName": "0x60",
       "targetKind": "0xA",
       "playerPerson": "0x288",
+      "personGender": "0x19",
+      "personGenderMask": "0x10",
       "retiredInternationalType": "0xA",
       "otherNationalityType": "0x9"
     },
@@ -248,7 +251,7 @@
       "recordSize": "0x10",
       "language": "0x0",
       "value": "0x8",
-      "languageVtable": "0x4F66938",
+      "languageVtable": "0x4C4F1D8",
       "languageId": "0x8",
       "languageName": "0x18"
     },
@@ -272,13 +275,13 @@
       "parameter0": "0x40",
       "parameter1": "0x44",
       "type": "0x4E",
-      "globalRootRva": "0x56F4320",
+      "globalRootRva": "0x53A5670",
       "globalVector": "0xF8"
     },
     "cities": {
       "pointer": "0x308",
-      "listRootRva": "0x5705908",
-      "vtable": "0x4DE49C8",
+      "listRootRva": "0x53B7F18",
+      "vtable": "0x4B018B8",
       "id": "0xC",
       "name": "0x18",
       "nation": "0x20",
@@ -308,7 +311,7 @@
       "job": "0xA",
       "itemType": "0xB",
       "source": "0xC",
-      "continentVtable": "0x4DD87F8",
+      "continentVtable": "0x4AF53B8",
       "continentName": "0x18",
       "nationContinent": "0xF0"
     },
@@ -322,10 +325,10 @@
       "id": "0x5C",
       "status": "0x8D",
       "playerIds": "0x320",
-      "transferVtable": "0x4F3B2E8",
-      "loanVtable": "0x4E1B5B8",
-      "trialVtable": "0x4C97208",
-      "bClubMoveVtable": "0x4C8F6A8"
+      "transferVtable": "0x4C26C48",
+      "loanVtable": "0x4B29D68",
+      "trialVtable": "0x49DE488",
+      "bClubMoveVtable": "0x49D6928"
     },
     "futureTransfers": {
       "playerOffers": "0x328",
@@ -342,19 +345,19 @@
       "rollingMask": "0x8",
       "started": "0x44",
       "expires": "0x48",
-      "fullContractVtable": "0x4B02AE8",
-      "loanContractVtable": "0x4DCB1F8"
+      "fullContractVtable": "0x4859618",
+      "loanContractVtable": "0x4AEB4E8"
     },
     "callUps": {
-      "listRva": "0x5705A60",
-      "vtable": "0x4DC4288",
+      "listRva": "0x53B7FC8",
+      "vtable": "0x4AE4908",
       "nation": "0x30",
       "squad": "0x38"
     }
   },
   "contract": {
     "playerContract": "0x330",
-    "vtable": "0x4B02AE8",
+    "vtable": "0x4859618",
     "team": "0x10",
     "seniorTeam": "0x18",
     "owner": "0x8",
@@ -388,7 +391,7 @@
   "team": {
     "captain": "0x88",
     "viceCaptain": "0x90",
-    "vtable": "0x4CE3108",
+    "vtable": "0x4A224C8",
     "playerTeam": "0x130",
     "squad": "0x38",
     "classification": "0x28",
@@ -424,10 +427,10 @@
       "visionTarget": "0x28",
       "visionStatus": "0x38",
       "visionSource": "0x30",
-      "visionHolderVtable": "0x4DBCC98",
-      "visionHolderVtables": ["0x4DBCC98", "0x4DBCD18"],
-      "cultureVtable": "0x4B105C8",
-      "cultureVtables": ["0x4B105C8", "0x4DCBAF8"],
+      "visionHolderVtable": "0x4ADFF28",
+      "visionHolderVtables": ["0x4ADFF28", "0x4ADFFA8", "0x4ADFC38"],
+      "cultureVtable": "0x4AEBB88",
+      "cultureVtables": ["0x4AEBB88", "0x48670B8"],
       "cultureSize": "0x50",
       "visionType": "0x2C",
       "importance": "0x2D",
@@ -525,15 +528,15 @@
       "sponsorRenew": "0x15",
       "sponsorFixed": "0x16"
     },
-    "vtable": "0x4CDC1F8",
+    "vtable": "0x4A1D638",
     "name": "0xC0",
     "shortName": "0xC8",
     "id": "0xC",
     "nation": "0xD8",
     "finance": {
       "pointer": "0x150",
-      "vtable": "0x4CF2CC8",
-      "compactVtable": "0x4CF27F8",
+      "vtable": "0x4A2F9E8",
+      "compactVtable": "0x4A2F518",
       "compactSize": "0x38",
       "balance": "0xC",
       "transferBudget": "0x7C4",
@@ -559,8 +562,8 @@
         "path": "0x150->0x24",
         "type": "date",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "OwnershipType": {
@@ -578,7 +581,7 @@
         "path": "0x150->0x7D0",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "RichBenefactor": {
@@ -586,8 +589,8 @@
         "path": "0x150->0x34",
         "type": "byte",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "StadiumRentalPerYear": {
@@ -595,7 +598,7 @@
         "path": "0x150->0x7F8",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "YearFounded": {
@@ -608,8 +611,8 @@
         "path": "0x150->0xC",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "EmbargoEnd": {
@@ -617,8 +620,8 @@
         "path": "0x150->0x28",
         "type": "date",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "EmbargoAppealDate": {
@@ -626,8 +629,8 @@
         "path": "0x150->0x2C",
         "type": "date",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "EmbargoReason": {
@@ -635,8 +638,8 @@
         "path": "0x150->0x33",
         "type": "byte",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "EmbargoAgeRestriction": {
@@ -644,8 +647,8 @@
         "path": "0x150->0x30",
         "type": "byte",
         "objectVtables": [
-          "0x4CF2CC8",
-          "0x4CF27F8"
+          "0x4A2F9E8",
+          "0x4A2F518"
         ]
       },
       "TransferBudgetSeason": {
@@ -653,7 +656,7 @@
         "path": "0x150->0x7C8",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "TransferBudgetRemaining": {
@@ -661,7 +664,7 @@
         "path": "0x150->0x7C4",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "WageBudget": {
@@ -669,7 +672,7 @@
         "path": "0x150->0x808",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "WageUsed": {
@@ -677,7 +680,7 @@
         "path": "0x150->0x814",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "MaxWage": {
@@ -685,7 +688,7 @@
         "path": "0x150->0x80C",
         "type": "int32",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "AverageTicketPrice": {
@@ -693,7 +696,7 @@
         "path": "0x150->0x10",
         "type": "float",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "TeamReputation": {
@@ -806,7 +809,7 @@
         "path": "0x150->0x8A9",
         "type": "byte",
         "objectVtables": [
-          "0x4CF2CC8"
+          "0x4A2F9E8"
         ]
       },
       "SupporterPatience": {
@@ -832,21 +835,22 @@
     },
     "transferClauses": {
       "pointer": "0xB0",
-      "sellOnVtable": "0x4C911E8",
-      "appearanceFeeVtable": "0x4DC61E8",
-      "competitionBonusVtable": "0x4DC6088"
+      "scan": true,
+      "sellOnVtable": "0x49D8468",
+      "appearanceFeeVtable": "0x4AE6078",
+      "competitionBonusVtable": "0x4AE5F18"
     }
   },
   "gameDate": {
     "primary": {
-      "rootRva": "0x56F3A18",
-      "objectVtable": "0x4C8E858",
-      "dateOffset": "0x7F4"
+      "rootRva": "0x53A6240",
+      "objectVtable": "0x49D5B18",
+      "dateOffset": "0x7DC"
     }
   },
   "nation": {
     "playerNation": "0x2F0",
-    "vtable": "0x4CE1658",
+    "vtable": "0x4A21168",
     "name": "0x18",
     "shortName": "0x28",
     "listRootRva": "0x56F7078",
@@ -856,15 +860,17 @@
     "continent": "0xF0",
     "stadium": "0x118",
     "womenTeam": "0x110",
+    "containerVtable": "0x4A2B308",
+    "containerNation": "0x170",
     "teams": {
       "pointer": "0x108",
       "list": "0x18",
-      "teamVtable": "0x4DC4288",
+      "teamVtable": "0x4AE4908",
       "reputation": "0xA8"
     },
     "rivalries": {
       "team": "0x108",
-      "teamVtable": "0x4CEE0B8",
+      "teamVtable": "0x4A2B308",
       "vector": "0x48",
       "entrySize": "0x10",
       "type": "0xA",
@@ -873,7 +879,7 @@
     },
     "preferences": {
       "team": "0x108",
-      "teamVtable": "0x4CEE0B8",
+      "teamVtable": "0x4A2B308",
       "vector": "0xF0",
       "entrySize": "0x10"
     },
@@ -1013,7 +1019,7 @@
     }
   },
   "competition": {
-    "squadRulesContainerVtable": "0x4CEE0B8",
+    "squadRulesContainerVtable": "0x4A2B308",
     "prizeMoney": {
       "holder": "0xB0",
       "stages": "0x1C0",
@@ -1023,12 +1029,12 @@
       "perDraw": "0x150",
       "perDefeat": "0x154",
       "classification": "0x1E0",
-      "holderVtable": "0x4CE3FC8",
-      "stageVtable": "0x4DD1148",
-      "prizeVtable": "0x4DD3718"
+      "holderVtable": "0x4A23188",
+      "stageVtable": "0x4AEED68",
+      "prizeVtable": "0x4AF0FC8"
     },
     "teamCompetition": "0x50",
-    "vtable": "0x4CE1AD8",
+    "vtable": "0x4A215F8",
     "name": "0x40",
     "shortName": "0x48",
     "index": "0x8",
@@ -1043,11 +1049,21 @@
     "winterBallColour": "0x15C",
     "substitutionRules": "0xFD",
     "winterBallStart": "0x150",
-    "winterBallEnd": "0x154"
+    "winterBallEnd": "0x154",
+    "threeLetterName": "0x50",
+    "type": "0xF4",
+    "usesExtraOfficials": "0xF6",
+    "seatedStadiumsOnly": "0xF7",
+    "lastContinentalPosition": "0x17C",
+    "continentalPosition": "0x17E",
+    "competitionLevel": "0x199",
+    "trophy": "0x19C",
+    "lowestOfficialCategory": "0x19E",
+    "flags": "0x1A0"
   },
   "award": {
-    "vtable": "0x4CF8078",
-    "listRootRva": "0x56F4A98",
+    "vtable": "0x4A34478",
+    "listRootRva": "0x53A5DE8",
     "listOffset": "0x30",
     "index": "0x8",
     "id": "0xC",
@@ -1062,24 +1078,25 @@
     "knowledgeValue": "0x24",
     "tendenciesHolder": "0xA8",
     "formations": "0xDF",
-    "personListRootRva": "0x5705738",
-    "personListOffset": "0x88",
+    "personListRootRva": "0x53B7E28",
+    "personListOffset": "0x0",
+    "directStaffVector": true,
     "kinds": [
       {
-        "personVtable": "0x4D8DE78",
-        "staffVtable": "0x4D8DE08",
+        "personVtable": "0x4AB4DD8",
+        "staffVtable": "0x4AB4D60",
         "staffPart": "0x100"
       },
       {
-        "personVtable": "0x4CC28D8",
-        "staffVtable": "0x4CC286C",
+        "personVtable": "0x4C603B8",
+        "staffVtable": "0x4C5FE6C",
+        "staffPart": "0x100"
+      },
+      {
+        "personVtable": "0x4A07328",
+        "staffVtable": "0x4A072BC",
         "staffPart": "0x440",
         "manager": true
-      },
-      {
-        "personVtable": "0x4F77F38",
-        "staffVtable": "0x4F779F0",
-        "staffPart": "0x100"
       }
     ],
     "managerAttributes": {
@@ -1162,9 +1179,9 @@
     }
   },
   "stadium": {
-    "listRootRva": "0x56F7078",
-    "listOffset": "0x560",
-    "vtable": "0x4DEFC18",
+    "listRootRva": "0x53A83C0",
+    "listOffset": "0x780",
+    "vtable": "0x4B08F48",
     "id": "0xC",
     "name": "0x40",
     "owner": "0x90",

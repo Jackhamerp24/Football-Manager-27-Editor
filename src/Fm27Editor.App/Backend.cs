@@ -42,6 +42,8 @@ public sealed class EditorBackend : IEditorBackend, IDisposable
             var attached = await Task.Run(() => GameSession.Attach(GameSession.LoadProfiles(Path.Combine(AppContext.BaseDirectory, "offsets")), true), ct);
             session = attached;
             SaveChanged = false;
+            // No heap scan is started here: the clause, region and work-permit scans each take several seconds and
+            // compete with the player read that follows the attach, so they run lazily the first time a screen needs them.
             var journal = new ChangeJournal();
             var recorder = FlightRecorder.Current;
             recorder?.Log("game", $"attached {attached.Profile.Build}; writable {attached.CanWrite}");

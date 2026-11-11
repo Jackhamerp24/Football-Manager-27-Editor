@@ -53,7 +53,7 @@ public sealed partial class MainWindow
         void Filter()
         {
             string query = Fold(search.Text?.Trim() ?? "");
-            clubs.ItemsSource = all.Where(c => c.Address != staff.Club?.Address && c.Id is > 0 &&
+            clubs.ItemsSource = all.Where(c => c.Address != staff.Club?.Address && c.Id is > 0 && c.Gender != Fm27Editor.Core.Offsets.Gender.Women &&
                     (query.Length == 0 || Fold(c.DisplayName).Contains(query) || Fold(c.Name ?? "").Contains(query) || c.Id.ToString() == query))
                 .OrderBy(c => c.DisplayName).Take(200).Select(c => new ClubOption(c)).ToArray();
             Invalidate();

@@ -25,7 +25,8 @@ public sealed class CompetitionRepository(IProcessMemory memory, OffsetProfile p
     const int MaxCompetitions = 100_000, MaxName = 300;
     CompetitionOffsets C => profile.Competition ?? throw new InvalidOperationException("Profile has no competition offsets");
 
-    public IReadOnlyList<CompetitionRecord> LoadAll()
+    /// <param name="players">Supplies the players for the team fallback; called only when the list slot is unusable.</param>
+    public IReadOnlyList<CompetitionRecord> LoadAll(Func<IReadOnlyList<PlayerRecord>>? players = null)
     {
         var c = C;
         if (c.ListRootRva is not { } rva || c.ListOffset is not { } off) throw new InvalidOperationException("Profile has no competition list");
@@ -45,7 +46,7 @@ public sealed class CompetitionRepository(IProcessMemory memory, OffsetProfile p
         // The list slot is missing or points at something else (the Game Pass slot held squad-rule containers, 502 of them).
         // FM Studio 1.1.1 does not use a list at all: it takes [team + TeamCompetition] of every team and walks the
         // competition objects next to each hit at the object size, which found all 8,213 on Game Pass 2493426.
-        var found = DiscoverFromTeams();
+        var found = DiscoverFromTeams(players);
         if (found.Count > 0) return found;
         return listProblem is null ? result : throw listProblem;
     }
@@ -54,13 +55,13 @@ public sealed class CompetitionRepository(IProcessMemory memory, OffsetProfile p
     public const int ObjectStride = 0x1B0;
 
     /// <summary>Competitions reached from the teams of every loaded player, plus their neighbours in memory, ordered by index.</summary>
-    IReadOnlyList<CompetitionRecord> DiscoverFromTeams()
+    IReadOnlyList<CompetitionRecord> DiscoverFromTeams(Func<IReadOnlyList<PlayerRecord>>? players)
     {
         var c = C;
         if (profile.Team is not { } team) return [];
         ulong vtable = moduleBase + c.VtableRva;
         var teams = new HashSet<ulong>();
-        foreach (var player in new PlayerRepository(memory, profile, moduleBase).LoadAll())
+        foreach (var player in players?.Invoke() ?? new PlayerRepository(memory, profile, moduleBase).LoadAll())
         {
             if (TryPointer(player.Address + (ulong)team.PlayerTeam) is { } playing) teams.Add(playing);
             if (profile.Contract is { } contract && player.Contract is { } k && TryPointer(k.Address + (ulong)contract.Team) is { } contractTeam)

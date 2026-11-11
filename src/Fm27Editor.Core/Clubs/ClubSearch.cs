@@ -1,14 +1,18 @@
+using Fm27Editor.Core.Offsets;
+
 namespace Fm27Editor.Core.Clubs;
 
 /// <summary>Criteria for the Club scope of Advanced Search; every set value must match.</summary>
 public sealed record ClubSearchCriteria(
     string? NameContains = null,
-    IReadOnlyDictionary<ClubField, (long Min, long Max)>? Ranges = null);
+    IReadOnlyDictionary<ClubField, (long Min, long Max)>? Ranges = null,
+    Gender? Gender = null);
 
 public static class ClubSearch
 {
     public static bool Matches(ClubEntry club, ClubSearchCriteria criteria, Func<ClubField, long?> read)
     {
+        if (criteria.Gender is { } gender && club.Gender != gender) return false;
         if (!string.IsNullOrWhiteSpace(criteria.NameContains))
         {
             string query = criteria.NameContains.Trim();

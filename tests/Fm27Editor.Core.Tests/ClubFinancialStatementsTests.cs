@@ -14,7 +14,7 @@ public class ClubFinancialStatementsTests
     const ulong Club = 0x6000_0000, Finance = 0x6001_0000;
 
     readonly FakeMemory memory = new();
-    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
 
     ClubStatementOffsets Offsets => profile.Club!.FinanceLists!.Statements!;
 

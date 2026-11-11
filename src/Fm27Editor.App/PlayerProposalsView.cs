@@ -420,16 +420,29 @@ public sealed partial class MainWindow
 
     /// <summary>Contract / Future Contract, kept across saves and player changes like the outer tab.</summary>
 
-    /// <summary>Fast check avoiding heap scan when player has no proposals.</summary>
-    /// <summary>The Transfer Proposals tab shows only when the player has a proposal FMRTE would list, or a live deal already found.</summary>
+    /// <summary>
+    /// True when the player's offer-id list holds an id. Reads only the list header: resolving the offers means scanning
+    /// the game's heap (about ten seconds), which must not happen while the tab rail is being built.
+    /// </summary>
+    bool HasOfferIds(PlayerRecord player)
+    {
+        var session = backend.Session;
+        if (session.Profile.Proposals is not { } p) return false;
+        Span<byte> ptr = stackalloc byte[8];
+        if (!session.Memory.TryRead(player.Address + (ulong)p.PlayerIds, ptr)) return false;
+        ulong header = BitConverter.ToUInt64(ptr);
+        if (header == 0 || !session.Memory.TryRead(header, ptr)) return false;
+        ulong begin = BitConverter.ToUInt64(ptr);
+        if (!session.Memory.TryRead(header + 8, ptr)) return false;
+        ulong end = BitConverter.ToUInt64(ptr);
+        return begin != 0 && end >= begin + 4 && (end - begin) % 4 == 0 && (end - begin) / 4 <= 100;
+    }
+
+    /// <summary>The Transfer Proposals tab shows when the player's offer list has any id, or a live deal was already found.</summary>
     bool HasTransferProposals(PlayerRecord player)
     {
         var session = backend.Session;
-        try
-        {
-            if (session.Profile.Proposals is not null && session.Proposals.Read(player).Any(p => TransferProposalReader.ShownByFmrte(p.Status))) return true;
-        }
-        catch { }
+        try { if (HasOfferIds(player)) return true; } catch { }
         lock (dealCandidateLock)
         {
             if (cachedDealCandidates is null || (DateTime.UtcNow - lastDealScanUtc).TotalSeconds >= 60) return false;
@@ -440,14 +453,7 @@ public sealed partial class MainWindow
     {
         var session = backend.Session;
         if (session.Profile.FutureTransfers is null || session.Profile.Proposals is not { } p) return false;
-        Span<byte> ptr = stackalloc byte[8];
-        if (!session.Memory.TryRead(player.Address + (ulong)p.PlayerIds, ptr)) return false;
-        ulong header = BitConverter.ToUInt64(ptr);
-        if (header == 0 || !session.Memory.TryRead(header, ptr)) return false;
-        ulong begin = BitConverter.ToUInt64(ptr);
-        if (!session.Memory.TryRead(header + 8, ptr)) return false;
-        ulong end = BitConverter.ToUInt64(ptr);
-        if (begin == 0 || end <= begin) return false;
+        if (!HasOfferIds(player) || !session.Proposals.HasCachedOffers) return false;
         return FutureTransferPanel(player) is not null;
     }
 

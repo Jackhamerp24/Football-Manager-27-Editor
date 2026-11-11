@@ -51,11 +51,14 @@ static class SteamWrites
 
         Step("promise add then remove", () =>
         {
-            var owner = s.Owner(player);
             var store = s.Promises;
             var type = PromiseTypes.All.First(t => t.Parameter == PromiseParameter.None);
             var date = s.ReadGameDate() ?? throw new InvalidOperationException("no game date");
-            var existing = store.Read(owner);
+            // Mainoo has no promise on every save; copy from the first player who has one.
+            var (owner, existing) = players
+                .Select(p => (Owner: s.Owner(p), Rows: store.Read(s.Owner(p))))
+                .FirstOrDefault(x => x.Rows.Count > 0);
+            if (existing is null) throw new InvalidOperationException("no player with a promise on this save");
             ulong manager = existing.FirstOrDefault()?.Manager ?? throw new InvalidOperationException("the player has no promise to copy the manager from");
             ulong clubPointer = existing.First().Club;
             var added = store.Add(owner, manager, clubPointer, new PromiseValues(type.Id, date, date.AddDays(60), -1, -1), size => s.AllocateGameBlock(size));
@@ -112,6 +115,70 @@ static class SteamWrites
             writer.SetField(stadium.Address, capacity, before + 1, before);
             Expect(writer.ReadFields(stadium.Address)[capacity] == before, "capacity restored");
         });
+
+        Step("club balance set then restore", () =>
+        {
+            var fields = s.ClubFields;
+            long before = fields.Read(club.Address, ClubField.Balance) ?? throw new InvalidOperationException("no balance");
+            fields.Set(club.Address, ClubField.Balance, before, before + 1);
+            Expect(fields.Read(club.Address, ClubField.Balance) == before + 1, "balance");
+            fields.Set(club.Address, ClubField.Balance, before + 1, before);
+            Expect(fields.Read(club.Address, ClubField.Balance) == before, "balance restored");
+        });
+
+        Step("transfer clause set then restore", () =>
+        {
+            var writer = s.TransferClauses;
+            Fm27Editor.Core.Clubs.TransferClause? Find(Func<Fm27Editor.Core.Clubs.TransferClause, bool> pick) =>
+                clubs.Select(c => s.ReadTransferClauses(c.Address)).SelectMany(x => x).FirstOrDefault(pick);
+            var c = Find(x => x.Kind == TransferClauseKind.SellOn && x.Percentage is > 1 and < 100)
+                ?? Find(x => x.Kind != TransferClauseKind.SellOn && x.Amount is > 0)
+                ?? throw new InvalidOperationException("no clause on this save");
+            var club2 = clubs.First(x => s.ReadTransferClauses(x.Address).Any(y => y.Address == c.Address));
+            Fm27Editor.Core.Clubs.TransferClause Again() => s.ReadTransferClauses(club2.Address).First(y => y.Address == c.Address);
+            if (c.Kind == TransferClauseKind.SellOn)
+            {
+                int before = c.Percentage!.Value;
+                writer.SetPercentage(c, before + 1);
+                Expect(Again().Percentage == before + 1, "percentage");
+                writer.SetPercentage(Again(), before);
+                Expect(Again().Percentage == before, "percentage restored");
+            }
+            else
+            {
+                int before = c.Amount!.Value;
+                writer.SetAmount(c, before + 1);
+                Expect(Again().Amount == before + 1, "amount");
+                writer.SetAmount(Again(), before);
+                Expect(Again().Amount == before, "amount restored");
+            }
+        });
+
+        Step("loan wage set then restore", () =>
+        {
+            var loan = players.Select(p => s.ReadLoan(p)).FirstOrDefault(l => l is not null && l.Terms.Wage > 0)
+                ?? throw new InvalidOperationException("no loan with a wage on this save");
+            int before = loan.Terms.Wage;
+            s.SetLoanTerms(loan, new(Wage: before + 1));
+            var after = s.ReadLoan(loan.Player)!;
+            Expect(after.Terms.Wage == before + 1, "loan wage");
+            s.SetLoanTerms(after, new(Wage: before));
+            Expect(s.ReadLoan(loan.Player)!.Terms.Wage == before, "loan wage restored");
+        });
+
+        foreach (var type in new[] { ProposalType.Transfer, ProposalType.Loan, ProposalType.Trial, ProposalType.BClubMove })
+            Step($"{type} offer value set then restore", () =>
+            {
+                var hit = players.Select(p => (p, s.Proposals.Read(p).FirstOrDefault(x => x.Type == type && x.Value >= 0)))
+                    .FirstOrDefault(x => x.Item2 is not null);
+                if (hit.Item2 is null) throw new InvalidOperationException($"no {type} offer on this save");
+                var (owner, offer) = (hit.p, hit.Item2);
+                TransferProposal Again() => s.Proposals.Read(owner).First(x => x.Address == offer.Address);
+                s.ProposalWriter.SetValue(offer, offer.Value + 1);
+                Expect(Again().Value == offer.Value + 1, "offer value");
+                s.ProposalWriter.SetValue(Again(), offer.Value);
+                Expect(Again().Value == offer.Value, "offer value restored");
+            });
 
         Step("preset heal", () => s.Heal(player));
         Step("preset inspire", () => s.Inspire(player));

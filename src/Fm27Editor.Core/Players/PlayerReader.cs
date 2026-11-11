@@ -52,6 +52,7 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
             WorldReputation = I16(obj, f.WorldReputation),
             Height = I16(obj, f.Height),
             DateOfBirth = Date(I16(obj, f.DateOfBirth), I16(obj, f.DateOfBirth + 2)),
+            Gender = GenderReader.FromPlayerBytes(obj, profile.Relations),
             Contract = contract,
             Nationality = profile.Nation is { } nat ? ReadNation(U64(obj, nat.PlayerNation), nat) : null,
             Division = division,
@@ -164,7 +165,8 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
             ulong clubAddress = BitConverter.ToUInt64(t, c.TeamClub);
             var cb = new byte[ClubReadSize];
             if (clubAddress != 0 && memory.TryRead(clubAddress, cb) && BitConverter.ToUInt64(cb) == ModuleBase + k.ClubVtableRva)
-                club = new ClubInfo(clubAddress, StringAt(BitConverter.ToUInt64(cb, k.Name)), StringAt(BitConverter.ToUInt64(cb, k.ShortName)));
+                club = new ClubInfo(clubAddress, StringAt(BitConverter.ToUInt64(cb, k.Name)), StringAt(BitConverter.ToUInt64(cb, k.ShortName)),
+                    GenderReader.FromClubBytes(cb, k.Gender));
         }
         _clubsByTeam[team] = club;
         return club;

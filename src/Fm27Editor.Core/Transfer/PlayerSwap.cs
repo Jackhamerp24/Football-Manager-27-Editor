@@ -47,6 +47,9 @@ public sealed class PlayerSwapService(IProcessMemory memory, OffsetProfile profi
     {
         if (player.Contract is null) throw new InvalidOperationException($"{player.DisplayName} has no contract (free agent)");
         if (target.PlayerAddress == player.Address) throw new ArgumentException("A player cannot be swapped with himself", nameof(target));
+        GenderGuard.EnsureMalePlayer(memory, profile, player.Address);
+        GenderGuard.EnsureMalePlayer(memory, profile, target.PlayerAddress);
+        GenderGuard.EnsureMenClub(memory, profile, target.ClubAddress);
         if (new LoanEditor(memory, profile, moduleBase).Read(player) is not null)
             throw new InvalidOperationException($"{player.DisplayName} is on loan; recall him before swapping");
         if (Target(player).ClubAddress == target.ClubAddress)

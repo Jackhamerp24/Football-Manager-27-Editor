@@ -35,7 +35,9 @@ public sealed partial class MainWindow
         {
             string q = (search.Text ?? "").Trim();
             if (q.Length < 2) return;
-            pick.ItemsSource = others.Where(p => p.Address != player.Address && Matches(p.DisplayName, q)).Take(40)
+            pick.ItemsSource = others.Where(p => p.Address != player.Address
+                    && p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women
+                    && Matches(p.DisplayName, q)).Take(40)
                 .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToArray();
         }
         search.TextChanged += (_, _) => Find();

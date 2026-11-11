@@ -20,8 +20,6 @@ public sealed class OffsetProfile
     public string? Variant { get; init; }
     public uint? ImageSize { get; init; }
     public uint? PeTimestamp { get; init; }
-    public uint? AgentPoolSlotRva { get; init; }
-    public uint? AgentVtableRva { get; init; }
     /// <summary>Experimental layouts must never open the game with write access.</summary>
     public bool ReadOnly { get; init; }
     /// <summary>Individually verified attributes writable even when the rest of the profile is read-only.</summary>
@@ -55,6 +53,8 @@ public sealed class OffsetProfile
     /// <summary>Classes of the targets of nation agreement rows: a REGION and an AGREEMENT object.</summary>
     public uint? AgreementRegionVtable { get; init; }
     public uint? AgreementVtable { get; init; }
+    /// <summary>Profile <c>forceAccept</c>: RVAs of the code sites the force-accept presets patch, null when this build was not measured.</summary>
+    public ForceAccept.ForceAcceptOffsets? ForceAccept { get; init; }
     /// <summary>Player values beyond attributes (profile <c>player.fields</c>, paths from the player object).</summary>
     public IReadOnlyDictionary<Players.PlayerField, Clubs.ClubFieldOffset>? PlayerFields { get; init; }
     public InjuryOffsets? Injuries { get; init; }
@@ -93,8 +93,6 @@ public sealed class OffsetProfile
         Variant = root.TryGetProperty("variant", out var va) ? va.GetString() : null,
             ImageSize = root.TryGetProperty("imageSize", out _) ? (uint)Hex(root, "imageSize") : null,
             PeTimestamp = root.TryGetProperty("peTimestamp", out _) ? (uint)Hex(root, "peTimestamp") : null,
-            AgentPoolSlotRva = root.TryGetProperty("agentPoolSlotRva", out _) ? (uint)Hex(root, "agentPoolSlotRva") : null,
-            AgentVtableRva = root.TryGetProperty("agentVtableRva", out _) ? (uint)Hex(root, "agentVtableRva") : null,
             ReadOnly = root.TryGetProperty("readOnly", out var ro) && ro.GetBoolean(),
             DirectGameDateRva = root.TryGetProperty("directGameDateRva", out _) ? (uint)Hex(root, "directGameDateRva") : null,
             RetirementManagerRva = root.TryGetProperty("retirementManagerRva", out _) ? (uint)Hex(root, "retirementManagerRva") : null,
@@ -102,6 +100,13 @@ public sealed class OffsetProfile
             NationAppointmentVtable = root.TryGetProperty("nationAppointmentVtable", out _) ? (uint)Hex(root, "nationAppointmentVtable") : null,
             AgreementRegionVtable = root.TryGetProperty("agreementRegionVtable", out _) ? (uint)Hex(root, "agreementRegionVtable") : null,
             AgreementVtable = root.TryGetProperty("agreementVtable", out _) ? (uint)Hex(root, "agreementVtable") : null,
+            ForceAccept = root.TryGetProperty("forceAccept", out var fa) ? new ForceAccept.ForceAcceptOffsets
+            {
+                BoardRequestsRva = fa.TryGetProperty("boardRequestsRva", out _) ? (uint)Hex(fa, "boardRequestsRva") : null,
+                ClubVisionRva = fa.TryGetProperty("clubVisionRva", out _) ? (uint)Hex(fa, "clubVisionRva") : null,
+                ContractOffersRva = fa.TryGetProperty("contractOffersRva", out _) ? (uint)Hex(fa, "contractOffersRva") : null,
+                TransferOffersRva = fa.TryGetProperty("transferOffersRva", out _) ? (uint)Hex(fa, "transferOffersRva") : null,
+            } : null,
             PlayerListRootRva = (uint)Hex(list, "rootRva"),
             PlayerListBeginOffset = Hex(list, "beginOffset"),
             PlayerListEndOffset = Hex(list, "endOffset"),
@@ -215,6 +220,7 @@ public sealed class OffsetProfile
                 TransferClauses = k.TryGetProperty("transferClauses", out var tc) ? new TransferClauseOffsets
                 {
                     Pointer = Hex(tc, "pointer"),
+                    Scan = tc.TryGetProperty("scan", out var scan) && scan.GetBoolean(),
                     SellOnVtableRva = (uint)Hex(tc, "sellOnVtable"),
                     AppearanceFeeVtableRva = (uint?)OptHex(tc, "appearanceFeeVtable"),
                     CompetitionBonusVtableRva = (uint?)OptHex(tc, "competitionBonusVtable"),
@@ -240,6 +246,8 @@ public sealed class OffsetProfile
                 Stadium = OptHex(nat, "stadium"),
                 Teams = nat.TryGetProperty("teams", out var nt) ? new NationTeamOffsets(Hex(nt, "pointer"), Hex(nt, "list"), (uint)Hex(nt, "teamVtable"), Hex(nt, "reputation")) : null,
                 WomenTeam = OptHex(nat, "womenTeam"),
+                ContainerVtable = nat.TryGetProperty("containerVtable", out _) ? (uint?)Hex(nat, "containerVtable") : null,
+                ContainerNation = OptHex(nat, "containerNation"),
                 Rivalries = nat.TryGetProperty("rivalries", out var nr) ? new NationRivalryOffsets(
                     Hex(nr, "team"), (uint)Hex(nr, "teamVtable"), Hex(nr, "vector"), Hex(nr, "entrySize"),
                     Hex(nr, "type"), Hex(nr, "rivalType"), Hex(nr, "value")) : null,
@@ -266,6 +274,16 @@ public sealed class OffsetProfile
                 WinterBallStart = OptHex(comp, "winterBallStart"),
                 WinterBallEnd = OptHex(comp, "winterBallEnd"),
                 SubstitutionRules = OptHex(comp, "substitutionRules"),
+                ThreeLetterName = OptHex(comp, "threeLetterName"),
+                Type = OptHex(comp, "type"),
+                UsesExtraOfficials = OptHex(comp, "usesExtraOfficials"),
+                SeatedStadiumsOnly = OptHex(comp, "seatedStadiumsOnly"),
+                LastContinentalPosition = OptHex(comp, "lastContinentalPosition"),
+                ContinentalPosition = OptHex(comp, "continentalPosition"),
+                CompetitionLevel = OptHex(comp, "competitionLevel"),
+                Trophy = OptHex(comp, "trophy"),
+                LowestOfficialCategory = OptHex(comp, "lowestOfficialCategory"),
+                Flags = OptHex(comp, "flags"),
                 SquadRulesContainerVtableRva = (uint?)OptHex(comp, "squadRulesContainerVtable"),
                 PrizeMoney = comp.TryGetProperty("prizeMoney", out var prizeOffsets) ? new CompetitionPrizeOffsets(
                     Hex(prizeOffsets, "holder"), Hex(prizeOffsets, "stages"), Hex(prizeOffsets, "stageOwner"), Hex(prizeOffsets, "stagePrize"),
@@ -338,8 +356,6 @@ public sealed class OffsetProfile
         if (Variant is { } variant) w.WriteString("variant", variant);
             if (ImageSize is { } imageSize) H("imageSize", imageSize);
             if (PeTimestamp is { } timestamp) H("peTimestamp", timestamp);
-            if (AgentPoolSlotRva is { } agentPoolSlot) H("agentPoolSlotRva", agentPoolSlot);
-            if (AgentVtableRva is { } agentVtable) H("agentVtableRva", agentVtable);
             if (ReadOnly) w.WriteBoolean("readOnly", true);
             if (DirectGameDateRva is { } directDate) H("directGameDateRva", directDate);
             if (RetirementManagerRva is { } retirementRva) H("retirementManagerRva", retirementRva);
@@ -347,6 +363,15 @@ public sealed class OffsetProfile
             if (NationAppointmentVtable is { } appointmentVtable) H("nationAppointmentVtable", appointmentVtable);
             if (AgreementRegionVtable is { } agreementRegion) H("agreementRegionVtable", agreementRegion);
             if (AgreementVtable is { } agreementKind) H("agreementVtable", agreementKind);
+            if (ForceAccept is { } forceAccept)
+            {
+                w.WriteStartObject("forceAccept");
+                if (forceAccept.BoardRequestsRva is { } boardRequests) H("boardRequestsRva", boardRequests);
+                if (forceAccept.ClubVisionRva is { } clubVision) H("clubVisionRva", clubVision);
+                if (forceAccept.ContractOffersRva is { } contractOffers) H("contractOffersRva", contractOffers);
+                if (forceAccept.TransferOffersRva is { } transferOffers) H("transferOffersRva", transferOffers);
+                w.WriteEndObject();
+            }
             w.WriteStartObject("playerList");
             H("rootRva", PlayerListRootRva); H("beginOffset", PlayerListBeginOffset); H("endOffset", PlayerListEndOffset);
             w.WriteEndObject();
@@ -525,6 +550,8 @@ public sealed class OffsetProfile
                     w.WriteEndObject();
                 }
                 if (nat.WomenTeam is { } women) H("womenTeam", women);
+                if (nat.ContainerVtable is { } ncv) H("containerVtable", ncv);
+                if (nat.ContainerNation is { } ncn) H("containerNation", ncn);
                 if (nat.Rivalries is { } nr)
                 {
                     w.WriteStartObject("rivalries");
@@ -565,6 +592,11 @@ public sealed class OffsetProfile
                     ("reputationMirror", comp.ReputationMirror), ("foreground", comp.Foreground), ("background", comp.Background),
                     ("trim", comp.Trim), ("winterBallColour", comp.WinterBallColour), ("winterBallStart", comp.WinterBallStart),
                     ("winterBallEnd", comp.WinterBallEnd), ("substitutionRules", comp.SubstitutionRules),
+                    ("threeLetterName", comp.ThreeLetterName), ("type", comp.Type),
+                    ("usesExtraOfficials", comp.UsesExtraOfficials), ("seatedStadiumsOnly", comp.SeatedStadiumsOnly),
+                    ("lastContinentalPosition", comp.LastContinentalPosition), ("continentalPosition", comp.ContinentalPosition),
+                    ("competitionLevel", comp.CompetitionLevel), ("trophy", comp.Trophy),
+                    ("lowestOfficialCategory", comp.LowestOfficialCategory), ("flags", comp.Flags),
                 })
                     if (value is { } v) H(key, v);
                 if (comp.PrizeMoney is { } prize)

@@ -194,6 +194,10 @@ public sealed partial class MainWindow
     IReadOnlyList<CityRecord> unifiedCities = [];
     readonly object unifiedCacheLock = new();
     bool unifiedCacheLoaded;
+    Task? unifiedCacheTask;
+    int unifiedSearchVersion;
+    readonly Dictionary<string, string> foldCache = [];
+    Dictionary<ulong, string> unifiedNationNames = [];
 
     Control BuildTopBar()
     {
@@ -785,6 +789,7 @@ public sealed partial class MainWindow
 
     void CloseUnified()
     {
+        unifiedSearchVersion++;
         unifiedTimer.Stop();
         searchOverlay.IsVisible = false;
         unifiedList.Children.Clear();
@@ -809,6 +814,9 @@ public sealed partial class MainWindow
             unifiedAwards = [];
             unifiedReferees = [];
             unifiedCities = [];
+            unifiedNationNames = [];
+            foldCache.Clear();
+            unifiedCacheTask = null;
             unifiedCacheLoaded = false;
         }
     }
@@ -868,7 +876,30 @@ public sealed partial class MainWindow
             }
             try { unifiedReferees = session.ReadReferees(); } catch { }
             try { unifiedCities = session.Cities.LoadAll(); } catch { }
+            unifiedNationNames = unifiedNations.Where(nat => nat.Address != 0).GroupBy(nat => nat.Address).ToDictionary(g => g.Key, g => g.First().DisplayName);
             unifiedCacheLoaded = true;
+        }
+    }
+
+    /// <summary>Loads the search lists in the background (once), so a keystroke never pays for them.</summary>
+    async Task EnsureUnifiedCacheAsync()
+    {
+        if (unifiedCacheLoaded) return;
+        var task = unifiedCacheTask ??= Task.Run(EnsureUnifiedCache);
+        await task;
+        if (!unifiedCacheLoaded) unifiedCacheTask = null;
+    }
+
+    /// <summary>Folded (accent-free, lower-case) text, cached per string: a search folds each name once, not once per keystroke.</summary>
+    string FoldCached(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        lock (foldCache)
+        {
+            if (foldCache.TryGetValue(text, out var folded)) return folded;
+            folded = FoldText(text);
+            if (foldCache.Count < 200_000) foldCache[text] = folded;
+            return folded;
         }
     }
 
@@ -877,15 +908,15 @@ public sealed partial class MainWindow
         : new string(text.Normalize(System.Text.NormalizationForm.FormD).Where(c => char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray()).ToLowerInvariant();
 
     /// <summary>Matches "man utd" against "Manchester United": every token must appear or start a word.</summary>
-    static bool MatchesLoose(string? text, string[] tokens)
+    bool MatchesLoose(string? text, string[] tokens)
     {
         if (string.IsNullOrEmpty(text)) return false;
-        var folded = FoldText(text);
+        var folded = FoldCached(text);
         var words = folded.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return tokens.All(t => folded.Contains(t, StringComparison.Ordinal) || words.Any(w => w.StartsWith(t, StringComparison.Ordinal)));
     }
 
-    void RunUnifiedSearch()
+    async void RunUnifiedSearch()
     {
         string raw = (unifiedSearch.Text ?? "").Trim();
         string query = FoldText(raw);
@@ -899,8 +930,14 @@ public sealed partial class MainWindow
         }
         var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         bool numericQuery = int.TryParse(raw, NumberStyles.Integer, Inv, out int idQuery);
-        EnsureUnifiedCache();
+        int version = ++unifiedSearchVersion;
+        await EnsureUnifiedCacheAsync();
+        if (version != unifiedSearchVersion || !searchOverlay.IsVisible) return;
 
+        // Scoring every list (players, staff, 58k cities, 29k stadiums...) runs in the background; only the
+        // newest keystroke's results are shown.
+        var results = await Task.Run(() =>
+        {
         const int MaxTotalResults = 300;
         const int MaxPerCategory = 120;
         var results = new List<UnifiedSearchResult>();
@@ -914,7 +951,7 @@ public sealed partial class MainWindow
         int ScoreQuery(string? text, string q, string[] qTokens)
         {
             if (string.IsNullOrWhiteSpace(text)) return -1;
-            string folded = FoldText(text);
+            string folded = FoldCached(text);
             if (folded == q) return 100;
             if (folded.StartsWith(q, StringComparison.Ordinal)) return 85;
             var words = folded.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -966,6 +1003,7 @@ public sealed partial class MainWindow
         foreach (var club in unifiedClubs)
         {
             if (catCount >= MaxPerCategory) break;
+            if (club.Gender == Fm27Editor.Core.Offsets.Gender.Women) continue;
             string name = club.Name ?? club.DisplayName;
             int score = MatchScore(name, club.ShortName, club.Id, 14);
             if (score > 0)
@@ -981,6 +1019,7 @@ public sealed partial class MainWindow
         foreach (var player in playerSource)
         {
             if (catCount >= MaxPerCategory) break;
+            if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women) continue;
             int score = MatchScore(player.DisplayName, player.FullName, player.Id, 13);
             if (score > 0)
             {
@@ -998,6 +1037,7 @@ public sealed partial class MainWindow
         foreach (var (staff, sName, job) in staffSource)
         {
             if (catCount >= MaxPerCategory) break;
+            if (staff.Gender == Fm27Editor.Core.Offsets.Gender.Women || staff.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women) continue;
             int score = MatchScore(sName, staff.FullName, staff.Id, 12);
             if (score > 0)
             {
@@ -1072,7 +1112,7 @@ public sealed partial class MainWindow
 
         // 9. Cities (Weight 7)
         catCount = 0;
-        var nationNames = unifiedNations.Where(nat => nat.Address != 0).GroupBy(nat => nat.Address).ToDictionary(g => g.Key, g => g.First().DisplayName);
+        var nationNames = unifiedNationNames;
         foreach (var city in unifiedCities)
         {
             if (catCount >= MaxPerCategory) break;
@@ -1086,6 +1126,9 @@ public sealed partial class MainWindow
 
         results.Sort((a, b) => b.TotalScore.CompareTo(a.TotalScore));
         if (results.Count > MaxTotalResults) results.RemoveRange(MaxTotalResults, results.Count - MaxTotalResults);
+        return results;
+        });
+        if (version != unifiedSearchVersion || !searchOverlay.IsVisible) return;
 
         lastUnifiedResults = results;
         RenderCurrentUnifiedResults();

@@ -176,8 +176,8 @@ public sealed partial class MainWindow
                     foreach (var grant in grants.Where(g => !removedGrants.Contains(g.Record) && permanent.Contains(g.Record))) session.MakeWorkPermitPermanent(player, grant);
                     foreach (var (nation, _, year) in additions) session.AddWorkPermit(player, nation, int.Parse(year.Text!));
                 });
-                status.Text = "Saved work permit changes. Continue in FM to see updates.";
                 RenderEditor();
+                status.Text = "Saved work permit changes. Continue in FM to see updates.";
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };

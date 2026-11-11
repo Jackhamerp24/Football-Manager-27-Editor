@@ -1,0 +1,11 @@
+DO NOT DELETE
+
+Thư mục calibration/ chứa save hiệu chuẩn dùng để đo offset cho Steam, Game Pass và mọi patch 27.x.
+Save là dữ liệu game, không thể tạo lại nếu mất (phải chơi lại và đặt marker từ đầu).
+
+- calibration/saves/DO-NOT-DELETE-base-27.fm  → bản gốc, KHÔNG BAO GIỜ Continue, chỉ đọc.
+- calibration/saves/work-27.fm                → bản sao để thử/ghi.
+- calibration/manifest.json                   → ID entity + giá trị marker/anchor.
+
+Khi dọn file .md hoặc file rác: KHÔNG xoá calibration/ và KHÔNG xoá calibration/saves/.
+Nếu buộc phải xoá, hỏi lại trước.

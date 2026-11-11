@@ -110,8 +110,10 @@ public sealed record NationPreferenceOffsets(int Team, uint TeamVtable, int Vect
 /// </summary>
 public sealed class TransferClauseOffsets
 {
-    /// <summary>Pointer inside the club object to the holder.</summary>
+    /// <summary>Pointer inside the club object to the holder (older builds only).</summary>
     public required int Pointer { get; init; }
+    /// <summary>True when clauses are found by their vtables in the heap instead of the club's vector (27.0.1+).</summary>
+    public bool Scan { get; init; }
     public required uint SellOnVtableRva { get; init; }
     public uint? AppearanceFeeVtableRva { get; init; }
     public uint? CompetitionBonusVtableRva { get; init; }
@@ -193,6 +195,13 @@ public sealed class NationOffsets
     public NationTeamOffsets? Teams { get; init; }
     /// <summary>The women's national team (profile nation.womenTeam, 0x110 on 27.0.0+2493426): staff knowledge can point at it.</summary>
     public int? WomenTeam { get; init; }
+    /// <summary>
+    /// National-team container (profile nation.containerVtable): on 27.0.1+2494687 nation + Teams.Pointer
+    /// no longer leads to the teams directly but to a NATIONAL_TEAM_CONTAINER whose +List vector holds them.
+    /// Staff knowledge rows point at these containers, and +ContainerNation leads back to the nation.
+    /// </summary>
+    public uint? ContainerVtable { get; init; }
+    public int? ContainerNation { get; init; }
     public NationRivalryOffsets? Rivalries { get; init; }
     public NationPreferenceOffsets? Preferences { get; init; }
     /// <summary>Single-value nation and national-team fields (profile <c>nation.fields</c>, paths from the nation object).</summary>
@@ -227,6 +236,21 @@ public sealed class CompetitionOffsets
     /// "Do Not Override Sub Rules" (Premier League and Championship both held FF) and 0x11 is "5 from 9"
     /// (Premier League after FMRTE wrote it). Values for the other options are not mapped.</summary>
     public int? SubstitutionRules { get; init; }
+    /// <summary>Read-only competition details from the CE table's cmpo layout (FMCET26 update 8, FM26 26.3.2):
+    /// three-letter name string at ThreeLetterName, single bytes at Type, UsesExtraOfficials, SeatedStadiumsOnly,
+    /// CompetitionLevel, Trophy, LowestOfficialCategory (signed) and Flags, int16 positions.
+    /// Offsets shared with FM27's verified fields (name 0x40, reputation 0x188); not yet measured on FM27,
+    /// so every read is anchored on reputation and validated before display.</summary>
+    public int? ThreeLetterName { get; init; }
+    public int? Type { get; init; }
+    public int? UsesExtraOfficials { get; init; }
+    public int? SeatedStadiumsOnly { get; init; }
+    public int? LastContinentalPosition { get; init; }
+    public int? ContinentalPosition { get; init; }
+    public int? CompetitionLevel { get; init; }
+    public int? Trophy { get; init; }
+    public int? LowestOfficialCategory { get; init; }
+    public int? Flags { get; init; }
     /// <summary>Prize Money path and vtables verified against FMRTE on this build.</summary>
     public CompetitionPrizeOffsets? PrizeMoney { get; init; }
     public uint? SquadRulesContainerVtableRva { get; init; }

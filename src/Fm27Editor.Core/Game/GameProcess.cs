@@ -36,7 +36,7 @@ public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize
     public static IReadOnlyList<GameProcess> LocateAll(string moduleName = DefaultModule)
     {
         var processes = FindProcesses();
-        if (processes.Length == 0) throw new GameNotRunningException("Football Manager (fm.exe) is not running");
+        if (processes.Length == 0) return [Locate(moduleName)];
         var games = new List<GameProcess>();
         Exception? error = null;
         foreach (var processId in processes)
@@ -54,6 +54,13 @@ public sealed record GameProcess(int ProcessId, ulong ModuleBase, int ModuleSize
                 } while (Module32Next(snapshot, ref module));
             }
             finally { CloseHandle(snapshot); }
+        }
+        // Toolhelp32 can be blocked under a restricted token even while Process.Modules still works.
+        // Fall back to the Process-based locator before declaring the game absent.
+        if (games.Count == 0)
+        {
+            try { games.Add(Locate(moduleName)); }
+            catch (GameNotRunningException) { }
         }
         if (games.Count == 0 && error is not null) throw new GameNotRunningException($"Cannot inspect game processes: {error.Message}");
         if (games.Count == 0) throw new GameNotRunningException($"{moduleName} is not loaded yet");

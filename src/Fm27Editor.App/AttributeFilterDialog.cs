@@ -60,6 +60,8 @@ public sealed class AttributeFilterDialog : Window
     StaffFilterPanel? coachPanel;
     ClubFilterPanel? clubPanel;
     public string SelectedScope { get; private set; } = "Player";
+    public int ScopeTotalCount { get; private set; }
+    public string? ScopeFilterNote { get; private set; }
     public IReadOnlyList<StaffRecord> MatchedStaff { get; private set; } = [];
     public IReadOnlyList<ClubEntry> MatchedClubs { get; private set; } = [];
 
@@ -87,6 +89,7 @@ public sealed class AttributeFilterDialog : Window
 
     readonly IReadOnlyList<PlayerRecord> allPlayers;
     readonly ComboBox divisionCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
+    readonly ComboBox genderCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 140, MinWidth = 140, MaxWidth = 140, ItemsSource = new[] { "Men", "Women", "All" }, MaxDropDownHeight = 260 };
     readonly ComboBox clubCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
     readonly ComboBox nationCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
 
@@ -129,8 +132,11 @@ public sealed class AttributeFilterDialog : Window
         FontSize = 13,
         Foreground = Brush("#CBD5E1"),
         VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(12, 0, 0, 0)
+        Margin = new Thickness(12, 0, 0, 0),
+        MaxWidth = 760,
+        TextTrimming = TextTrimming.CharacterEllipsis
     };
+    internal string SummaryMessage => summaryText.Text ?? "";
     bool updatingControls;
     bool suppressPresetCombo;
 
@@ -163,6 +169,8 @@ public sealed class AttributeFilterDialog : Window
     public int? ResultMinPa => ParseOptInt(minPaBox.Text);
     public int? ResultMaxPa => ParseOptInt(maxPaBox.Text);
     public string? ResultNameQuery => string.IsNullOrWhiteSpace(nameQueryBox.Text) ? null : nameQueryBox.Text.Trim();
+    public Fm27Editor.Core.Offsets.Gender? ResultGender => genderCombo.SelectedIndex switch { 0 => Fm27Editor.Core.Offsets.Gender.Men, 1 => Fm27Editor.Core.Offsets.Gender.Women, _ => null };
+    public bool ResultExcludeWomenClubs => ResultGender == Fm27Editor.Core.Offsets.Gender.Men;
     public string? ResultDivision => divisionCombo.SelectedItem is string s && s != AllLeagues ? s : null;
     public string? ResultClub => clubCombo.SelectedItem is string s && s != AllClubs ? s : null;
     public string? ResultNationality => nationCombo.SelectedItem is string s && s != AllNationalities ? s : null;
@@ -238,7 +246,9 @@ public sealed class AttributeFilterDialog : Window
             }
             case RelationTargetKind.Club or RelationTargetKind.Team:
             {
-                var clubs = clubsCatalogue;
+                var clubs = ResultGender == Fm27Editor.Core.Offsets.Gender.Women
+                    ? clubsCatalogue
+                    : clubsCatalogue.Where(c => c.Gender != Fm27Editor.Core.Offsets.Gender.Women).ToArray();
                 var picked = await PickerDialog.Show(this, "Choose club", q => clubs.Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
                     .Take(200).Select(c => (c.DisplayName, c)).ToArray(), "Club name");
                 if (picked is null) return;
@@ -249,7 +259,10 @@ public sealed class AttributeFilterDialog : Window
             }
             default:
             {
-                var picked = await PickerDialog.Show(this, "Choose person", q => allPlayers.Where(p => MainWindow.Fold(p.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                var people = ResultGender == Fm27Editor.Core.Offsets.Gender.Women
+                    ? allPlayers
+                    : allPlayers.Where(p => p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women).ToArray();
+                var picked = await PickerDialog.Show(this, "Choose person", q => people.Where(p => MainWindow.Fold(p.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
                     .Take(200).Select(p => ($"{p.DisplayName} ({p.ClubName})", p)).ToArray(), "Player name");
                 if (picked is null) return;
                 row.TargetAddress = picked.Address;
@@ -300,13 +313,12 @@ public sealed class AttributeFilterDialog : Window
         nationCombo.ItemTemplate = TextItem(240);
         presetCombo.ItemTemplate = PresetItem();
 
-        var leagues = allPlayers
-            .Select(p => p.DivisionName)
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct(StringComparer.InvariantCultureIgnoreCase)
-            .OrderBy(s => s, StringComparer.InvariantCultureIgnoreCase)
-            .Prepend(AllLeagues)
-            .ToArray();
+        genderCombo.SelectedIndex = initialFilter.Gender switch
+        {
+            Fm27Editor.Core.Offsets.Gender.Women => 1,
+            null => 2,
+            _ => 0,
+        };
 
         var nations = allPlayers
             .Select(p => p.NationalityName)
@@ -316,19 +328,20 @@ public sealed class AttributeFilterDialog : Window
             .Prepend(AllNationalities)
             .ToArray();
 
-        divisionCombo.ItemsSource = leagues;
-        int divIdx = !string.IsNullOrEmpty(initialFilter.Division)
-            ? Array.FindIndex(leagues, l => string.Equals(l, initialFilter.Division, StringComparison.InvariantCultureIgnoreCase))
-            : 0;
-        divisionCombo.SelectedIndex = divIdx >= 0 ? divIdx : 0;
-
         nationCombo.ItemsSource = nations;
         int natIdx = !string.IsNullOrEmpty(initialFilter.Nationality)
             ? Array.FindIndex(nations, n => string.Equals(n, initialFilter.Nationality, StringComparison.InvariantCultureIgnoreCase))
             : 0;
         nationCombo.SelectedIndex = natIdx >= 0 ? natIdx : 0;
 
-        RefreshDialogClubs(initialFilter.Club);
+        RefreshDialogLeagues(initialFilter.Division, initialFilter.Club);
+
+        genderCombo.SelectionChanged += (_, _) =>
+        {
+            if (updatingControls) return;
+            RefreshDialogLeagues(null, null);
+            UpdateSummary();
+        };
 
         divisionCombo.SelectionChanged += (_, _) =>
         {
@@ -481,9 +494,10 @@ public sealed class AttributeFilterDialog : Window
             UpdateSummary();
             return;
         }
-        int count = SelectedScope == "Coach" ? coachPanel?.FilterCount() ?? 0 : clubPanel?.FilterCount() ?? 0;
         summaryText.Foreground = Brush("#CBD5E1");
-        summaryText.Text = count == 0 ? "No filters set" : $"{count} filter(s) set";
+        summaryText.Text = SelectedScope == "Coach"
+            ? coachPanel?.SummaryStatus() ?? "No filters set"
+            : clubPanel?.SummaryStatus() ?? "No filters set";
     }
     Control BuildPresetBar()
     {
@@ -671,9 +685,36 @@ public sealed class AttributeFilterDialog : Window
         };
     }
 
+    IEnumerable<PlayerRecord> PlayersMatchingDialogGender()
+    {
+        var g = ResultGender;
+        return allPlayers.Where(p =>
+            (g is null || p.Gender == g) &&
+            (g != Fm27Editor.Core.Offsets.Gender.Men || p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women));
+    }
+
+    void RefreshDialogLeagues(string? preferredLeague, string? preferredClub)
+    {
+        var leagues = PlayersMatchingDialogGender()
+            .Select(p => p.DivisionName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.InvariantCultureIgnoreCase)
+            .OrderBy(s => s, StringComparer.InvariantCultureIgnoreCase)
+            .Prepend(AllLeagues)
+            .ToArray();
+
+        divisionCombo.ItemsSource = leagues;
+        string? target = preferredLeague ?? divisionCombo.SelectedItem as string;
+        int divIdx = !string.IsNullOrEmpty(target)
+            ? Array.FindIndex(leagues, l => string.Equals(l, target, StringComparison.InvariantCultureIgnoreCase))
+            : 0;
+        divisionCombo.SelectedIndex = divIdx >= 0 ? divIdx : 0;
+        RefreshDialogClubs(preferredClub);
+    }
+
     void RefreshDialogClubs(string? preferredClub)
     {
-        var subset = allPlayers.AsEnumerable();
+        var subset = PlayersMatchingDialogGender();
         if (divisionCombo.SelectedItem is string selectedLeague && selectedLeague != AllLeagues)
             subset = subset.Where(p => string.Equals(p.DivisionName, selectedLeague, StringComparison.InvariantCultureIgnoreCase));
 
@@ -697,10 +738,16 @@ public sealed class AttributeFilterDialog : Window
     {
         var stack = new StackPanel { Spacing = 10 };
 
+        var topRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var nameStack = new StackPanel { Spacing = 3 };
         nameStack.Children.Add(SectionLabel("NAME"));
         nameStack.Children.Add(nameQueryBox);
-        stack.Children.Add(nameStack);
+        topRow.Children.Add(nameStack);
+        var genderStack = new StackPanel { Spacing = 3 };
+        genderStack.Children.Add(SectionLabel("GENDER"));
+        genderStack.Children.Add(genderCombo);
+        topRow.Children.Add(genderStack);
+        stack.Children.Add(topRow);
 
         // Row 1: League, Club, Nationality
         var geoGrid = new Grid
@@ -1404,8 +1451,8 @@ public sealed class AttributeFilterDialog : Window
             if (SelectedScope == "Coach") { coachPanel?.Clear(); UpdateScopeSummary(); return; }
             if (SelectedScope == "Club") { clubPanel?.Clear(); UpdateScopeSummary(); return; }
             updatingControls = true;
-            divisionCombo.SelectedIndex = 0;
-            RefreshDialogClubs(null);
+            genderCombo.SelectedIndex = 0;
+            RefreshDialogLeagues(null, null);
             nationCombo.SelectedIndex = 0;
             minAgeBox.Text = "";
             maxAgeBox.Text = "";
@@ -1455,6 +1502,8 @@ public sealed class AttributeFilterDialog : Window
                 var matched = coachPanel.Matched();
                 if (matched.Count == 0) { summaryText.Text = "No staff match the filter."; return; }
                 MatchedStaff = matched;
+                ScopeTotalCount = coachPanel.TotalCount;
+                ScopeFilterNote = coachPanel.SelectedGender() is { } sg ? $"Gender: {sg}" : null;
                 Saved = true;
                 Close();
                 return;
@@ -1465,6 +1514,8 @@ public sealed class AttributeFilterDialog : Window
                 var matched = clubPanel.Matched();
                 if (matched.Count == 0) { summaryText.Text = "No clubs match the filter."; return; }
                 MatchedClubs = matched;
+                ScopeTotalCount = clubPanel.TotalCount;
+                ScopeFilterNote = clubPanel.SelectedGender() is { } cg ? $"Gender: {cg}" : null;
                 Saved = true;
                 Close();
                 return;
@@ -1714,6 +1765,8 @@ public sealed class AttributeFilterDialog : Window
     {
         if (scopeTabs.SelectedIndex > 0) { UpdateScopeSummary(); return; }
         var parts = new List<string>();
+        if (ResultGender is { } activeGender) parts.Add($"Gender: {activeGender}");
+        if (ResultNameQuery is not null) parts.Add($"Name: {ResultNameQuery}");
         if (ResultDivision is not null) parts.Add($"League: {ResultDivision}");
         if (ResultClub is not null) parts.Add($"Club: {ResultClub}");
         if (ResultNationality is not null) parts.Add($"Nation: {ResultNationality}");
@@ -1723,10 +1776,15 @@ public sealed class AttributeFilterDialog : Window
         if (stagedPositions.Count > 0) parts.Add($"{stagedPositions.Count} position(s)");
         if (staged.Count > 0) parts.Add($"{staged.Count} attribute(s)");
 
+        int visibleByGender = allPlayers.Count == 0 ? 0 : PlayersMatchingDialogGender().Count();
+        string hiddenSuffix = allPlayers.Count > 0 && visibleByGender < allPlayers.Count
+            ? $" — {visibleByGender:N0} of {allPlayers.Count:N0} players shown ({allPlayers.Count - visibleByGender:N0} hidden)"
+            : "";
+
         summaryText.Foreground = Brush("#CBD5E1");
         summaryText.Text = parts.Count == 0
-            ? "No filters active"
-            : $"Active: {string.Join(", ", parts)}";
+            ? (allPlayers.Count > 0 ? $"All {allPlayers.Count:N0} players{hiddenSuffix}" : "No filters active")
+            : $"Active: {string.Join(", ", parts)}{hiddenSuffix}";
     }
 
     void RefreshPresetCombo(string? selectName)

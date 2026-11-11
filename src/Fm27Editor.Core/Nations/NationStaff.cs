@@ -100,7 +100,7 @@ public sealed class NationStaff(IProcessMemory memory, OffsetProfile profile, ul
             var pointer = new byte[8];
             if (memory.TryRead(team.Address + 0x80, pointer)) Add(BitConverter.ToUInt64(pointer));
         }
-        foreach (int offset in new[] { 0x78, 0x60 })
+        foreach (int offset in new[] { 0x78, 0x60, 0x90 })
         {
             var header = new byte[24];
             if (!memory.TryRead(holder + (ulong)offset, header)) return [];

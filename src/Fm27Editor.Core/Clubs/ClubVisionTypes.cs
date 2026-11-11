@@ -35,12 +35,67 @@ public static class ClubVisionTypes
         [153] = "Play direct football",
         [184] = "Finish above club in the league",
         [101] = "Sign Players Based In Nation",
-        [150] = "Play attacking football",
+        [40] = "Become self-sustainable",
+        [41] = "Repair the club's financial damage",
+        [43] = "Sign young players to develop for profit",
+        [46] = "Spend the original transfer budget",
+        [80] = "Break even in the transfer market",
+        [83] = "Maximum three-year contracts for players over the age of X",
+        [85] = "Sell players before buying",
+        [86] = "Cannot sign non-Basque players",
+        [87] = "Can only sign African players",
+        [88] = "Cannot sign non-Nation players",
+        [89] = "Cannot sign non-Nation goalkeepers",
+        [91] = "Cannot sign players who cannot speak Welsh",
+        [92] = "Cannot sign any players",
+        [100] = "Sign Players Of Nationality",
+        [102] = "Sign players from the lower levels of the domestic game",
+        [106] = "Sign players from domestic rivals",
+        [123] = "Develop the best youth system in the world",
+        [124] = "Develop players for the main club",
+        [125] = "Give playing time to first team players",
+        [151] = "Play defensively solid football",
+        [154] = "Make the most of set pieces",
+        [156] = "Play counter-attacking football",
+        [170] = "Build a new stadium",
+        [171] = "Expand stadium",
+        [172] = "Buy current stadium",        [150] = "Play attacking football",
         [152] = "Play possession football",
         [155] = "Play entertaining football",
         [157] = "Play high-tempo pressing football",
     };
 
+    /// <summary>Entity table selected by a row's item marker, for objectives whose target is an entity.</summary>
+    public static ClubVisionItemKind TargetItemKind(byte typeCode) => typeCode switch
+    {
+        1 or 2 or 5 or 9 or 10 or 33 or 122 => ClubVisionItemKind.Competition,
+        184 => ClubVisionItemKind.Club,
+        58 or 59 or 60 or 100 or 101 or 121 => ClubVisionItemKind.Nation,
+        61 => ClubVisionItemKind.Continent,
+        _ => ClubVisionItemKind.Unknown,
+    };
+
+    /// <summary>Label for the target row; null means the objective has no target parameter.</summary>
+    public static string? TargetLabel(byte typeCode) => typeCode switch
+    {
+        1 or 2 or 5 or 9 or 10 or 33 or 122 => "Competition",
+        184 => "Club",
+        58 or 59 or 60 or 100 or 101 or 121 => "Nation",
+        61 => "Continent",
+        84 => "Minimum years",
+        53 or 81 or 82 or 83 or 104 or 105 or 107 => "Maximum age",
+        _ => null,
+    };
+
+    /// <summary>Marker word at the row's <c>itemMarker</c> offset for an entity target.</summary>
+    public static ushort ItemMarker(ClubVisionItemKind kind) => kind switch
+    {
+        ClubVisionItemKind.Club => 0x0300,
+        ClubVisionItemKind.Competition => 0x1900,
+        ClubVisionItemKind.Nation => 0x0900,
+        ClubVisionItemKind.Continent => 0x0500,
+        _ => 0xFF7F,
+    };
     /// <summary>All decoded club vision objective types mapped to their game UI names.</summary>
     public static IReadOnlyDictionary<byte, string> All => Names;
 
@@ -73,12 +128,14 @@ public static class ClubVisionTypes
     /// </summary>
     public static ClubVisionTargetKind TargetKind(byte typeCode) => typeCode switch
     {
-        104 or 105 or 81 or 82 or 107 => ClubVisionTargetKind.Age,
+        104 or 105 or 81 or 82 or 83 or 107 => ClubVisionTargetKind.Age,
         84 => ClubVisionTargetKind.ContractYears,
-        1 or 2 or 5 or 9 or 10 or 33 => ClubVisionTargetKind.CompetitionStage,
+        1 or 2 or 5 or 9 or 10 or 33 or 122 => ClubVisionTargetKind.CompetitionStage,
+        58 or 59 or 60 or 100 or 101 or 121 => ClubVisionTargetKind.Nation,
+        61 => ClubVisionTargetKind.Continent,
         184 => ClubVisionTargetKind.Club,
         _ => ClubVisionTargetKind.Unknown,
     };
 }
 
-public enum ClubVisionTargetKind { Unknown, Age, ContractYears, CompetitionStage, Club }
+public enum ClubVisionTargetKind { Unknown, Age, ContractYears, CompetitionStage, Club, Nation, Continent }

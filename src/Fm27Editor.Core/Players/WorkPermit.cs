@@ -133,10 +133,12 @@ public sealed class WorkPermitTable(IProcessMemory memory, OffsetProfile profile
         uint person = BitConverter.ToUInt32(memory.Read(player.Address + PersonIndexOffset, 4));
         var pointers = memory.Read(b, (int)(e - b));
         var result = new List<WorkPermitGrant>();
-        for (int i = 0; i < pointers.Length; i += 8)
+        // The table is kept sorted by person index (the game's own order; Add inserts in place), so the player's records are
+        // one run found by binary search instead of reading every record in the game.
+        for (int i = FirstAtLeast(pointers, person) * 8; i < pointers.Length; i += 8)
         {
             var record = memory.Read(BitConverter.ToUInt64(pointers, i), RecordSize);
-            if (BitConverter.ToUInt32(record, 8) != person) continue;
+            if (BitConverter.ToUInt32(record, 8) != person) break;
             ulong nation = BitConverter.ToUInt64(record);
             result.Add(new WorkPermitGrant(BitConverter.ToUInt64(pointers, i), nation, nationName(nation), BitConverter.ToUInt16(record, 0x10),
                 FutureTransferReader.DateAt(record, 0x12), BitConverter.ToUInt16(record, 0x16) == 1) { Snapshot = Convert.ToHexString(record) });
@@ -145,6 +147,25 @@ public sealed class WorkPermitTable(IProcessMemory memory, OffsetProfile profile
     }
 
     /// <summary>FMRTE's "+": a new permanent permit from <paramref name="nation"/> for <paramref name="year"/>.</summary>
+    uint PersonAt(byte[] pointers, int index) =>
+        BitConverter.ToUInt32(memory.Read(BitConverter.ToUInt64(pointers, index * 8) + 8, 4));
+
+    /// <summary>First index whose record's person index is at least <paramref name="person"/> (binary search; the table is sorted).</summary>
+    int FirstAtLeast(byte[] pointers, uint person)
+    {
+        int lo = 0, hi = pointers.Length / 8;
+        while (lo < hi) { int mid = (lo + hi) / 2; if (PersonAt(pointers, mid) < person) lo = mid + 1; else hi = mid; }
+        return lo;
+    }
+
+    /// <summary>First index whose record's person index is above <paramref name="person"/>: where a new record goes.</summary>
+    int FirstAbove(byte[] pointers, uint person)
+    {
+        int lo = 0, hi = pointers.Length / 8;
+        while (lo < hi) { int mid = (lo + hi) / 2; if (PersonAt(pointers, mid) <= person) lo = mid + 1; else hi = mid; }
+        return lo;
+    }
+
     public void Add(PlayerRecord player, ulong nation, int year, Func<int, ulong> allocate)
     {
         if (year is < 1900 or > 2300) throw new ArgumentOutOfRangeException(nameof(year));
@@ -154,9 +175,7 @@ public sealed class WorkPermitTable(IProcessMemory memory, OffsetProfile profile
         ulong b = memory.ReadUInt64(at), e = memory.ReadUInt64(at + 8), c = memory.ReadUInt64(at + 16);
         uint person = BitConverter.ToUInt32(memory.Read(player.Address + PersonIndexOffset, 4));
         var pointers = memory.Read(b, (int)(e - b));
-        int position = 0;
-        for (; position * 8 < pointers.Length; position++)
-            if (BitConverter.ToUInt32(memory.Read(BitConverter.ToUInt64(pointers, position * 8) + 8, 4)) > person) break;
+        int position = FirstAbove(pointers, person);
         var record = new byte[RecordSize];
         BitConverter.GetBytes(nation).CopyTo(record, 0);
         BitConverter.GetBytes(person).CopyTo(record, 8);

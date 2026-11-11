@@ -27,6 +27,7 @@ internal sealed class StaffFilterPanel : UserControl
     readonly StackPanel relationStack = new() { Spacing = 8 };
 
     readonly TextBox nameBox = new() { Watermark = "Name", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly ComboBox genderCombo = new() { Width = 140, MinWidth = 140, MaxWidth = 140, ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, MaxDropDownHeight = 260, HorizontalAlignment = HorizontalAlignment.Left };
     readonly TextBox clubBox = new() { Watermark = "Team", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
     readonly ComboBox nationCombo = new() { Width = 320, MinWidth = 320, MaxWidth = 320, Height = 28, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left };
     readonly ComboBox jobCombo = new() { Width = 320, MinWidth = 320, MaxWidth = 320, Height = 28, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left };
@@ -52,6 +53,7 @@ internal sealed class StaffFilterPanel : UserControl
         nationCombo.SelectedIndex = 0;
         nationCombo.ItemTemplate = TextItem(320);
         nationCombo.SelectionChanged += (_, _) => Raise();
+        genderCombo.SelectionChanged += (_, _) => Raise();
 
         var jobs = source.Select(s => s.JobCode).Where(c => c is not null).Distinct().OrderBy(c => c)
             .Select(c => new JobChoice(c, StaffLabels.Job(c))).Prepend(new JobChoice(null, AllJobs)).ToArray();
@@ -89,6 +91,7 @@ internal sealed class StaffFilterPanel : UserControl
             Children =
             {
                 Field("NAME", nameBox),
+                Field("GENDER", genderCombo),
                 Field("TEAM", clubBox),
                 Field("NATIONALITY", nationCombo),
                 Field("JOB", jobCombo),
@@ -287,6 +290,7 @@ internal sealed class StaffFilterPanel : UserControl
             if (kind.SelectedIndex < 0) continue;
             if (!TryParse(minBox.Text, out _) || !TryParse(maxBox.Text, out _)) return null;
         }
+        var selectedGender = SelectedGender();
         return new StaffSearchCriteria(
             NameContains: string.IsNullOrWhiteSpace(nameBox.Text) ? null : nameBox.Text.Trim(),
             Nationality: nationCombo.SelectedItem is string nation && nation != AllNationalities ? nation : null,
@@ -304,8 +308,19 @@ internal sealed class StaffFilterPanel : UserControl
             MinCurrentReputation: currentLo,
             MaxCurrentReputation: currentHi,
             MinWorldReputation: worldLo,
-            MaxWorldReputation: worldHi);
+            MaxWorldReputation: worldHi,
+            Gender: selectedGender,
+            ExcludeWomenClubs: selectedGender == Fm27Editor.Core.Offsets.Gender.Men);
     }
+
+    public Fm27Editor.Core.Offsets.Gender? SelectedGender() => genderCombo.SelectedIndex switch
+    {
+        0 => Fm27Editor.Core.Offsets.Gender.Men,
+        1 => Fm27Editor.Core.Offsets.Gender.Women,
+        _ => null,
+    };
+
+    public int TotalCount => source.Count;
 
     IReadOnlyList<(byte Type, int Min, int Max)> RelationCriteria()
     {
@@ -336,7 +351,7 @@ internal sealed class StaffFilterPanel : UserControl
 
     public int FilterCount()
     {
-        int count = 0;
+        int count = SelectedGender() is not null ? 1 : 0;
         if (!string.IsNullOrWhiteSpace(nameBox.Text)) count++;
         if (!string.IsNullOrWhiteSpace(clubBox.Text)) count++;
         if (nationCombo.SelectedIndex > 0) count++;
@@ -349,9 +364,30 @@ internal sealed class StaffFilterPanel : UserControl
         return count;
     }
 
+    public string SummaryStatus()
+    {
+        int count = FilterCount();
+        var gender = SelectedGender();
+        bool hasRelations = relationRows.Any(r => r.Kind.SelectedIndex >= 0);
+        if (hasRelations || Criteria() is null)
+            return count == 0 ? "No filters set" : $"{count} filter(s) set{(gender is { } g ? $" (Gender: {g})" : "")}";
+
+        int shown = Matched().Count;
+        int total = source.Count;
+        if (count == 0)
+            return total > 0 ? $"All {total:N0} staff" : "No filters set";
+
+        string prefix = gender is { } activeGender ? $"{count} filter(s) (Gender: {activeGender})" : $"{count} filter(s)";
+        if (total == 0) return prefix;
+        return shown < total
+            ? $"{prefix} — {shown:N0} of {total:N0} staff shown ({total - shown:N0} hidden)"
+            : $"{prefix} — {shown:N0} staff";
+    }
+
     public void Clear()
     {
         nameBox.Text = "";
+        genderCombo.SelectedIndex = 0;
         clubBox.Text = "";
         nationCombo.SelectedIndex = 0;
         jobCombo.SelectedIndex = 0;

@@ -75,7 +75,7 @@
       "reason": "0x8", "flags": "0xD", "likesPersonType": "0x1", "dislikesPersonType": "0x2", "likesTeamType": "0x3",
       "personVtable": "0x4D27758", "staffPersonVtable": "0x4D8BE78", "personName": "0x40",
       "personFirstName": "0x50", "personLastName": "0x58", "personCommonName": "0x60",
-      "targetKind": "0xA", "playerPerson": "0x288", "retiredInternationalType": "0xA", "otherNationalityType": "0x9"
+      "targetKind": "0xA", "playerPerson": "0x288", "personGender": "0x19", "personGenderMask": "0x10", "retiredInternationalType": "0xA", "otherNationalityType": "0x9"
     },
     "bans": {
       "vector": "0x18", "recordSize": "0x20", "item": "0x0", "scope": "0x5", "start": "0x10", "days": "0x16",
@@ -297,7 +297,17 @@
     "trim": "0x138",
     "winterBallColour": "0x15C",
     "winterBallStart": "0x150",
-    "winterBallEnd": "0x154"
+    "winterBallEnd": "0x154",
+    "threeLetterName": "0x50",
+    "type": "0xF4",
+    "usesExtraOfficials": "0xF6",
+    "seatedStadiumsOnly": "0xF7",
+    "lastContinentalPosition": "0x17C",
+    "continentalPosition": "0x17E",
+    "competitionLevel": "0x199",
+    "trophy": "0x19C",
+    "lowestOfficialCategory": "0x19E",
+    "flags": "0x1A0"
   },
   "award": {
     "vtable": "0x4CF6078",

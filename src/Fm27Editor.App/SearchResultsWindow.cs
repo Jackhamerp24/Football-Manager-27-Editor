@@ -12,9 +12,16 @@ internal sealed class SearchResultsWindow : Window
     sealed record StaffRow(string Name, string Age, string Club, string Job, string Nationality, string Ca, string Pa);
     sealed record ClubRow(string Name, string Id);
 
-    public SearchResultsWindow(string scope, IReadOnlyList<StaffRecord> staff, IReadOnlyList<ClubEntry> clubs, DateOnly? gameDate)
+    public string StatusMessage { get; } = "";
+
+    public SearchResultsWindow(string scope, IReadOnlyList<StaffRecord> staff, IReadOnlyList<ClubEntry> clubs, DateOnly? gameDate,
+        int? totalCount = null, string? filterNote = null)
     {
-        Title = scope == "Coach" ? $"Advanced Search Results - {staff.Count:N0} staff" : $"Advanced Search Results - {clubs.Count:N0} clubs";
+        int shown = scope == "Coach" ? staff.Count : clubs.Count;
+        string noun = scope == "Coach" ? "staff" : "clubs";
+        Title = $"Advanced Search Results - {shown:N0} {noun}";
+        if (totalCount is { } total && shown < total)
+            StatusMessage = $"{shown:N0} of {total:N0} {noun} shown ({total - shown:N0} hidden{(string.IsNullOrEmpty(filterNote) ? "" : $", {filterNote}")})";
         Width = 900;
         Height = 600;
         CanResize = true;
@@ -62,18 +69,23 @@ internal sealed class SearchResultsWindow : Window
 
         var close = new Button { Content = "Close", MinWidth = 80 };
         close.Click += (_, _) => Close();
+        var bottomDock = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(close, Dock.Right);
+        bottomDock.Children.Add(close);
+        bottomDock.Children.Add(new TextBlock
+        {
+            Text = StatusMessage,
+            Foreground = UiKit.TextMuted,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
+        });
         var bottom = new Border
         {
             Background = UiKit.SurfaceHeader,
             BorderBrush = UiKit.BorderSubtle,
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(14, 10),
-            Child = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Children = { close }
-            }
+            Child = bottomDock
         };
 
         var root = new DockPanel();

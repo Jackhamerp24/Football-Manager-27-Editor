@@ -14,7 +14,7 @@ public enum ClubRelationshipKind { Rival, LikesPerson, DislikesPerson, Other }
 /// <see cref="Snapshot"/> is the whole 16-byte record as read, the guard for writes.
 /// </summary>
 public sealed record ClubRelationship(ulong Address, ClubRelationshipKind Kind, int TypeCode, string? Name, int Value,
-    int Reason, bool Permanent, string Snapshot, ulong Begin, ulong End, ulong Capacity);
+    int Reason, bool Permanent, string Snapshot, ulong Begin, ulong End, ulong Capacity, ulong Target = 0, ulong TargetClub = 0);
 
 /// <summary>Read-only snapshot of the vector stored inline in the club object (club + Vector).</summary>
 public sealed class ClubRelationshipReader(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
@@ -40,8 +40,10 @@ public sealed class ClubRelationshipReader(IProcessMemory memory, OffsetProfile 
                 : type == o.LikesPersonType ? ClubRelationshipKind.LikesPerson
                 : type == o.DislikesPersonType ? ClubRelationshipKind.DislikesPerson : ClubRelationshipKind.Other;
             ulong target = BitConverter.ToUInt64(bytes, i + o.Target);
-            rows.Add(new(begin + (ulong)i, kind, type, TargetName(target, bytes[i + o.Kind]), bytes[i + o.Value],
-                bytes[i + o.Reason], bytes[i + o.Flags] == PermanentFlag, Convert.ToHexString(bytes, i, o.RecordSize), begin, end, cap));
+            byte targetKind = bytes[i + o.Kind];
+            rows.Add(new(begin + (ulong)i, kind, type, TargetName(target, targetKind), bytes[i + o.Value],
+                bytes[i + o.Reason], bytes[i + o.Flags] == PermanentFlag, Convert.ToHexString(bytes, i, o.RecordSize), begin, end, cap,
+                target, TargetClubAddress(target, targetKind)));
         }
         return rows.AsReadOnly();
     }
@@ -56,6 +58,18 @@ public sealed class ClubRelationshipReader(IProcessMemory memory, OffsetProfile 
             && tvt == moduleBase + t.VtableRva && Q(target + (ulong)c.TeamClub, out ulong club)) return ClubName(club);
         return kind == o.PersonKind && profile.Relations is { } r
             ? new PlayerStatusReader(memory, profile, moduleBase).PersonName(target, r) : null;
+    }
+
+    /// <summary>The club behind a club- or team-target row; 0 for person targets. The calibration check compares this
+    /// address, because the displayed name depends on the build's language data.</summary>
+    ulong TargetClubAddress(ulong target, byte kind)
+    {
+        if (target == 0 || profile.Club?.Relationships is not { } o) return 0;
+        if (kind == o.ClubKind) return IsClub(target) ? target : 0;
+        if (kind == o.TeamKind && profile.Team is { } t && profile.Contract is { } c
+            && Q(target, out ulong vtable) && vtable == moduleBase + t.VtableRva
+            && Q(target + (ulong)c.TeamClub, out ulong club) && IsClub(club)) return club;
+        return 0;
     }
 
     string? ClubName(ulong club)

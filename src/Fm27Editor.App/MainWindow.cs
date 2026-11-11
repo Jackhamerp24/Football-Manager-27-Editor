@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -59,7 +60,15 @@ public sealed partial class MainWindow : Window
     readonly ComboBox nationFilter = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
 
 
+    readonly ComboBox genderFilter = new() { ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch, MaxDropDownHeight = 260 };
     readonly ComboBox quickPresetCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+
+    Fm27Editor.Core.Offsets.Gender? SelectedPlayerGender() => genderFilter.SelectedIndex switch
+    {
+        0 => Fm27Editor.Core.Offsets.Gender.Men,
+        1 => Fm27Editor.Core.Offsets.Gender.Women,
+        _ => null,
+    };
     readonly Button favouritesFilter = new()
     {
         Width = 34, MinWidth = 34, Height = 28, MinHeight = 28, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -310,6 +319,7 @@ public sealed partial class MainWindow : Window
         };
         clubFilter.SelectionChanged += (_, _) => { if (!suppressFilterEvents) Filter(); };
         nationFilter.SelectionChanged += (_, _) => { if (!suppressFilterEvents) Filter(); };
+        genderFilter.SelectionChanged += (_, _) => { if (!suppressFilterEvents) { PopulateFilterDropdowns(); Filter(); } };
 
         favouritesFilter.Content = new Avalonia.Controls.PathIcon { Width = 14, Height = 14, Data = Avalonia.Media.Geometry.Parse("M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.46,13.97L5.82,21L12,17.27Z") };
         Avalonia.Controls.ToolTip.SetTip(favouritesFilter, "Favourites");
@@ -367,7 +377,9 @@ public sealed partial class MainWindow : Window
         {
             suppressFilterEvents = true;
             search.Text = "";
+            genderFilter.SelectedIndex = 0;
             ClearDialogFilters();
+            PopulateFilterDropdowns();
             RefreshQuickPresetCombo();
             RenderAttrChips();
             sortCombo.SelectedIndex = 0;
@@ -401,9 +413,17 @@ public sealed partial class MainWindow : Window
         var players = rows.OfType<PlayerRecord>().ToArray();
         var connected = backend.State.Status == ConnectionStatus.Connected;
         var statusReader = connected ? new PlayerStatusReader(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase) : null;
+        IReadOnlyList<Fm27Editor.Core.Nations.NationRecord>? nations = null;
+        IReadOnlyList<Fm27Editor.Core.Clubs.ClubEntry>? clubs = null;
+        if (connected)
+        {
+            var catalogues = await Task.Run(() => (Nations: backend.Session.Nations.LoadAll(), Clubs: backend.Session.LoadClubs(players)));
+            nations = catalogues.Nations;
+            clubs = catalogues.Clubs;
+        }
         var dialog = new AttributeFilterDialog(current, savedPresets, activePresetName, players,
-            connected ? backend.Session.Nations.LoadAll() : null,
-            connected ? backend.Session.LoadClubs(players) : null,
+            nations,
+            clubs,
             staffSource: connected ? () => backend.Session.Staff.LoadAll() : null,
             clubSource: connected ? () => backend.Session.LoadClubs(players) : null,
             staffRelations: statusReader is null ? null : staff => statusReader.Read(backend.Session.Owner(staff)).Entries,
@@ -413,7 +433,7 @@ public sealed partial class MainWindow : Window
         savedPresets = dialog.UpdatedPresets;
         if (dialog.Saved && dialog.SelectedScope != "Player")
         {
-            await new SearchResultsWindow(dialog.SelectedScope, dialog.MatchedStaff, dialog.MatchedClubs, backend.Session.ReadGameDate()).ShowDialog(this);
+            await new SearchResultsWindow(dialog.SelectedScope, dialog.MatchedStaff, dialog.MatchedClubs, backend.Session.ReadGameDate(), dialog.ScopeTotalCount, dialog.ScopeFilterNote).ShowDialog(this);
             RefreshQuickPresetCombo();
             return;
         }
@@ -423,6 +443,15 @@ public sealed partial class MainWindow : Window
             activeDivision = dialog.ResultDivision;
             activeClub = dialog.ResultClub;
             activeNationality = dialog.ResultNationality;
+            suppressFilterEvents = true;
+            genderFilter.SelectedIndex = dialog.ResultGender switch
+            {
+                Fm27Editor.Core.Offsets.Gender.Men => 0,
+                Fm27Editor.Core.Offsets.Gender.Women => 1,
+                _ => 2,
+            };
+            suppressFilterEvents = false;
+            PopulateFilterDropdowns();
             activeMinAge = dialog.ResultMinAge;
             activeMaxAge = dialog.ResultMaxAge;
             activeMinCa = dialog.ResultMinCa;
@@ -495,13 +524,15 @@ public sealed partial class MainWindow : Window
         var stack = new StackPanel { Spacing = 8 };
 
         // Row 1: Search + Preset (Advanced Search now lives in the top bar)
+        ToolTip.SetTip(genderFilter, "Gender filter");
         var row1 = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,180"),
+            ColumnDefinitions = new ColumnDefinitions("*,104,180"),
             ColumnSpacing = 8,
         };
         Grid.SetColumn(search, 0); row1.Children.Add(search);
-        Grid.SetColumn(quickPresetCombo, 1); row1.Children.Add(quickPresetCombo);
+        Grid.SetColumn(genderFilter, 1); row1.Children.Add(genderFilter);
+        Grid.SetColumn(quickPresetCombo, 2); row1.Children.Add(quickPresetCombo);
         stack.Children.Add(row1);
 
         stack.Children.Add(attrChipsPanel);
@@ -616,7 +647,10 @@ public sealed partial class MainWindow : Window
 
     void PopulateFilterDropdowns()
     {
-        var players = rows.OfType<PlayerRecord>().ToArray();
+        var g = SelectedPlayerGender();
+        var players = rows.OfType<PlayerRecord>()
+            .Where(p => (g is null || p.Gender == g) && (g != Fm27Editor.Core.Offsets.Gender.Men || p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women))
+            .ToArray();
         var leagues = players
             .Select(p => p.DivisionName)
             .Where(s => !string.IsNullOrWhiteSpace(s))
@@ -643,7 +677,9 @@ public sealed partial class MainWindow : Window
 
     void RefreshClubDropdown()
     {
-        var players = rows.OfType<PlayerRecord>();
+        var g = SelectedPlayerGender();
+        var players = rows.OfType<PlayerRecord>()
+            .Where(p => (g is null || p.Gender == g) && (g != Fm27Editor.Core.Offsets.Gender.Men || p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women));
         var selectedLeague = divisionFilter.SelectedItem as string;
         if (!string.IsNullOrEmpty(selectedLeague) && selectedLeague != AllLeaguesLabel)
             players = players.Where(p => string.Equals(p.DivisionName, selectedLeague, StringComparison.InvariantCultureIgnoreCase));
@@ -690,7 +726,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await backend.ConnectAsync(CancellationToken.None);
-            backend.Edits.ContextProvider = EditContext;
+            FlightRecorder.Current?.Log("game", $"connect result {backend.State.Status}: {backend.State.Message}");
             squadPresetUndo.Clear();
             releaseUndo.Clear();
             captainUndo.Clear();
@@ -699,8 +735,11 @@ public sealed partial class MainWindow : Window
             connection.Text = backend.State.Message;
             if (backend.State.Status == ConnectionStatus.Connected)
             {
+                backend.Edits.ContextProvider = EditContext;
                 await LoadAsync();
                 if (!SaveIsLoaded()) ShowNoSaveNotice(); else noSaveAtConnect = false;
+                // The work-permit table and the entity catalogues are read lazily by the tabs that need them:
+                // scanning the heap here competed with the player load and made attaching feel slow.
             }
             else { gameDateBadge.IsVisible = false; status.Text = backend.State.Message; }
             if (backend.FreezeError is { } error) status.Text = $"Freezer unavailable: {error}";
@@ -712,6 +751,7 @@ public sealed partial class MainWindow : Window
     {
         if (module is null) return;
         int current = ++generation;
+        var elapsed = Stopwatch.StartNew();
         try
         {
             var loaded = await module.LoadAsync(backend, CancellationToken.None);
@@ -736,7 +776,8 @@ public sealed partial class MainWindow : Window
             PopulateFilterDropdowns();
             Filter();
             UpdateConnectionBadge();
-            status.Text = $"{rows.Count:N0} players";
+            if (rows.Count == 0) status.Text = "0 players";
+            FlightRecorder.Current?.Log("game", $"loaded {rows.Count} {module.Title} rows in {elapsed.ElapsedMilliseconds} ms");
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }
     }
@@ -790,12 +831,22 @@ public sealed partial class MainWindow : Window
             RequiredPreferredMoves = activePreferredMoves,
             PositionMinRating = activePosMinRating,
             AttributeThresholds = activeAttrThresholds.ToArray(),
+            Gender = SelectedPlayerGender(),
+            ExcludeWomenClubs = SelectedPlayerGender() == Fm27Editor.Core.Offsets.Gender.Men,
     };
 
     IReadOnlyList<PlayerRecord> FilterByRelationships(IReadOnlyList<PlayerRecord> rows) =>
         RelationFilter.Find(rows, activeRelationships, new PlayerStatusReader(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase));
 
-    async void Filter()
+    void Filter() => _ = FilterInternal(reportStatus: true);
+
+    bool HasExtraPlayerFilters() =>
+        !string.IsNullOrWhiteSpace(search.Text) || activeDivision is not null || activeClub is not null || activeNationality is not null ||
+        activeMinAge is not null || activeMaxAge is not null || activeMinCa is not null || activeMaxCa is not null ||
+        activeMinPa is not null || activeMaxPa is not null || activePositions.Count > 0 || activePositionRanges.Count > 0 ||
+        activeNumericRanges.Count > 0 || activePreferredMoves != 0 || activeAttrThresholds.Count > 0 || activeRelationships.Count > 0;
+
+    async Task FilterInternal(bool reportStatus)
     {
         int version = ++searchVersion;
         exportCsvButton.IsEnabled = exportJsonButton.IsEnabled = false;
@@ -821,8 +872,11 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            var g = SelectedPlayerGender();
             string query = search.Text?.Trim() ?? "";
-            result = query.Length == 0 ? rows : rows.Where(r => module.Matches(r, query)).ToArray();
+            result = rows.Where(r =>
+                (r is not PlayerRecord p || ((g is null || p.Gender == g) && (g != Fm27Editor.Core.Offsets.Gender.Men || p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women))) &&
+                (query.Length == 0 || module.Matches(r, query))).ToArray();
         }
 
         if (module is PlayersModule && activeRelationships.Count > 0 && result is not null)
@@ -831,6 +885,7 @@ public sealed partial class MainWindow : Window
             result = (await Task.Run(() => FilterByRelationships(candidates))).Cast<object>().ToArray();
         }
 
+        if (result is null) return;
         var prevSelectedAddress = selected?.Address;
         updating = true;
         grid.ItemsSource = result;
@@ -846,6 +901,17 @@ public sealed partial class MainWindow : Window
             connection.Text = result.Count == rows.Count
                 ? $"{backend.State.Message} · {rows.Count:N0}"
                 : $"{backend.State.Message} · {result.Count:N0} / {rows.Count:N0}";
+        }
+        if (reportStatus && rows.Count > 0)
+        {
+            string noun = currentModule.Title.ToLowerInvariant();
+            if (result.Count == rows.Count)
+                status.Text = $"{rows.Count:N0} {noun}";
+            else
+            {
+                string reason = SelectedPlayerGender() is { } g && !HasExtraPlayerFilters() ? $"{g} filter" : "filter";
+                status.Text = $"{result.Count:N0} of {rows.Count:N0} {noun} shown ({rows.Count - result.Count:N0} hidden by {reason})";
+            }
         }
 
         bool viewingPlayerTab = playerTabs.Any(t => ReferenceEquals(t.Root, bodyHost.Content));
@@ -982,6 +1048,12 @@ public sealed partial class MainWindow : Window
         {
             if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
             badges.Children.Add(UiKit.MetaText($"{age} yrs"));
+        }
+
+        if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women)
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaText("Women", highlight: true));
         }
 
         commands.Children.Insert(0, new FavoriteStar(player.Id));
@@ -1518,7 +1590,7 @@ public sealed partial class MainWindow : Window
         p.GameDate ??= backend.GameDate;
         var arr = rows.ToArray(); int index = Array.FindIndex(arr, x => x is PlayerRecord old && old.Address == p.Address);
         if (index >= 0) { arr[index] = p; rows = arr; }
-        Filter(); updating = true; grid.SelectedItem = p; updating = false;
+        _ = FilterInternal(reportStatus: false); updating = true; grid.SelectedItem = p; updating = false;
     }
 
     internal static IBrush RatingColor(int value) => Brush(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8");

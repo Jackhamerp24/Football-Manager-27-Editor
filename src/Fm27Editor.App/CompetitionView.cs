@@ -22,16 +22,16 @@ internal sealed record SubstitutionOption(byte Value, string Label)
 internal sealed record CompetitionDraft(string? Reputation, string? SubstitutionRules, string? Foreground, string? Background,
     string? Trim, string? WinterBall, string? WinterBallStart, string? WinterBallEnd,
     string? PrizeWin = null, string? PrizeDraw = null, string? PrizeDefeat = null,
-    IReadOnlyDictionary<int, string>? Positions = null, string? MaximumSquad = null, string? Homegrown = null,
+    IReadOnlyDictionary<int, string>? Positions = null,
     IReadOnlyDictionary<(int ClubId, CompetitionStandingField Field), string>? StandingPoints = null,
-    byte? VarType = null, bool? VarTvOnly = null, bool? VarEnabled = null, string? VarFromDate = null, string? HomegrownClub = null,
+    byte? VarType = null, bool? VarTvOnly = null, bool? VarEnabled = null, string? VarFromDate = null,
     IReadOnlyDictionary<int, string>? CommonRules = null, bool? ClassificationEnabled = null)
 {
     public static CompetitionDraft Empty { get; } = new(null, null, null, null, null, null, null, null);
 
     public bool Any => new[] { Reputation, SubstitutionRules, Foreground, Background, Trim, WinterBall, WinterBallStart, WinterBallEnd, PrizeWin, PrizeDraw, PrizeDefeat }
-        .Any(v => v is not null) || Positions is { Count: > 0 } || MaximumSquad is not null || Homegrown is not null || StandingPoints is { Count: > 0 }
-        || VarType is not null || VarTvOnly is not null || VarEnabled is not null || VarFromDate is not null || HomegrownClub is not null
+        .Any(v => v is not null) || Positions is { Count: > 0 } || StandingPoints is { Count: > 0 }
+        || VarType is not null || VarTvOnly is not null || VarEnabled is not null || VarFromDate is not null
         || CommonRules is { Count: > 0 } || ClassificationEnabled is not null;
 }
 
@@ -44,9 +44,7 @@ internal sealed class CompetitionState
     public CompetitionDraft Draft { get; set; } = CompetitionDraft.Empty;
     public CompetitionPrizeMoney? Prize { get; set; }
     public CompetitionClassificationPrizes? Classification { get; set; }
-    public CompetitionSquadRules? Rules { get; set; }
-    public CompetitionSquadRules? Homegrown { get; set; }
-    public CompetitionSquadRules? HomegrownClub { get; set; }
+    public CompetitionDetails? Details { get; set; }
     public Dictionary<int, CompetitionSquadRules> CommonRules { get; } = [];
     public IReadOnlyList<CompetitionStanding>? Standings { get; set; }
     public CompetitionVar? Var { get; set; }
@@ -56,13 +54,73 @@ internal sealed class CompetitionState
 internal sealed class CompetitionScreen(IScreenHost host)
     : EntityScreen<CompetitionRecord, CompetitionRow, CompetitionState>(host, "competition", "Competitions", "competitions", "Search competition or ID...")
 {
-    static readonly (int Code, string Label)[] CommonRuleTypes =
-    [
-        (0xA9, "Outfield players in the squad"), (0x12, "Non-EU players"),
-        (0x27, "Homegrown in nation (15–21)"), (0x92, "Homegrown in nation"),
-        (0x26, "Homegrown at club (15–21)"), (0xFD, "Homegrown at club or in nation"),
-        (0x57, "Goalkeepers in the squad"),
-    ];
+    static readonly IReadOnlyDictionary<int, string> CommonRuleLabels = new Dictionary<int, string>
+    {
+        [0x09] = "Maximum squad size",
+        [0x0B] = "Homegrown At Club",
+        [0x12] = "Non-EU players",
+        [0x26] = "Homegrown At Club",
+        [0x27] = "Homegrown in Nation",
+        [0x57] = "Goalkeepers in the squad",
+        [0x6E] = "Squad salary",
+        [0x92] = "Homegrown in Nation",
+        [0xA5] = "Minimum squad size",
+        [0xA9] = "Outfield players in the squad",
+        [0xB0] = "Reserve players, not homegrown",
+        [0xFD] = "Homegrown in Nation",
+        [0x134] = "First-Year Senior Players In Squad",
+        [0x1B4] = "Club-trained players in match squad",
+    };
+
+    /// <summary>Rules FMRTE labels in its Squad Registration screen. The main card shows these first.</summary>
+    static readonly HashSet<int> FmrteRuleCodes = [0x09, 0x0B, 0x12, 0x26, 0x27, 0x57, 0x6E, 0x92, 0xA5, 0xA9, 0xB0, 0xFD, 0x134];
+
+    /// <summary>Rules the game applies to the match squad rather than the registered squad.</summary>
+    static readonly HashSet<int> MatchRuleCodes = [0x02, 0x04, 0x3E, 0x40, 0xCF, 0x1B4];
+
+    static string RuleLabel(int code, bool? isMinimum)
+    {
+        string label = CommonRuleLabels.TryGetValue(code, out var fmrte)
+            ? fmrte
+            : CompetitionRuleNames.Name(code) ?? $"Rule 0x{code:X}";
+        if (isMinimum == true && !label.StartsWith("Minimum", StringComparison.Ordinal)) label += " (min)";
+        else if (isMinimum == false && !label.StartsWith("Maximum", StringComparison.Ordinal)) label += " (max)";
+        return label;
+    }
+
+    /// <summary>FMRTE's club-type conditions on the conditional Liga Portugal rules; other markers stay raw.</summary>
+    static string ConditionLabel(string key) => key switch
+    {
+        "74627770" => "Portuguese Club with B Teams",
+        "33326E62" => "Portuguese Club with B Teams (Without U23 Team)",
+        "33327577" => "Portuguese Club with U23 Team (Without B Teams)",
+        "3332626E" => "Portuguese Club with no B or U23 Team",
+        "74627774" => "Clubs With B Teams",
+        _ => $"condition {key}",
+    };
+
+    /// <summary>Read-only detail rows; anything the reader could not validate reads as unknown.</summary>
+    static List<(string Label, Control Value)> DetailRows(CompetitionDetails d)
+    {
+        static TextBlock Text(string value, bool unknown = false) =>
+            new() { Text = value, Foreground = unknown ? UiKit.TextSecondary : UiKit.Brush("#E2E8F0"), TextAlignment = TextAlignment.Right };
+        static string YesNo(bool? value) => value is { } v ? (v ? "Yes" : "No") : "Unknown";
+        static bool? Flag(byte? value) => value is { } v ? v != 0 : null;
+        string Position(short? value) =>
+            value is null ? "Unknown" : value < 0 ? "Not available" : value.Value.ToString(Inv);
+        return
+        [
+            ("Three-Letter Name", (Control)Text(d.ThreeLetterName ?? "Unknown", d.ThreeLetterName is null)),
+            ("Type", Text(d.TypeName ?? "Unknown", d.TypeName is null)),
+            ("Competition Level", Text(d.CompetitionLevel?.ToString(Inv) ?? "Unknown", d.CompetitionLevel is null)),
+            ("Trophy", Text(d.TrophyName ?? "Unknown", d.TrophyName is null)),
+            ("Lowest Official Category", Text(d.LowestOfficialCategoryName ?? "Unknown", d.LowestOfficialCategoryName is null)),
+            ("Continental Position", Text(Position(d.ContinentalPosition), d.ContinentalPosition is null)),
+            ("Last Continental Position", Text(Position(d.LastContinentalPosition), d.LastContinentalPosition is null)),
+            ("Uses Extra Officials", Text(YesNo(Flag(d.UsesExtraOfficials)), d.UsesExtraOfficials is null)),
+            ("Seated Stadiums Only", Text(YesNo(Flag(d.SeatedStadiumsOnly)), d.SeatedStadiumsOnly is null)),
+        ];
+    }
 
     string sectionKey = "Overview";
     bool fallbackUsed;
@@ -176,9 +234,7 @@ internal sealed class CompetitionScreen(IScreenHost host)
 
         var prize = Held(pending, state.Prize, () => session.CompetitionPrizeMoney.Read(c), v => state.Prize = v);
         var classification = Held(pending, state.Classification, () => prize is null ? null : session.CompetitionPrizeMoney.ReadClassification(prize), v => state.Classification = v);
-        var rules = Held(pending, state.Rules, () => session.CompetitionSquadRules.Read(c, peers), v => state.Rules = v);
-        var homegrown = Held(pending, state.Homegrown, () => session.CompetitionSquadRules.ReadHomegrown(c, peers), v => state.Homegrown = v);
-        var homegrownClub = Held(pending, state.HomegrownClub, () => session.CompetitionSquadRules.ReadHomegrownClub(c, peers), v => state.HomegrownClub = v);
+        var details = Held(pending, state.Details, () => session.CompetitionDetails.Read(c), v => state.Details = v);
         var standings = Held(pending, state.Standings, () => session.CompetitionStandings.Read(c), v => state.Standings = v);
         var varSettings = Held(pending, state.Var, () => session.CompetitionVar.Read(c), v => state.Var = v);
 
@@ -212,11 +268,12 @@ internal sealed class CompetitionScreen(IScreenHost host)
         var prizeDefeat = prize is null ? null : Field(draft.PrizeDefeat ?? prize.PerDefeat.ToString(Inv), 132, true);
         var positionFields = classification?.Amounts.Select((value, index) => Field(draft.Positions?.GetValueOrDefault(index + 1) ?? value.ToString(Inv), 132, true)).ToArray() ?? [];
         var classificationEnabled = classification is null ? null : new CheckBox { IsChecked = draft.ClassificationEnabled ?? (classification.Amounts.Count > 0) };
-        var maximumSquad = rules is null ? null : Field(draft.MaximumSquad ?? rules.MaximumSquadSize.ToString(Inv), 116, true);
-        var homegrownBox = homegrown is null ? null : Field(draft.Homegrown ?? homegrown.MaximumSquadSize.ToString(Inv), 116, true);
-        var homegrownClubBox = homegrownClub is null ? null : Field(draft.HomegrownClub ?? homegrownClub.MaximumSquadSize.ToString(Inv), 116, true);
-        var commonRuleFields = new List<(int Code, string Label, CompetitionSquadRules Snapshot, TextBox Box)>();
-        foreach (var (code, label) in CommonRuleTypes)
+        var commonRuleFields = new List<(int Code, string Label, CompetitionSquadRules? Snapshot, TextBox Box)>();
+        var ruleCodes = session.CompetitionSquadRules.RuleCodes(c).ToArray();
+        if (ruleCodes.Length == 0) ruleCodes = CommonRuleLabels.Keys.ToArray();
+        var variantsByCode = session.CompetitionSquadRules.ReadVariants(c)
+            .GroupBy(variant => variant.Code).ToDictionary(group => group.Key, group => group.ToArray());
+        foreach (int code in ruleCodes)
         {
             CompetitionSquadRules? snapshot;
             if (pending && state.CommonRules.TryGetValue(code, out var staged)) snapshot = staged;
@@ -225,8 +282,44 @@ internal sealed class CompetitionScreen(IScreenHost host)
                 snapshot = session.CompetitionSquadRules.ReadRule(c, code, null, peers);
                 if (snapshot is not null) state.CommonRules[code] = snapshot; else state.CommonRules.Remove(code);
             }
+            string label = RuleLabel(code, snapshot?.IsMinimum);
             if (snapshot is not null)
+            {
                 commonRuleFields.Add((code, label, snapshot, Field(draft.CommonRules?.GetValueOrDefault(code) ?? snapshot.MaximumSquadSize.ToString(Inv), 116, true)));
+                continue;
+            }
+            // The game can hold several records with the same code (club-type or stage conditions).
+            // Show each one with its condition instead of silently picking the first.
+            if (variantsByCode.TryGetValue(code, out var variants) && variants.Length > 0)
+            {
+                foreach (var variant in variants)
+                {
+                    string variantLabel = RuleLabel(code, variant.IsMinimum);
+                    if (variant.Condition.Length > 0) variantLabel += " — " + ConditionLabel(variant.Condition);
+                    var variantBox = Field(variant.Value.ToString(Inv), 116, true);
+                    variantBox.IsReadOnly = true;
+                    ToolTip.SetTip(variantBox, variant.Condition.Length > 0
+                        ? "Read-only: conditional variant; the game keeps more than one value for this rule."
+                        : "Read-only: the game has no single validated value for this rule.");
+                    commonRuleFields.Add((code, variantLabel, null, variantBox));
+                }
+                continue;
+            }
+            var primary = session.CompetitionSquadRules.ReadPrimaryValue(c, code);
+            if (primary is not { } value) continue;
+            var readOnly = Field(value.ToString(Inv), 116, true);
+            readOnly.IsReadOnly = true;
+            ToolTip.SetTip(readOnly, "Read-only: the game has no single validated value for this rule.");
+            commonRuleFields.Add((code, label, null, readOnly));
+        }
+        // A competition with no explicit maximum rule can still carry one in the fallback structure. Keep the old
+        // "Maximum squad size" field for those, rather than silently dropping it from the generic list.
+        if (commonRuleFields.All(item => item.Code != 0x09) &&
+            session.CompetitionSquadRules.Read(c, peers) is { } fallbackMaximum)
+        {
+            state.CommonRules[0x09] = fallbackMaximum;
+            commonRuleFields.Add((0x09, RuleLabel(0x09, false), fallbackMaximum,
+                Field(draft.CommonRules?.GetValueOrDefault(0x09) ?? fallbackMaximum.MaximumSquadSize.ToString(Inv), 116, true)));
         }
         var varOptions = new List<SubstitutionOption> { new(1, "Referee Review"), new(2, "Remote Review"), new(3, "Referee And/Or Remote Review"), new(4, "Unknown VAR Type"), new(5, "No VAR") };
         if (varSettings is not null && varOptions.All(o => o.Value != varSettings.Type)) varOptions.Insert(0, new(varSettings.Type, $"Value 0x{varSettings.Type:X2}"));
@@ -258,16 +351,13 @@ internal sealed class CompetitionScreen(IScreenHost host)
                 prize is null ? null : Diff(prizeDefeat!.Text, prize.PerDefeat.ToString(Inv)),
                 positionFields.Select((box, index) => (Position: index + 1, Text: Diff(box.Text, classification!.Amounts[index].ToString(Inv))))
                     .Where(item => item.Text is not null).ToDictionary(item => item.Position, item => item.Text!),
-                rules is null ? null : Diff(maximumSquad!.Text, rules.MaximumSquadSize.ToString(Inv)),
-                homegrown is null ? null : Diff(homegrownBox!.Text, homegrown.MaximumSquadSize.ToString(Inv)),
                 standingFields.Select(item => (Key: (item.Row.ClubId, item.Kind), Text: Diff(item.Box.Text, CompetitionStandingsAccess.Value(item.Row, item.Kind).ToString(Inv))))
                     .Where(item => item.Text is not null).ToDictionary(item => item.Key, item => item.Text!),
                 varSettings is not null && varType!.SelectedItem is SubstitutionOption varOption && varOption.Value != varSettings.Type ? varOption.Value : null,
                 varSettings is not null && varTvOnly!.IsChecked != (varSettings.TvOnly != 0) ? varTvOnly.IsChecked : null,
                 varSettings is not null && varEnabled!.IsChecked != (varSettings.Enabled != 0) ? varEnabled.IsChecked : null,
                 varSettings is null ? null : Diff(varFromDate!.Text, Date(varSettings.FromDate)),
-                homegrownClub is null ? null : Diff(homegrownClubBox!.Text, homegrownClub.MaximumSquadSize.ToString(Inv)),
-                commonRuleFields.Select(item => (item.Code, Text: Diff(item.Box.Text, item.Snapshot.MaximumSquadSize.ToString(Inv))))
+                commonRuleFields.Where(item => item.Snapshot is not null).Select(item => (item.Code, Text: Diff(item.Box.Text, item.Snapshot!.MaximumSquadSize.ToString(Inv))))
                     .Where(item => item.Text is not null).ToDictionary(item => item.Code, item => item.Text!),
                 classification is not null && classificationEnabled!.IsChecked != (classification.Amounts.Count > 0) ? classificationEnabled.IsChecked : null);
             changed();
@@ -289,9 +379,6 @@ internal sealed class CompetitionScreen(IScreenHost host)
                 (classification.Begin == 0 || classification.Capacity - classification.Begin < (ulong)standings.Count * 4))
                 Host.SetStatus("Enabling allocates a prize table outside the game's allocator; keep a backup of the save.");
         };
-        if (maximumSquad is not null) maximumSquad.TextChanged += (_, _) => Restage();
-        if (homegrownBox is not null) homegrownBox.TextChanged += (_, _) => Restage();
-        if (homegrownClubBox is not null) homegrownClubBox.TextChanged += (_, _) => Restage();
         foreach (var item in commonRuleFields) item.Box.TextChanged += (_, _) => Restage();
         foreach (var item in standingFields) item.Box.TextChanged += (_, _) => Restage();
         if (varType is not null) varType.SelectionChanged += (_, _) => Restage();
@@ -321,6 +408,8 @@ internal sealed class CompetitionScreen(IScreenHost host)
         // Overview
         var overviewLeft = new StackPanel { Spacing = 12 };
         overviewLeft.Children.Add(CardRows("Competition", [("Reputation", reputation), ("Substitution Rules", subs)]));
+        if (details is not null)
+            overviewLeft.Children.Add(CardRows("Details", DetailRows(details)));
         if (varSettings is not null)
             overviewLeft.Children.Add(CardRows("VAR Settings", [
                 ("Enable custom VAR settings", varEnabled!), ("VAR", varType!), ("From date", varFromDate!), ("VAR - TV Matches Only", varTvOnly!),
@@ -366,12 +455,44 @@ internal sealed class CompetitionScreen(IScreenHost host)
             sections.Add(new("Prize Money", "Prize Money", body));
         }
 
-        // Squad Rules
-        var squadFields = new List<(string, Control)>();
-        if (maximumSquad is not null) squadFields.Add(("Maximum squad size", maximumSquad));
-        foreach (var item in commonRuleFields) squadFields.Add((item.Label, item.Box));
+        // Rule presets: stage a planner's values into the draft boxes; Save applies them through the guarded writer.
+        if (commonRuleFields.Any(item => item.Snapshot is not null))
+        {
+            void StagePreset(Func<RulePresetPlan> plan)
+            {
+                RulePresetPlan p;
+                try { p = plan(); }
+                catch (Exception ex) { Host.SetStatus($"Preset: {ex.Message}"); return; }
+                int staged = 0;
+                foreach (var edit in p.Edits)
+                {
+                    var box = commonRuleFields.FirstOrDefault(item => item.Code == edit.Code && item.Snapshot is not null).Box;
+                    if (box is null || box.IsReadOnly) continue;
+                    box.Text = edit.Value.ToString(Inv);
+                    staged++;
+                }
+                var notes = new List<string> { $"Preset staged {staged} rule(s); press Save to apply" };
+                notes.AddRange(p.Skipped.Select(skip => $"{RuleLabel(skip.Code, null)} skipped: {skip.Reason}"));
+                Host.SetStatus(string.Join("; ", notes));
+            }
+            var access = session.CompetitionSquadRules;
+            var nationality = new Button { Content = "Lift nationality limits" };
+            nationality.Click += (_, _) => StagePreset(() => CompetitionRulePresets.LiftNationality(c, access, peers));
+            var loans = new Button { Content = "Lift loan limits" };
+            loans.Click += (_, _) => StagePreset(() => CompetitionRulePresets.LiftLoans(c, access, peers));
+            sections.Add(new("Rule Presets", "Rule Presets",
+                new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 8, Children = { nationality, loans } }));
+        }
+
+        // Squad Rules: FMRTE's labelled squad rules first, then match-squad rules, then the remaining codes.
+        var primaryFields = commonRuleFields.Where(item => FmrteRuleCodes.Contains(item.Code))
+            .Select(item => (item.Label, (Control)item.Box)).ToList();
+        var matchFields = commonRuleFields.Where(item => !FmrteRuleCodes.Contains(item.Code) && MatchRuleCodes.Contains(item.Code))
+            .Select(item => (item.Label, (Control)item.Box)).ToList();
+        var otherFields = commonRuleFields.Where(item => !FmrteRuleCodes.Contains(item.Code) && !MatchRuleCodes.Contains(item.Code))
+            .Select(item => (item.Label, (Control)item.Box)).ToList();
         var sharedNames = new List<string>();
-        foreach (var snapshot in new[] { rules, homegrown, homegrownClub }.Concat(commonRuleFields.Select(item => item.Snapshot)))
+        foreach (var snapshot in commonRuleFields.Select(item => item.Snapshot))
         {
             if (snapshot is null) continue;
             foreach (int id in snapshot.AlsoAppliesTo)
@@ -381,13 +502,28 @@ internal sealed class CompetitionScreen(IScreenHost host)
             }
         }
         if (sharedNames.Count > 0)
-            squadFields.Add(("Also Applies To", new TextBlock { Text = string.Join("\n", sharedNames), Foreground = UiKit.TextSecondary, TextAlignment = TextAlignment.Right }));
-        if (squadFields.Count > 0)
+            (primaryFields.Count > 0 ? primaryFields : matchFields.Count > 0 ? matchFields : otherFields).Add(("Also Applies To",
+                new TextBlock { Text = string.Join("\n", sharedNames), Foreground = UiKit.TextSecondary, TextAlignment = TextAlignment.Right }));
+        if (primaryFields.Count > 0)
         {
-            var squadCard = CardRows("Squad Registration", squadFields);
+            var squadCard = CardRows("Squad Registration", primaryFields);
             squadCard.MaxWidth = 620;
             squadCard.HorizontalAlignment = HorizontalAlignment.Left;
             sections.Add(new("Squad Rules", "Squad Rules", squadCard));
+        }
+        if (matchFields.Count > 0)
+        {
+            var matchCard = CardRows("Match Rules", matchFields);
+            matchCard.MaxWidth = 620;
+            matchCard.HorizontalAlignment = HorizontalAlignment.Left;
+            sections.Add(new("Match Rules", "Match Rules", matchCard));
+        }
+        if (otherFields.Count > 0)
+        {
+            var otherCard = CardRows("Other Rules", otherFields);
+            otherCard.MaxWidth = 620;
+            otherCard.HorizontalAlignment = HorizontalAlignment.Left;
+            sections.Add(new("Other Rules", "Other Rules", otherCard));
         }
 
         // Standings
@@ -515,25 +651,12 @@ internal sealed class CompetitionScreen(IScreenHost host)
             if (!int.TryParse(text.Trim(), NumberStyles.Integer, Inv, out int value) || value < 0) return $"Position {position}: enter a non-negative whole number";
             positionEdits.Add((position, value));
         }
-        int? NonNegative(string? text, string label, out string? problem)
-        {
-            problem = null;
-            if (text is null) return null;
-            if (!int.TryParse(text.Trim(), NumberStyles.Integer, Inv, out int value) || value < 0) { problem = $"{label}: enter a non-negative whole number"; return null; }
-            return value;
-        }
         var commonRuleEdits = new List<(int Code, int Value)>();
         foreach (var (code, text) in d.CommonRules ?? new Dictionary<int, string>())
         {
             if (!int.TryParse(text.Trim(), NumberStyles.Integer, Inv, out int value) || value < 0) return "Squad rule: enter a non-negative whole number";
             commonRuleEdits.Add((code, value));
         }
-        int? homegrownClubEdit = NonNegative(d.HomegrownClub, "Homegrown At Club", out var clubProblem);
-        if (clubProblem is not null) return clubProblem;
-        int? homegrownEdit = NonNegative(d.Homegrown, "Homegrown in Nation", out var homegrownProblem);
-        if (homegrownProblem is not null) return homegrownProblem;
-        int? maximumEdit = NonNegative(d.MaximumSquad, "Maximum squad size", out var maximumProblem);
-        if (maximumProblem is not null) return maximumProblem;
         var standingEdits = new List<((int ClubId, CompetitionStandingField Field) Key, int Value)>();
         foreach (var (key, text) in d.StandingPoints ?? new Dictionary<(int, CompetitionStandingField), string>())
         {
@@ -600,9 +723,6 @@ internal sealed class CompetitionScreen(IScreenHost host)
             var squadEdits = new List<(CompetitionSquadRules Snapshot, int Value)>();
             foreach (var (code, value) in commonRuleEdits)
                 squadEdits.Add((state.CommonRules.GetValueOrDefault(code) ?? throw new InvalidOperationException("Squad rule snapshot is unavailable"), value));
-            if (maximumEdit is { } maximum) squadEdits.Add((state.Rules ?? throw new InvalidOperationException("Squad rules snapshot is unavailable"), maximum));
-            if (homegrownEdit is { } homegrownValue) squadEdits.Add((state.Homegrown ?? throw new InvalidOperationException("Homegrown rules snapshot is unavailable"), homegrownValue));
-            if (homegrownClubEdit is { } clubValue) squadEdits.Add((state.HomegrownClub ?? throw new InvalidOperationException("Homegrown club rules snapshot is unavailable"), clubValue));
             if (squadEdits.Count > 0)
             {
                 session.CompetitionSquadRules.SetMany(squadEdits);

@@ -108,7 +108,8 @@ public sealed partial class RelationshipWriter
         ulong vt = memory.ReadUInt64(target);
         return kind switch
         {
-            RelationTargetKind.Person => vt == moduleBase + o.PersonVtable || vt == moduleBase + o.StaffPersonVtable,
+            RelationTargetKind.Person => vt == moduleBase + o.PersonVtable || vt == moduleBase + o.StaffPersonVtable
+                || (profile.Staff?.Kinds.Any(k => vt == moduleBase + k.PersonVtableRva) ?? false),
             RelationTargetKind.Club => profile.Club is { } club && vt == moduleBase + club.ClubVtableRva,
             RelationTargetKind.Team => profile.Team is { } team && vt == moduleBase + team.VtableRva,
             RelationTargetKind.Nation => profile.Nation is { } nation && vt == moduleBase + nation.VtableRva,

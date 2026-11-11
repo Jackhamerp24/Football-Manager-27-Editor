@@ -108,7 +108,9 @@ public sealed record StadiumOffsets(
 
 public sealed class StadiumRepository(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
 {
-    const int MaxStadiums = 200_000, ReadSize = 0xC0;
+    const int MaxStadiums = 200_000;
+    /// <summary>Object bytes read per stadium: the classic 0xC0 window, grown when the profile's name offset sits beyond it (0x580 on 27.0.1+2494687).</summary>
+    int ReadSize => Math.Max(0xC0, S.Name + 8);
     StadiumOffsets S => profile.Stadium ?? throw new InvalidOperationException("Profile has no stadium offsets");
 
     public IReadOnlyList<StadiumRecord> LoadAll()

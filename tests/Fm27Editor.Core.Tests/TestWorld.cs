@@ -16,7 +16,7 @@ sealed class TestWorld
     public const ulong Mainoo = 0x1000_0000, Yamal = 0x1000_1000, NotAPlayer = 0x1000_2000;
     public const ulong ListArray = 0x2000_0000;
 
-    public static readonly string ProfilePath = Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2486695.json");
+    public static readonly string ProfilePath = Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2486695-steam.json");
     public OffsetProfile Profile { get; } = OffsetProfile.LoadFile(ProfilePath);
     public FakeMemory Memory { get; } = new();
 

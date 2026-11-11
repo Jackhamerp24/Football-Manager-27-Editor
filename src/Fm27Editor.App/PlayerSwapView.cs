@@ -30,10 +30,18 @@ public sealed partial class MainWindow
 
         void Filter()
         {
+            if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women)
+            {
+                list.ItemsSource = Array.Empty<SwapOption>();
+                warning.Text = "Only male players and men's clubs are supported.";
+                warning.IsVisible = true;
+                return;
+            }
             string q = (search.Text ?? "").Trim();
             var compare = CultureInfo.InvariantCulture.CompareInfo;
             list.ItemsSource = all
-                .Where(p => p.Address != player.Address && p.Club is not null && p.Club.Address != player.Club?.Address)
+                .Where(p => p.Address != player.Address && p.Club is not null && p.Club.Address != player.Club?.Address
+                    && p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club.Gender != Fm27Editor.Core.Offsets.Gender.Women)
                 .Where(p => q.Length == 0 || compare.IndexOf(p.DisplayName, q, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0 || p.Id?.ToString(Inv) == q)
                 .OrderByDescending(p => p.CurrentAbility).Take(200).Select(p => new SwapOption(p)).ToArray();
         }

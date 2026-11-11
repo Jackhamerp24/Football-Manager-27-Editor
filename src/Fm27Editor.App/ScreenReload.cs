@@ -43,6 +43,10 @@ public sealed partial class MainWindow
                 if (backend.Players.Reload(open.Address) is not { } fresh) { status.Text = "Player no longer readable"; return; }
                 fresh.GameDate = backend.GameDate;
                 ReplaceRow(fresh);
+                // The page shows values through the player's draft, which keeps the record it was made from; rebase it on
+                // the fresh read (staged edits stay) or the page keeps showing what the game had when the tab was opened.
+                if (drafts.TryGetValue(fresh.Address, out var draft)) drafts[fresh.Address] = draft.Rebase(fresh);
+                tab.Player = fresh;
                 selected = fresh;
                 RenderEditor();
                 status.Text = $"Reloaded {fresh.DisplayName}";

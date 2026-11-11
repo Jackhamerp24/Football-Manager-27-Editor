@@ -47,11 +47,18 @@ public class GoldenGenerationTests
     }
 
     [Theory]
-    [InlineData(250, 100, 100, 200)]   // kept to 1..200 first, then the reversed pair is swapped
     [InlineData(0, 0, 1, 1)]           // below 1 is kept to 1
     [InlineData(150, 999, 150, 200)]   // above 200 is kept to 200
+    [InlineData(150, 160, 150, 160)]   // a window inside the range is left alone
     public void Potential_bounds_are_kept_to_1_200_and_ordered(int min, int max, int expectedMin, int expectedMax) =>
         Assert.Equal((expectedMin, expectedMax), GoldenGenerationWriter.NormalisePotential(min, max));
+
+    [Theory]
+    [InlineData(250, 100)]   // clamped to 200–100, so the minimum is still above the maximum
+    [InlineData(160, 150)]
+    [InlineData(5, 3)]
+    public void A_reversed_potential_window_is_refused_like_the_detailed_windows(int min, int max) =>
+        Assert.Throws<ArgumentException>(() => GoldenGenerationWriter.NormalisePotential(min, max));
 
     [Fact]
     public void A_tiny_potential_keeps_current_ability_at_least_1_and_never_above_potential()

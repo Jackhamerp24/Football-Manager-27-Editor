@@ -132,7 +132,8 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
     public void RemoveClause(ulong club, TransferClause c)
     {
         CheckVtable(c);
-        if (c.Origin?.Club != club) throw new StaleObjectException("The clause belongs to a different club");
+        if (c.Origin is not { } origin) throw new NotSupportedException("Removing transfer clauses is not supported on this build");
+        if (origin.Club != club) throw new StaleObjectException("The clause belongs to a different club");
         CheckRecord(c);
         var (vector, begin, end, _) = Vector(club);
         var items = memory.Read(begin, (int)(end - begin));
@@ -152,6 +153,7 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
     /// </summary>
     public ulong AddSellOn(ulong club, int playerId, ulong beneficiary, int percent, Func<int, ulong> allocate, int? signedFor = null)
     {
+        if (T.Scan) throw new NotSupportedException("Adding transfer clauses is not supported on this build");
         Range(percent, 1, 100, "Sell-on percentage");
         var k = profile.Club!;
         if (memory.ReadUInt64(beneficiary) != moduleBase + k.ClubVtableRva) throw new StaleObjectException("Beneficiary is not a club object");
@@ -242,7 +244,8 @@ public sealed class TransferClauseWriter(IProcessMemory memory, OffsetProfile pr
             throw new StaleObjectException($"0x{c.Address:X} is no longer a {c.Kind} clause");
         if (BitConverter.ToInt32(memory.Read(c.Address + 8, 4)) != c.PlayerId)
             throw new StaleObjectException($"The player of the clause at 0x{c.Address:X} changed since it was read");
-        if (c.Origin is not { } origin || profile.Club is not { } club
+        if (c.Origin is not { } origin) return;
+        if (profile.Club is not { } club
             || memory.ReadUInt64(origin.Club) != moduleBase + club.ClubVtableRva
             || memory.ReadUInt64(origin.Club + (ulong)T.Pointer) != origin.Holder
             || memory.ReadUInt64(origin.Holder) != origin.Begin

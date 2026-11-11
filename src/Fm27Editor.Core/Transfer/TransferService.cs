@@ -43,6 +43,10 @@ public sealed class TransferService(IProcessMemory memory, OffsetProfile profile
         if (fee < 0) throw new ArgumentOutOfRangeException(nameof(fee));
         if (!profile.PlayerVtableRvas.Any(v => moduleBase + v == memory.ReadUInt64(player.Address)))
             throw new StaleObjectException($"0x{player.Address:X} is no longer a player object");
+        GenderGuard.EnsureMalePlayer(memory, profile, player.Address);
+        GenderGuard.EnsureMenClub(memory, profile, buyer.Address);
+        if (player.Club is { Address: not 0 } sellerClub)
+            GenderGuard.EnsureMenClub(memory, profile, sellerClub.Address);
         var contract = player.Contract ?? throw new InvalidOperationException("The player has no contract (free agent)");
         if (memory.ReadUInt64(player.Address + (ulong)C.PlayerContract) != contract.Address)
             throw new StaleObjectException("The player's contract changed since it was read");

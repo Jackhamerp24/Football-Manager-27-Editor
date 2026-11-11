@@ -1,6 +1,8 @@
+using Fm27Editor.Core.Offsets;
+
 namespace Fm27Editor.Core.Players;
 
-public sealed record ClubInfo(ulong Address, string? Name, string? ShortName)
+public sealed record ClubInfo(ulong Address, string? Name, string? ShortName, Gender Gender = Gender.Unknown)
 {
     public string DisplayName => ShortName ?? Name ?? "";
 }

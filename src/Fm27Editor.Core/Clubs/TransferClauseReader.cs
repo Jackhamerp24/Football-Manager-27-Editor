@@ -45,10 +45,105 @@ public sealed class TransferClauseReader(IProcessMemory memory, OffsetProfile pr
 {
     const int MaxClauses = 512, RecordSize = 0x38, MaxName = 200;
 
-    public IReadOnlyList<TransferClause> Read(ulong clubAddress)
+    IReadOnlyDictionary<int, CompetitionInfo>? _competitions = competitions;
+    List<ulong>? _scanned;
+    readonly object _scanLock = new();
+
+    /// <summary>Clauses of one club; <paramref name="competitions"/> names competition bonuses (defaults to the constructor's map).</summary>
+    public IReadOnlyList<TransferClause> Read(ulong clubAddress, IReadOnlyDictionary<int, CompetitionInfo>? competitions = null)
     {
         if (clubAddress == 0 || profile.Club is not { TransferClauses: { } t } k) return [];
         if (!Q(clubAddress, out ulong vt) || vt != moduleBase + k.ClubVtableRva) return [];
+        _competitions = competitions ?? _competitions;
+        return t.Scan ? Scanned(clubAddress, t) : Vectored(clubAddress, t);
+    }
+
+    /// <summary>Every clause found by the vtable scan, for screens that filter by player themselves.</summary>
+    public IReadOnlyList<TransferClause> ReadAll(IReadOnlyDictionary<int, CompetitionInfo>? competitions = null)
+    {
+        if (profile.Club?.TransferClauses is not { Scan: true } t) return [];
+        _competitions = competitions ?? _competitions;
+        return Scanned(0, t);
+    }
+
+    /// <summary>
+    /// 27.0.1+ keeps clause records in heap blocks with no reachable club vector: every record is found by its
+    /// vtable once per reader and filtered by the club pointer inside it. Checked against FMRTE 27 on 27.0.1+2494687
+    /// (Arda Güler, Fenerbahçe: FMRTE wrote the sell-on percentage at record+0x22).
+    /// </summary>
+    IReadOnlyList<TransferClause> Scanned(ulong clubAddress, TransferClauseOffsets t)
+    {
+        var clauses = new List<TransferClause>();
+        var b = new byte[RecordSize];
+        foreach (var address in ScannedObjects(t))
+        {
+            if (!memory.TryRead(address, b)) continue;
+            ulong v = BitConverter.ToUInt64(b) - moduleBase;
+            int player = BitConverter.ToInt32(b, 8);
+            if (v == t.SellOnVtableRva)
+            {
+                if (clubAddress != 0 && BitConverter.ToUInt64(b, 0x10) != clubAddress) continue;
+                int signedFor = BitConverter.ToInt32(b, 0x18);
+                clauses.Add(new(address, TransferClauseKind.SellOn, player, Club(BitConverter.ToUInt64(b, 0x10)),
+                    null, BitConverter.ToInt16(b, 0x22), signedFor < 0 ? null : signedFor, null, null, null, null, null, null,
+                    Convert.ToHexString(b.AsSpan(0, 0x28))));
+            }
+            else if (t.AppearanceFeeVtableRva is { } app && v == app)
+            {
+                if (clubAddress != 0 && BitConverter.ToUInt64(b, 0x10) != clubAddress) continue;
+                // +0x1E on this build is the clause type (FMRTE: "First team Appearances" for 4), not the count so
+                // far, so the progress is reported as unknown instead of showing a wrong number.
+                clauses.Add(new(address, TransferClauseKind.AppearanceFee, player, Club(BitConverter.ToUInt64(b, 0x10)),
+                    BitConverter.ToInt32(b, 0x18), null, null, BitConverter.ToInt16(b, 0x1C), null, null, null, null, null,
+                    Convert.ToHexString(b.AsSpan(0, 0x28))));
+            }
+            else if (t.CompetitionBonusVtableRva is { } comp && v == comp)
+            {
+                if (clubAddress != 0 && BitConverter.ToUInt64(b, 0x30) != clubAddress) continue;
+                int index = BitConverter.ToInt32(b, 0x24);
+                clauses.Add(new(address, TransferClauseKind.CompetitionBonus, player, Club(BitConverter.ToUInt64(b, 0x30)),
+                    BitConverter.ToInt32(b, 0x28), null, null, null, null, index, _competitions?.GetValueOrDefault(index),
+                    Date(BitConverter.ToInt16(b, 0x10), BitConverter.ToInt16(b, 0x12)), null, Convert.ToHexString(b)));
+            }
+        }
+        return clauses;
+    }
+
+    /// <summary>Every heap object carrying one of the clause vtables; scanned once per reader/session.</summary>
+    IReadOnlyList<ulong> ScannedObjects(TransferClauseOffsets t)
+    {
+        if (_scanned is not null) return _scanned;
+        lock (_scanLock)
+        {
+            if (_scanned is not null) return _scanned;
+            var found = new List<ulong>();
+            if (memory is WindowsProcessMemory windows)
+            {
+                var sell = moduleBase + t.SellOnVtableRva;
+                ulong? appearance = t.AppearanceFeeVtableRva is { } a ? moduleBase + a : null;
+                ulong? competition = t.CompetitionBonusVtableRva is { } c ? moduleBase + c : null;
+                var buffer = new byte[1 << 22];
+                foreach (var region in windows.EnumerateWritableRegions())
+                {
+                    if (region.IsModuleData) continue;
+                    for (ulong offset = 0; offset + 8 <= region.Size; offset += (ulong)buffer.Length)
+                    {
+                        int length = (int)Math.Min((ulong)buffer.Length, region.Size - offset);
+                        if (!memory.TryRead(region.Start + offset, buffer.AsSpan(0, length))) break;
+                        for (int i = 0; i + 8 <= length; i += 8)
+                        {
+                            ulong v = BitConverter.ToUInt64(buffer, i);
+                            if (v == sell || v == appearance || v == competition) found.Add(region.Start + offset + (ulong)i);
+                        }
+                    }
+                }
+            }
+            return _scanned = found;
+        }
+    }
+
+    IReadOnlyList<TransferClause> Vectored(ulong clubAddress, TransferClauseOffsets t)
+    {
         if (!Q(clubAddress + (ulong)t.Pointer, out ulong holder) || holder == 0) return [];
         if (!Q(holder, out ulong begin) || !Q(holder + 8, out ulong end) || !Q(holder + 16, out ulong capacity)
             || end < begin || capacity < end || (end - begin) % 8 != 0 || (capacity - begin) % 8 != 0

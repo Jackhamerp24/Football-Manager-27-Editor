@@ -3,6 +3,7 @@ using Fm27Editor.Core.Discovery;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Competitions;
 using Fm27Editor.Core.Game;
+using Fm27Editor.Core.MassEdit;
 using Fm27Editor.Core.Memory;
 using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Officials;
@@ -28,7 +29,6 @@ using Fm27Editor.Core.Verification;
 //   compset <id> <subs|fg|bg|trim|wb|wbstart|wbend|rep> <value>   write one competition field
 //   compsnap | compdiff <path>         baseline the whole competition list and diff it after an FMRTE Save
 //   keepplaying <id>|batch <ids...> [--write]   remove a planned retirement
-//   agents [name]                      the game's agents, and agentset <uid|name> <field> <value> [--write]
 //   nationtv <nation>                  the 20 transfer-value tiers (men and women); nationtv <nation> set <men|women> <i> <v> [--write]
 //   referees [name]                    the game's referees, and refset <id|name> <field> <value> [--write]
 //   globals [n]                        clubs anchor and the global arrays derived from it (read-only)//   gamecheck [feature]                read every feature on the attached build; gamewrites runs the write smoke test
@@ -42,6 +42,7 @@ try
     return args.FirstOrDefault() switch
     {
         "status" => Status(),
+        "accelerate" => AccelerateCli.Run(args[1..], Attach),
         "players" => Players(args.Length > 1 ? string.Join(' ', args[1..]) : null),
         "healthplayers" => HealthPlayers(),
         "healthstructure" => HealthStructure(),
@@ -61,6 +62,7 @@ try
         "presetbatchcheck" => PresetBatchCheck(Enum.Parse<PlayerPreset>(args[1], true), args[2..].Select(int.Parse).ToArray()),
         "injuryundocheck" => InjuryUndoCheck(int.Parse(args[1])),
         "squadhealcheck" => SquadHealCheck(int.Parse(args[1])),
+        "massbench" => MassBench(args.Length > 1 ? int.Parse(args[1]) : 50000, args.Length > 2 ? int.Parse(args[2]) : 1),
         "massscalarcheck" => MassScalarCheck(Enum.Parse<PlayerField>(args[1], true), Enum.Parse<MassEditMode>(args[2], true), long.Parse(args[3]), args[4..].Select(int.Parse).ToArray()),
         "massqualitycheck" => MassQualityCheck(Enum.Parse<PlayerQuality>(args[1], true), Enum.Parse<MassEditMode>(args[2], true), int.Parse(args[3]), args[4..].Select(int.Parse).ToArray()),
         "massratingcheck" => MassRatingCheck(args[1], args[2], Enum.Parse<MassEditMode>(args[3], true), int.Parse(args[4]), args[5..].Select(int.Parse).ToArray()),
@@ -99,8 +101,6 @@ try
         "referees" => RefereesCommand(args.Length > 1 ? string.Join(' ', args[1..]) : null),
         "refset" => RefereeSetCommand(args[1], args[2], int.Parse(args[3]), args.Contains("--write")),
         "refsurvey" => RefereeSurveyCommand(),
-        "agents" => AgentsCommand(args.Length > 1 ? string.Join(' ', args[1..]) : null),
-        "agentset" => AgentSetCommand(args[1], args[2], int.Parse(args[3]), args.Contains("--write")),
         "loan" => LoanCommand(args[1..]),
         "verify" => Verify(args[1]),
         "set" => Set(args[1], args[2], args[3]),
@@ -282,6 +282,7 @@ try
         "playerslot" => PlayerSlotCommand(args[1], args.Length > 2 ? args[2] : null),
         "workpermit" => WorkPermitCommand(args[1..]),
         "permits" => PermitsCommand(args[1..]),
+        "permitbatch" => PermitBatchCommand(args[1..]),
         "citydump" => CityDumpCommand(args[1]),
         "citylink" => CityLinkCommand(args[1..]),
         "cityfield" => CityFieldCommand(args[1..]),
@@ -298,6 +299,7 @@ try
         "future-remove" => FutureRemoveCommand(int.Parse(args[1]), args.Length > 2 && args[2] == "--write"),
         "futureaddr" => FutureAddrCommand(args.Length > 1 ? int.Parse(args[1]) : 0),
         "gamewrites" or "steamwrites" => SteamWrites.Run(Attach(writable: true)),
+        "calibrate" => Calibration.Run(args[1..]),
         "stadiumowner" => StadiumOwnerCommand(string.Join(' ', args[1..])),
         "agrsurvey" => AgrSurveyCommand(),
         "slotsbyname" => SlotsByNameCommand(args[1]),
@@ -822,6 +824,42 @@ int MassQualityCheck(PlayerQuality field, MassEditMode mode, int value, int[] id
     return 0;
 }
 
+int MassBench(int count, int fieldCount)
+{
+    using var session = Attach(writable: false);
+    var players = session.Players.LoadAll().Take(Math.Max(1, count)).ToArray();
+    var access = session.PlayerFields;
+    var defs = new (PlayerField Field, long Min, long Max)[]
+    {
+        (PlayerField.Morale, 1, 20),
+        (PlayerField.Condition, 5000, 10000),
+        (PlayerField.MatchSharpness, 5000, 10000),
+    };
+    var specs = defs.Take(Math.Clamp(fieldCount, 1, defs.Length)).Select(def => new MassFieldSpec<PlayerRecord>(
+        (ushort)def.Field, def.Field.ToString(),
+        player => access.Read(player, def.Field),
+        (player, before, after) => access.Set(player, def.Field, before, after),
+        1, MassEditMode.Change, def.Min, def.Max,
+        value => access.ValidateValue(def.Field, value))).ToArray();
+
+    var process = Process.GetCurrentProcess();
+    long managedBefore = GC.GetTotalMemory(true);
+    long workingBefore = process.WorkingSet64;
+    var stopwatch = Stopwatch.StartNew();
+    var progress = new Progress<MassProgress>(p =>
+    {
+        if (p.Done == p.Total || p.Done % 10000 == 0)
+            Console.WriteLine($"{p.Phase}: {p.Done:N0}/{p.Total:N0}");
+    });
+    var plan = new MassPlanner().PlanAsync(players, specs, i => players[i].DisplayName, progress, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    stopwatch.Stop();
+    long managedAfter = GC.GetTotalMemory(false);
+    long workingAfter = process.WorkingSet64;
+    Console.WriteLine($"targets={players.Length:N0} fields={specs.Length} rows={plan.Rows:N0} changes={plan.ChangesCount:N0} refused={plan.RefusedCount:N0}");
+    Console.WriteLine($"plan={stopwatch.ElapsedMilliseconds:N0} ms managedDelta={(managedAfter - managedBefore) / 1024.0 / 1024.0:N1} MB workingSetDelta={(workingAfter - workingBefore) / 1024.0 / 1024.0:N1} MB");
+    return 0;
+}
 int MassScalarCheck(PlayerField field, MassEditMode mode, long value, int[] ids)
 {
     using var session = Attach(writable: true);
@@ -1527,46 +1565,6 @@ int CompareCommand(string first, string second)
     }
     return 0;
 }
-// agents [name]   the game's agents (read-only)
-int AgentsCommand(string? filter)
-{
-    using var session = Attach(writable: false);
-    var sw = Stopwatch.StartNew();
-    var all = session.ReadAgents();
-    Console.WriteLine($"{all.Count:N0} agents in {sw.ElapsedMilliseconds} ms; chunk 0x{session.AgentPool.Chunk:X}");
-    int shown = 0;
-    foreach (var agent in all)
-    {
-        if (filter is { Length: > 0 } && !agent.DisplayName.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
-        Console.WriteLine($"{agent.Uid,10} {agent.DisplayName,-30} clients {agent.Clients,3} scope {agent.Scope,2} patience {agent.Patience,2} " +
-            $"business {agent.Business,2} agency {agent.AgencySize,2} touting {agent.ToutingClients,2} row {agent.RowId}");
-        shown++;
-    }
-    Console.WriteLine($"{shown} shown");
-    return 0;
-}
-
-// agentset <uid|name> <field> <value> [--write]
-int AgentSetCommand(string query, string field, int value, bool write)
-{
-    using var session = Attach(writable: write);
-    var all = session.ReadAgents();
-    var matches = all.Where(a => uint.TryParse(query, out uint id) ? a.Uid == id : a.DisplayName.Equals(query, StringComparison.OrdinalIgnoreCase)).ToList();
-    if (matches.Count != 1) { Console.Error.WriteLine($"{matches.Count} agents match '{query}'"); return 2; }
-    var agent = matches[0];
-    var parsed = Enum.Parse<AgentField>(field, true);
-    int Before(AgentRecord a) => parsed switch
-    {
-        AgentField.Scope => a.Scope, AgentField.Patience => a.Patience, AgentField.Business => a.Business,
-        AgentField.AgencySize => a.AgencySize, AgentField.ToutingClients => a.ToutingClients, _ => 0,
-    };
-    Console.WriteLine($"{agent.Uid} {agent.DisplayName}: {parsed} {Before(agent)} -> {value}");
-    if (!write) { Console.WriteLine("(read-only; add --write to change the save)"); return 0; }
-    session.SetAgent(agent, parsed, value);
-    var after = session.ReadAgents().FirstOrDefault(a => a.Address == agent.Address) ?? throw new InvalidOperationException("agent disappeared after the write");
-    Console.WriteLine($"after: {parsed} {Before(after)}");
-    return 0;
-}
 // refsurvey   value ranges of every referee field (read-only, for writer limits)
 int RefereeSurveyCommand()
 {
@@ -1697,7 +1695,7 @@ int GlobalsCommand(int samples)
     var arrays = GlobalArrayFinder.Read(memory, module.ModuleBase, size)
         ?? throw new InvalidOperationException("clubs anchor signature not found");
     Console.WriteLine($"clubs {arrays.ClubsCount:N0} (0x{arrays.ClubsBegin:X})  staff {arrays.StaffCount:N0} (0x{arrays.StaffBegin:X})  " +
-        $"referees {arrays.RefereeCount:N0} (0x{arrays.RefereesBegin:X})  agents {arrays.AgentCount:N0} (0x{arrays.AgentsBegin:X}..0x{arrays.AgentsEnd:X})  " +
+        $"referees {arrays.RefereeCount:N0} (0x{arrays.RefereesBegin:X})  " +
         $"teams {arrays.TeamsCount:N0} (0x{arrays.TeamsBegin:X})");
 
     ulong Q(ulong at)
@@ -1735,7 +1733,6 @@ int GlobalsCommand(int samples)
         }
     }
     Sample("referees", arrays.RefereesBegin, arrays.RefereeCount, 0x150, new[] { 284, 286, 288 });
-    Sample("agents", arrays.AgentsBegin, arrays.AgentCount, 0xE0, new[] { 176, 178, 200, 204 });
     return 0;
 }
 // swap <name|id> <name|id> [--write]   exchange two players between their clubs for no fee
@@ -5754,6 +5751,17 @@ int CompInfoCommand(int id)
         ?? throw new InvalidOperationException($"no competition with id {id}");
     Console.WriteLine($"{competition.DisplayName} id {competition.Id} index {competition.Index} 0x{competition.Address:X}");
     Console.WriteLine($"  reputation {competition.Reputation}, substitution rules 0x{competition.SubstitutionRules:X2}");
+    if (session.CompetitionDetails.Read(competition) is { } details)
+    {
+        string Position(short? v) => v is null ? "unknown" : v < 0 ? "n/a" : v.Value.ToString();
+        string YesNo(byte? v) => v is null ? "unknown" : v != 0 ? "yes" : "no";
+        Console.WriteLine($"  details: three-letter '{details.ThreeLetterName ?? "unknown"}', type {details.TypeName ?? "unknown"}, " +
+            $"level {details.CompetitionLevel?.ToString() ?? "unknown"}, trophy {details.TrophyName ?? "unknown"}, " +
+            $"category {details.LowestOfficialCategoryName ?? "unknown"}");
+        Console.WriteLine($"  details: continental {Position(details.ContinentalPosition)}, last {Position(details.LastContinentalPosition)}, " +
+            $"extra officials {YesNo(details.UsesExtraOfficials)}, seated only {YesNo(details.SeatedStadiumsOnly)}");
+    }
+    else Console.WriteLine("  details: unavailable");
     Console.WriteLine($"  foreground #{competition.Foreground:X8} background #{competition.Background:X8} trim #{competition.Trim:X8} winter ball #{competition.WinterBallColour:X8}");
     Console.WriteLine($"  winter ball {competition.WinterBallStart?.ToString("yyyy-MM-dd") ?? "none"} .. {competition.WinterBallEnd?.ToString("yyyy-MM-dd") ?? "none"}");
     return 0;
@@ -6989,6 +6997,30 @@ int PermitsCommand(string[] rest)
         foreach (var g in after) Console.WriteLine($"  {g.NationName} {g.Year} record 0x{g.Record:X}");
         Console.WriteLine($"flag byte at player+0x2A0: 0x{session.Memory.Read(player.Address + 0x2A0, 1)[0]:X2}");
     }
+    return 0;
+}
+
+// permitbatch <club name> <nation> [--write]   grant a work permit from <nation> to the club's first-team squad, then read every permit back
+int PermitBatchCommand(string[] rest)
+{
+    bool write = rest.Contains("--write", StringComparer.OrdinalIgnoreCase);
+    var words = rest.Where(a => !a.Equals("--write", StringComparison.OrdinalIgnoreCase)).ToArray();
+    using var session = Attach(writable: write);
+    var all = session.Players.LoadAll();
+    var club = session.LoadClubs(all.ToArray()).FirstOrDefault(c => c.DisplayName.Equals(words[0], StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"no club '{words[0]}'");
+    var nation = session.Nations.LoadAll().First(n => n.DisplayName.Equals(words[1], StringComparison.OrdinalIgnoreCase));
+    var squad = club.FirstTeam is { } team ? session.ReadSquad(team.Address) : [];
+    int year = session.ReadGameDate()?.Year ?? throw new InvalidOperationException("game date not readable");
+    int Holding() => squad.Count(p => session.ReadWorkPermits(p).Any(g => g.Nation == nation.Address));
+    Console.WriteLine($"{club.DisplayName}: {squad.Count} squad players; {Holding()} already hold a {nation.DisplayName} permit; year {year}");
+    if (!write) { Console.WriteLine("plan only; add --write"); return 0; }
+    var skips = new List<WorkPermitBatchSkip>();
+    var sw = Stopwatch.StartNew();
+    int granted = session.BatchGrantWorkPermits(squad, nation.Address, year, a => a == nation.Address ? nation.DisplayName : null, skips.Add);
+    Console.WriteLine($"granted {granted}, skipped {skips.Count} in {sw.ElapsedMilliseconds} ms");
+    foreach (var s in skips.Take(10)) Console.WriteLine($"  skip {s.PlayerName}: {s.Reason}");
+    Console.WriteLine($"now {Holding()} of {squad.Count} hold a {nation.DisplayName} permit");
     return 0;
 }
 

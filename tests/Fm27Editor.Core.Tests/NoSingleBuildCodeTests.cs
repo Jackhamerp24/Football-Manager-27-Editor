@@ -45,10 +45,9 @@ public class NoSingleBuildCodeTests
     [Fact]
     public void No_module_address_is_hard_coded_outside_the_profile()
     {
-        // Module RVAs are 0x4xxxxxx / 0x5xxxxxx. They may appear in profile JSON and in tests, not in Core code. The one tolerated
-        // line is the CLI-only agent pool, which has no Steam layout yet.
+        // Module RVAs are 0x4xxxxxx / 0x5xxxxxx. They may appear in profile JSON and in tests, not in Core code.
         var pattern = new System.Text.RegularExpressions.Regex(@"\b0x[45][0-9A-Fa-f]{6}\b");
-        var hits = Code().Where(c => pattern.IsMatch(c.Text) && !c.Text.Contains("ChunkSlotRva")).Select(c => $"{c.File}:{c.Line}").ToList();
+        var hits = Code().Where(c => pattern.IsMatch(c.Text)).Select(c => $"{c.File}:{c.Line}").ToList();
         Assert.True(hits.Count == 0, "Hard-coded module address: " + string.Join(", ", hits));
     }
 }

@@ -21,7 +21,7 @@ public class ClubListReaderTests
         const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
         const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
         var memory = new FakeMemory();
-        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var teamBytes = memory.Map(team, 0xB8);
         Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
         Put64(memory.Map(detail, 0xD0), 0xC8, holder);
@@ -48,7 +48,7 @@ public class ClubListReaderTests
         const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
         const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
         var memory = new FakeMemory();
-        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var teamBytes = memory.Map(team, 0xB8);
         Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
         Put64(memory.Map(detail, 0xD0), 0xC8, holder);
@@ -92,7 +92,7 @@ public class ClubListReaderTests
         const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
         var memory = new FakeMemory();
         // The 2493426 profile carries the measured visionTarget/visionStatus offsets; the fixture uses its vtables.
-        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var teamBytes = memory.Map(team, 0xB8);
         Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
         Put64(memory.Map(detail, 0xD0), 0xC8, holder);
@@ -114,15 +114,26 @@ public class ClubListReaderTests
         Assert.Equal(1234, reader.ReadClubVision(team).Single().Target);
 
         row = reader.ReadClubVision(team).Single();
+        writer.SetItemIndex(team, row, 139);
+        Assert.Equal((ushort)139, BitConverter.ToUInt16(memory.Read(record + 8, 2), 0));
+
+        row = reader.ReadClubVision(team).Single();
+        writer.SetItemTarget(team, row, ClubVisionItemKind.Nation, 170);
+        Assert.Equal((ushort)170, BitConverter.ToUInt16(memory.Read(record + 8, 2), 0));
+        Assert.Equal((ushort)0x0900, BitConverter.ToUInt16(memory.Read(record + 0xA, 2), 0));
+
+        row = reader.ReadClubVision(team).Single();
         writer.SetStatus(team, row, 2);
         Assert.Equal((byte)2, reader.ReadClubVision(team).Single().Status);
 
         var after = memory.Read(record, 0x50);
         Assert.Equal(1234, BitConverter.ToInt32(after, 0x28));
+        Assert.Equal((ushort)170, BitConverter.ToUInt16(after, 8));
+        Assert.Equal((ushort)0x0900, BitConverter.ToUInt16(after, 0xA));
         Assert.Equal((byte)2, after[0x38]);
         // Everything else stays byte-identical.
         for (int i = 0; i < 0x50; i++)
-            if (i is not (>= 0x28 and < 0x2C) and not 0x38) Assert.Equal(before[i], after[i]);
+            if (i is not (>= 8 and < 0xC) and not (>= 0x28 and < 0x2C) and not 0x38) Assert.Equal(before[i], after[i]);
     }
 
     [Fact]
@@ -133,7 +144,7 @@ public class ClubListReaderTests
         const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000, spare = 0x71000000;
         const ulong setAside = 0x72000000;
         var memory = new FakeMemory();
-        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var teamBytes = memory.Map(team, 0xB8);
         Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
         Put64(memory.Map(detail, 0xD0), 0xC8, holder);
@@ -177,7 +188,7 @@ public class ClubListReaderTests
         const ulong module = 0x7FFB18130000, team = 0x50010000, detail = 0x50020000, holder = 0x50030000;
         const ulong header = 0x50040000, vector = 0x60000000, record = 0x70000000;
         var memory = new FakeMemory();
-        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var teamBytes = memory.Map(team, 0xB8);
         Put64(teamBytes, 0, module + 0x4CE3108); Put64(teamBytes, 0xA0, detail);
         Put64(memory.Map(detail, 0xD0), 0xC8, holder);
@@ -238,7 +249,7 @@ public class ClubListReaderTests
         expected[0x2D] = 6;
         Assert.Equal(expected, sheffield.Memory.Read(row.Address, 0x50));
 
-        var newProfile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+        var newProfile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
         var oldProfile = OffsetProfile.LoadFile(TestWorld.ProfilePath);
         // Changed deliberately: the 2493426 profiles now allow this write after the live CLI verification of 5/11
         // (Sheffield 708 type 150 5 -> 6, re-read from a fresh process). The older 2486695 profile still refuses.

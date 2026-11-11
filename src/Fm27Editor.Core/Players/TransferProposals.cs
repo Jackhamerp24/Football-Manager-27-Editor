@@ -6,8 +6,10 @@ using Fm27Editor.Core.Offsets;
 namespace Fm27Editor.Core.Players;
 
 /// <summary>
-/// Transfer offers: [module + <see cref="ListRootRva"/>] + <see cref="ListOffset"/> is a vector of every offer (6,205 on
-/// 15/8/2026). Offer layout as in FM26's TransferOffer: person (player + 0x288) +0x38, buying team +0x40, selling team +0x50,
+/// Transfer offers: [module + <see cref="ListRootRva"/>] + <see cref="ListOffset"/> is a vector of offers,
+/// unioned at read time with a heap scan for transfer-vtable objects: new builds keep live offers outside any
+/// static vector (Perisic's Man Utd bid, id 109, lives only in the heap on 27.0.1+2494687). Offer layout as in
+/// FM26's TransferOffer: person (the player's database object on new builds) +0x38, buying team +0x40, selling team +0x50,
 /// int32 fee +0x58, int32 id +0x5C, status byte +0x8D. A player's own list is the int32 id vector whose header is at
 /// [player + <see cref="PlayerIds"/>]. Checked against FMRTE 27's Transfer Proposals tab on Omar Marmoush (Transfer, Man City
 /// → Tottenham, £20,000,000, Confirmed), Alejandro Balde (Loan, Barcelona → Man Utd, £150,000, Ready to sign) and others;
@@ -60,8 +62,19 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
         var persons = new Dictionary<ulong, (string Name, int? Id)>();
         foreach (var player in players) persons.TryAdd(player.Address + (ulong)rel.PlayerPerson, (player.DisplayName, player.Id));
         foreach (var person in staff) persons.TryAdd(person.Address, (person.DisplayName, person.Id));
+        // New builds point offer.person at the player's database object instead of the person part,
+        // so match those offers back through the players' own id lists.
+        var byOfferId = new Dictionary<int, (string Name, int? Id)>();
+        foreach (var player in players)
+        {
+            if (!Q(player.Address + (ulong)o.PlayerIds, out ulong header) || header == 0) continue;
+            if (!Q(header, out ulong begin) || !Q(header + 8, out ulong end) || begin == 0 || end < begin || (end - begin) % 4 != 0 || (end - begin) / 4 > MaxIds) continue;
+            var ids = memory.Read(begin, (int)(end - begin));
+            for (int i = 0; i + 4 <= ids.Length; i += 4)
+                byOfferId.TryAdd(BitConverter.ToInt32(ids, i), (player.DisplayName, player.Id));
+        }
         var result = new List<ClubTransferOffer>();
-        foreach (var address in Offers(o).Values)
+        foreach (var address in OffersCached(o).Values)
         {
             var bytes = new byte[o.Status + 1];
             if (!memory.TryRead(address, bytes)) continue;
@@ -70,7 +83,7 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
             if (seller != clubAddress && buyer != clubAddress) continue;
             if (ReadOffer(address) is not { } offer || !ShownByFmrte(offer.Status)) continue;
             ulong person = BitConverter.ToUInt64(bytes, o.Person);
-            persons.TryGetValue(person, out var match);
+            if (!persons.TryGetValue(person, out var match) || match.Name is null) byOfferId.TryGetValue(offer.Id, out match);
             result.Add(new(offer, match.Name, match.Id, person, seller, buyer));
         }
         return result;
@@ -92,7 +105,7 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
         if (!Q(header, out ulong begin) || !Q(header + 8, out ulong end) || begin == 0 || end < begin || (end - begin) % 4 != 0 || (end - begin) / 4 > MaxIds) return [];
         var ids = memory.Read(begin, (int)(end - begin));
         if (ids.Length == 0) return [];
-        var offers = Offers(o);
+        var offers = OffersCached(o);
         var result = new List<TransferProposal>();
         for (int i = 0; i < ids.Length; i += 4)
             if (offers.TryGetValue(BitConverter.ToInt32(ids, i), out ulong offer) && ReadOffer(offer) is { } p) result.Add(p);
@@ -110,6 +123,58 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
         if (type is not { } t) return null;
         return new(offer, t, BitConverter.ToInt32(b, o.Id), ClubOf(BitConverter.ToUInt64(b, o.Seller)), ClubOf(BitConverter.ToUInt64(b, o.Buyer)),
             BitConverter.ToInt32(b, o.Value), b[o.Status]);
+    }
+
+    Dictionary<int, ulong>? _offerCache;
+
+    /// <summary>True once the one-off offer scan has run. The player tab rail checks this so it never starts the scan
+    /// on the UI thread just to decide whether to show a tab.</summary>
+    public bool HasCachedOffers => _offerCache is not null;
+
+    /// <summary>
+    /// Offers by id, cached for the reader's lifetime: the static root first (fast path, and the only
+    /// source on older builds), unioned with one heap scan for transfer-vtable objects. New builds keep
+    /// live offers outside any static vector (Perisic's Man Utd bid lives only in the heap), so the scan
+    /// is what finds them; the cache keeps one session to a single scan. Entries are revalidated on use.
+    /// </summary>
+    Dictionary<int, ulong> OffersCached(ProposalOffsets o)
+    {
+        if (_offerCache is not null) return _offerCache;
+        var map = Offers(o);
+        foreach (var (id, address) in ScanOffers(o)) map.TryAdd(id, address);
+        return _offerCache = map;
+    }
+
+    /// <summary>Every offer-vtable object in writable memory, by its id field: transfer, loan, trial and B club move.
+    /// The class names and vtables were read from the live objects on Game Pass 27.0.1 (RTTI: FULL_TRANSFER_OFFER
+    /// 0x4C26C48, LOAN_OFFER 0x4B29D68, TRIAL_OFFER 0x49DE488, B_CLUB_MOVE_OFFER 0x49D6928).</summary>
+    Dictionary<int, ulong> ScanOffers(ProposalOffsets o)
+    {
+        var map = new Dictionary<int, ulong>();
+        if (memory is not WindowsProcessMemory windows) return map;
+        ulong transfer = moduleBase + o.TransferVtable,
+            loan = o.LoanVtable == 0 ? 0 : moduleBase + o.LoanVtable,
+            trial = o.TrialVtable == 0 ? 0 : moduleBase + o.TrialVtable,
+            bMove = o.BClubMoveVtable == 0 ? 0 : moduleBase + o.BClubMoveVtable;
+        var buffer = new byte[1 << 22];
+        var id = new byte[4];
+        foreach (var region in windows.EnumerateWritableRegions())
+        {
+            if (region.IsModuleData) continue;
+            for (ulong offset = 0; offset + 8 <= region.Size; offset += (ulong)buffer.Length)
+            {
+                int length = (int)Math.Min((ulong)buffer.Length, region.Size - offset);
+                if (!memory.TryRead(region.Start + offset, buffer.AsSpan(0, length))) break;
+                for (int i = 0; i + 8 <= length; i += 8)
+                {
+                    ulong v = BitConverter.ToUInt64(buffer, i);
+                    if (v != transfer && (loan == 0 || v != loan) && (trial == 0 || v != trial) && (bMove == 0 || v != bMove)) continue;
+                    ulong address = region.Start + offset + (ulong)i;
+                    if (memory.TryRead(address + (ulong)o.Id, id)) map.TryAdd(BitConverter.ToInt32(id), address);
+                }
+            }
+        }
+        return map;
     }
 
     Dictionary<int, ulong> Offers(ProposalOffsets o)

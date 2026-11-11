@@ -52,16 +52,56 @@ public sealed class GameSession : IDisposable
     /// <summary>Applies a transfer, allocating a new squad buffer in the game process when the destination squad is full.</summary>
     public void ApplyTransfer(Transfer.TransferPlan plan) => Transfers.Apply(plan, AllocateGameBlock);
 
+    Presets.AcceleratedDevelopment? _accelerated;
+
+    /// <summary>"Accelerate Player Development"; one instance per session so the located code site is reused.</summary>
+    public Presets.AcceleratedDevelopment AcceleratedDevelopment =>
+        _accelerated ??= new(_memory, _memory.CanWrite ? _memory : null, Profile, Game.ModuleBase, Game.ModuleSize);
+
     /// <summary>Current in-game date, read fresh on every call; null if unknown.</summary>
     public DateOnly? ReadGameDate() => GameClock.Read(_memory, Profile, Game.ModuleBase);
 
     /// <summary>Balance/budgets of the club object; null when the profile has no finance offsets.</summary>
     /// <summary>Sell-on, appearance fee and competition bonus clauses on the club's players.</summary>
-    public IReadOnlyList<Clubs.TransferClause> ReadTransferClauses(ulong clubAddress, IReadOnlyDictionary<int, CompetitionInfo>? competitions = null) =>
-        new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase, competitions).Read(clubAddress);
+    Clubs.TransferClauseReader? _clauseReader;
 
-    public IReadOnlyDictionary<int, CompetitionInfo> LoadCompetitions(IEnumerable<PlayerRecord> players) =>
-        Clubs.CompetitionDirectory.FromPlayers(_memory, Profile, players);
+    /// <summary>The reader is cached so its one-off clause scan is shared by every screen in the session.</summary>
+    public IReadOnlyList<Clubs.TransferClause> ReadTransferClauses(ulong clubAddress, IReadOnlyDictionary<int, CompetitionInfo>? competitions = null) =>
+        (_clauseReader ??= new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase)).Read(clubAddress, competitions);
+
+    /// <summary>Every clause on 27.0.1+ (scanned), for the player screens that filter by player id.</summary>
+    public IReadOnlyList<Clubs.TransferClause> ReadAllTransferClauses(IReadOnlyDictionary<int, CompetitionInfo>? competitions = null) =>
+        (_clauseReader ??= new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase)).ReadAll(competitions);
+
+    IReadOnlyDictionary<int, CompetitionInfo>? _competitionList;
+    readonly object _competitionListGate = new();
+
+    public IReadOnlyDictionary<int, CompetitionInfo> LoadCompetitions(IEnumerable<PlayerRecord> players)
+    {
+        var map = new Dictionary<int, CompetitionInfo>(Clubs.CompetitionDirectory.FromPlayers(_memory, Profile, players));
+        // The player's division only names domestic leagues; competition bonuses often point at cups and Europe,
+        // so merge the game's own competition list (its index is the value a clause stores at +0x24). The list is
+        // read once per session: every tab asks for it, and re-reading 8,000 competitions per view made the app slow.
+        foreach (var (index, info) in CompetitionList()) map.TryAdd(index, info);
+        return map;
+    }
+
+    IReadOnlyDictionary<int, CompetitionInfo> CompetitionList()
+    {
+        if (_competitionList is { } cached) return cached;
+        lock (_competitionListGate)
+        {
+            if (_competitionList is { } inside) return inside;
+            var map = new Dictionary<int, CompetitionInfo>();
+            try
+            {
+                foreach (var competition in new Competitions.CompetitionRepository(_memory, Profile, ModuleBase).LoadAll(() => Players.LoadAll()))
+                    map.TryAdd(competition.Index, new CompetitionInfo(competition.Address, competition.DisplayName, competition.ShortName));
+            }
+            catch (Exception) { }
+            return _competitionList = map;
+        }
+    }
 
     public Clubs.TransferClauseWriter TransferClauses => new(_memory, Profile, Game.ModuleBase);
 
@@ -89,6 +129,13 @@ public sealed class GameSession : IDisposable
     // FMRTE's Information-page presets. Each reads the player's relations fresh and returns false when there is nothing to do.
     public bool TrainedAtCurrentClub(PlayerRecord player) =>
         new RelationshipWriter(_memory, Profile, Game.ModuleBase).AddTrainedAtClub(player, ReadStatuses(player), CurrentClub(player), AllocateGameBlock);
+
+    /// <summary>The nation object of the country a club plays in (the profile's club nation field).</summary>
+    public ulong NationOfClub(ulong club)
+    {
+        int offset = Profile.Club?.Nation ?? throw new InvalidOperationException("Profile has no club nation offset");
+        return _memory.ReadUInt64(club + (ulong)offset);
+    }
 
     public bool TrainedInCurrentNation(PlayerRecord player)
     {
@@ -170,7 +217,10 @@ public sealed class GameSession : IDisposable
     public CareerPlanWriter CareerPlanWriter => new(_memory, Profile, Game.ModuleBase);
 
     /// <summary>Transfer Proposals: the offers a player's id list names, and the guarded fee writer.</summary>
-    public TransferProposalReader Proposals => new(_memory, Profile, Game.ModuleBase);
+    TransferProposalReader? _proposals;
+    /// <summary>One reader per session so its offer map (one heap scan) is reused; a new attach rescans.
+    /// Stale entries are revalidated on every read, so freed offers read as absent rather than corrupt.</summary>
+    public TransferProposalReader Proposals => _proposals ??= new(_memory, Profile, Game.ModuleBase);
     public TransferProposalWriter ProposalWriter => new(_memory, Profile, Game.ModuleBase);
 
     /// <summary>Contracts offered with transfer proposals, and future transfers (Confirmed offers with an agreed date).</summary>
@@ -284,6 +334,7 @@ public sealed class GameSession : IDisposable
     public Competitions.CompetitionStandingsAccess CompetitionStandings => new(_memory, Profile, Game.ModuleBase);
     public Competitions.CompetitionVarAccess CompetitionVar => new(_memory, Profile, Game.ModuleBase);
     public Competitions.CompetitionSquadRulesAccess CompetitionSquadRules => new(_memory, Profile, Game.ModuleBase);
+    public Competitions.CompetitionDetailsAccess CompetitionDetails => new(_memory, Profile, Game.ModuleBase);
     public Stadiums.StadiumWriter StadiumWriter => new(_memory, Profile, Game.ModuleBase);
 
     /// <summary>Every nation, and its mapped nation / national-team fields.</summary>
@@ -292,7 +343,9 @@ public sealed class GameSession : IDisposable
     public Nations.NationRivalries NationRivalries => new(_memory, Profile, Game.ModuleBase);
     public Nations.NationPreferences NationPreferences => new(_memory, Profile, Game.ModuleBase);
     public Nations.NationEuroCoefficients NationEuroCoefficients => new(_memory, Profile, Game.ModuleBase);
-    public Nations.NationAgreements NationAgreements => new(_memory, Profile, Game.ModuleBase);
+    /// <summary>Agreements: cached so the region catalogue scan runs once per session.</summary>
+    Nations.NationAgreements? _nationAgreements;
+    public Nations.NationAgreements NationAgreements => _nationAgreements ??= new(_memory, Profile, Game.ModuleBase);
     public Nations.NationColourAccess NationColours => new(_memory, Profile, Game.ModuleBase);
     public Nations.NationKits NationKits => new(_memory, Profile, Game.ModuleBase);
     public Nations.NationSquads NationSquads => new(_memory, Profile, Game.ModuleBase);
@@ -346,6 +399,19 @@ public sealed class GameSession : IDisposable
 
     public bool RemoveWorkPermitDenied(PlayerRecord player, WorkPermitDenial denial) =>
         new WorkPermitAccess(_memory, Profile, Game.ModuleBase).RemoveDenied(player, denial);
+
+    /// <summary>Grants a permit from <paramref name="nation"/> for <paramref name="year"/> to every
+    /// player in <paramref name="players"/> that can take one; stale and duplicate players are
+    /// skipped with reasons. Returns how many grants were made. One history group undoes it all.
+    /// Progress reports (done, total) after each player.</summary>
+    public int BatchGrantWorkPermits(IEnumerable<PlayerRecord> players, ulong nation, int year,
+        Func<ulong, string?> nationName, Action<WorkPermitBatchSkip>? onSkip = null,
+        Action<int, int>? progress = null)
+    {
+        var plan = WorkPermitBatch.Plan(_memory, Profile, Game.ModuleBase, players, nation, year, nationName);
+        return WorkPermitBatch.Apply(plan, _memory, Profile, Game.ModuleBase,
+            size => AllocateGameBlock(size), onSkip, null, progress);
+    }
 
     InjuryWriter InjuryWriter => new(_memory, Profile, Game.ModuleBase);
 
@@ -455,13 +521,6 @@ public sealed class GameSession : IDisposable
     public Players.CurrentLoanReader CurrentLoans => new(_memory, Profile, ModuleBase);
     public Players.CurrentLoanInspection ReadCurrentLoan(Players.PlayerRecord player) => CurrentLoans.Read(player);
 
-    /// <summary>Agents from the game-wide pool (module slot 0x5685B30 → holder → chunk).</summary>
-    public Officials.AgentDirectory AgentPool => new(_memory, ModuleBase,
-        Profile.AgentPoolSlotRva ?? throw new InvalidOperationException("Agent pool is unavailable for this build"),
-        Profile.AgentVtableRva ?? throw new InvalidOperationException("Agent vtable is unavailable for this build"));
-    public IReadOnlyList<Officials.AgentRecord> ReadAgents() => AgentPool.ReadAll();
-    public void SetAgent(Officials.AgentRecord agent, Officials.AgentField field, int value) =>
-        new Officials.AgentWriter(_memory).Set(agent, field, value);
     /// <summary>A nation's 20 transfer-value tiers (men or women), guarded write.</summary>
     public Nations.NationTransferValuesReader NationTransferValues => new(_memory);
     public Nations.NationTransferValues? ReadNationTransferValues(Nations.NationRecord nation, bool women = false) =>

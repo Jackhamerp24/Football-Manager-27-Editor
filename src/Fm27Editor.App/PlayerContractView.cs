@@ -204,42 +204,80 @@ public sealed partial class MainWindow
     Control? TransferClausesPanel(PlayerRecord player, ContractDraft draft, Func<string, string, double, Control> text, Func<string, string, Control> dateText)
     {
         if (player.Id is not { } id || player.Club is not { } club || backend.Session.Profile.Club?.TransferClauses is null) return null;
-        var competitions = competitionCache ??= backend.Session.LoadCompetitions(Players());
-        var clauses = draft.TransferClauses ??= backend.Session.ReadTransferClauses(club.Address, competitions).Where(c => c.PlayerId == id).ToList();
-
-        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 13, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-        WrapPanel Line(params Control[] items) { var p = new WrapPanel { Orientation = Orientation.Horizontal }; foreach (var i in items) { i.Margin = new Thickness(0, 0, 6, 0); p.Children.Add(i); } return p; }
-
-        var list = new Grid { ColumnDefinitions = new ColumnDefinitions("130,100,110,*,Auto"), RowSpacing = 6, ColumnSpacing = 12, Margin = new Thickness(12, 10, 12, 8) };
-        foreach (var c in clauses)
+        var host = new ContentControl();
+        var reading = new TextBlock { Text = "Reading clauses…", FontSize = 13, Foreground = Brush("#94A3B8"), Margin = new Thickness(12, 10) };
+        host.Content = UiKit.Card("Transfer Clauses", reading);
+        // A later render of the same draft reuses the list read when the tab first opened.
+        if (draft.TransferClauses is { } known)
         {
-            int row = list.RowDefinitions.Count; list.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            void Cell(Control control, int col) { control.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(control, row); Grid.SetColumn(control, col); list.Children.Add(control); }
-            Cell(Label(ContractLabels.Of(c.Kind), "#F1F5F9"), 0);
-            Cell(Label(c.Beneficiary?.DisplayName ?? "", "#CBD5E1"), 1);
-            string main = ClauseKey(c, "main"), extra = ClauseKey(c, "extra");
-            switch (c.Kind)
-            {
-                case TransferClauseKind.SellOn:
-                    Cell(Line(text(main, $"{c.Percentage}", 52), Label("%")), 2);
-                    Cell(Line(Label("Signed for"), text(extra, c.SignedFor?.ToString(Inv) ?? "", 110)), 3);
-                    break;
-                case TransferClauseKind.AppearanceFee:
-                    Cell(text(main, $"{c.Amount}", 110), 2);
-                    Cell(Line(Label($"{c.AppearancesSoFar} /"), text(extra, $"{c.Appearances}", 52), Label("apps")), 3);
-                    break;
-                default:
-                    Cell(text(main, $"{c.Amount}", 110), 2);
-                    Cell(Line(Label(ContractLabels.Competition(c), "#CBD5E1"), Label("until"), dateText(extra, D(c.Ends))), 3);
-                    break;
-            }
-            var removeClause = new Button { Content = "Remove" };
-            string removed = $"{ContractLabels.Of(c.Kind)} removed";
-            removeClause.Click += (_, _) => ClauseChange(player, draft, () => backend.Session.TransferClauses.RemoveClause(club.Address, c), removed);
-            Cell(removeClause, 4);
+            if (Build(known) is { } knownCard) host.Content = knownCard; else host.IsVisible = false;
+            return host;
         }
+        // 27.0.1+ finds clauses by scanning the game's heap (several seconds). Read them off the UI thread so opening
+        // the Contract tab stays instant; the card fills in when the read finishes.
+        var players = Players();
+        _ = Task.Run(() =>
+        {
+            var competitions = backend.Session.LoadCompetitions(players);
+            var scan = backend.Session.Profile.Club?.TransferClauses?.Scan == true;
+            var clauses = (scan
+                ? backend.Session.ReadAllTransferClauses(competitions)
+                : backend.Session.ReadTransferClauses(club.Address, competitions)).Where(c => c.PlayerId == id).ToList();
+            draft.TransferClauses = clauses;
+            return clauses;
+        }).ContinueWith(task => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (task.IsFaulted)
+            {
+                reading.Text = UserMessage.For(task.Exception!.GetBaseException());
+                return;
+            }
+            if (Build(task.Result) is { } card) host.Content = card; else host.IsVisible = false;
+        }));
+        return host;
 
-        return clauses.Count > 0 ? UiKit.Card("Transfer Clauses", list) : null;
+        Control? Build(IReadOnlyList<TransferClause> clauses)
+        {
+            TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 13, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            WrapPanel Line(params Control[] items) { var p = new WrapPanel { Orientation = Orientation.Horizontal }; foreach (var i in items) { i.Margin = new Thickness(0, 0, 6, 0); p.Children.Add(i); } return p; }
+
+            var list = new Grid { ColumnDefinitions = new ColumnDefinitions("130,100,110,*,Auto"), RowSpacing = 6, ColumnSpacing = 12, Margin = new Thickness(12, 10, 12, 8) };
+            foreach (var c in clauses)
+            {
+                int row = list.RowDefinitions.Count; list.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                void Cell(Control control, int col) { control.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(control, row); Grid.SetColumn(control, col); list.Children.Add(control); }
+                Cell(Label(ContractLabels.Of(c.Kind), "#F1F5F9"), 0);
+                Cell(Label(c.Beneficiary?.DisplayName ?? "", "#CBD5E1"), 1);
+                string main = ClauseKey(c, "main"), extra = ClauseKey(c, "extra");
+                switch (c.Kind)
+                {
+                    case TransferClauseKind.SellOn:
+                        Cell(Line(text(main, $"{c.Percentage}", 52), Label("%")), 2);
+                        Cell(Line(Label("Signed for"), text(extra, c.SignedFor?.ToString(Inv) ?? "", 110)), 3);
+                        break;
+                    case TransferClauseKind.AppearanceFee:
+                        Cell(text(main, $"{c.Amount}", 110), 2);
+                        Control[] appItems = c.AppearancesSoFar is { } soFar
+                            ? [Label($"{soFar} /"), text(extra, $"{c.Appearances}", 52), Label("apps")]
+                            : [text(extra, $"{c.Appearances}", 52), Label("apps")];
+                        Cell(Line(appItems), 3);
+                        break;
+                    default:
+                        Cell(text(main, $"{c.Amount}", 110), 2);
+                        Cell(Line(Label(ContractLabels.Competition(c), "#CBD5E1"), Label("until"), dateText(extra, D(c.Ends))), 3);
+                        break;
+                }
+                if (c.Origin is { } origin)
+                {
+                    var removeClause = new Button { Content = "Remove" };
+                    string removed = $"{ContractLabels.Of(c.Kind)} removed";
+                    removeClause.Click += (_, _) => ClauseChange(player, draft, () => backend.Session.TransferClauses.RemoveClause(club.Address, c), removed);
+                    Cell(removeClause, 4);
+                }
+            }
+
+            return clauses.Count > 0 ? UiKit.Card("Transfer Clauses", list) : null;
+        }
     }
 
     /// <summary>Active unhappiness motives (as FMRTE lists them), each removable, plus Remove All. Null when there are none.</summary>
@@ -562,6 +600,12 @@ public sealed partial class MainWindow
         void Preview()
         {
             Invalidate();
+            if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women)
+            {
+                warning.Text = "Only male players and men's clubs are supported.";
+                warning.IsVisible = true;
+                return;
+            }
             if (clubs.SelectedItem is not ClubOption chosen) return;
             if (IsLoan()) { PreviewLoan(chosen); return; }
             if (IsFuture()) { PreviewFuture(chosen); return; }
@@ -609,10 +653,18 @@ public sealed partial class MainWindow
         {
             var q = searchClub.Text?.Trim() ?? "";
             var compare = CultureInfo.InvariantCulture.CompareInfo;
+            if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women)
+            {
+                clubs.ItemsSource = Array.Empty<ClubOption>();
+                Invalidate();
+                warning.Text = "Only male players and men's clubs are supported.";
+                warning.IsVisible = true;
+                return;
+            }
             clubs.ItemsSource = (q.Length == 0 ? all : all.Where(c => compare.IndexOf(c.DisplayName, q, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0
                                                                   || compare.IndexOf(c.Name ?? "", q, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0
                                                                   || c.Id?.ToString(Inv) == q))
-                .Where(c => c.FirstTeam is not null && c.Address != player.Club?.Address)
+                .Where(c => c.FirstTeam is not null && c.Address != player.Club?.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women)
                 .OrderBy(c => c.DisplayName).Take(200).Select(c => new ClubOption(c)).ToArray();
             Invalidate();
         }
@@ -689,7 +741,7 @@ public sealed partial class MainWindow
                 return;
             }
             if (plan is null) return;
-            int percent = (int)(termSellOn.Value ?? 0);
+            int percent = backend.Session.Profile.Club?.TransferClauses?.Scan == true ? 0 : (int)(termSellOn.Value ?? 0);
             if (percent > 0 && player.Id is null) { status.Text = "This player's ID can't be read, so no sell-on can be added"; return; }
             try
             {

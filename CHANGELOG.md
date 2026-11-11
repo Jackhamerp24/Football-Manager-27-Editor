@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0
+
+### Game builds
+- Supports Football Manager 27 `27.0.1+2494687` on Xbox / Game Pass and Steam. Every reader and every kind of write was run against
+  the live game on both.
+
+### Players
+- **Development speed** (Tools card of a player): makes the player improve faster from training while the game runs.
+- **Transfer Proposals** shows loan, trial and B club move offers next to transfer offers, and their value can be edited.
+- **Relationships** shows the name of every person a player likes or dislikes.
+
+### Clubs and squads
+- Squad presets: **Grant work permit** gives the ticked players a permit for the club's own country; **Golden Generation** sits on the
+  first team and applies to every other team of the club. Every preset has a tooltip.
+- Club Vision and Squads open without freezing the window.
+- Stadium names and details are read correctly.
+- Players currently out on loan are listed again.
+
+### Nations
+- National-team staff show their job and team for every member, not only those on a full contract.
+
+### Other
+- The editor notices a newly loaded save more reliably, and the status bar date follows the game.
+- Work Permit opens at once (the permit table is found in the background after Load Game).
+- Larger app icon.
+
 ## 1.1.0
 
 ### Mass edit

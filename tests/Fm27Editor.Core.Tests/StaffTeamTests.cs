@@ -6,7 +6,7 @@ namespace Fm27Editor.Core.Tests;
 public class StaffTeamTests
 {
     [Theory]
-    [InlineData("27.0.0+2493426.json")]
+    [InlineData("27.0.0+2493426-steam.json")]
     [InlineData("27.0.0+2493426-gamepass.json")]
     public void Reads_team_names_observed_in_FMRTE_and_rejects_an_unrecognized_team(string profileName)
     {

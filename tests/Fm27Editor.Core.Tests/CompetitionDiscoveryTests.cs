@@ -1,4 +1,5 @@
 using Fm27Editor.Core.Competitions;
+using Fm27Editor.Core.Players;
 
 namespace Fm27Editor.Core.Tests;
 
@@ -82,13 +83,51 @@ public class CompetitionDiscoveryTests
     public void A_working_list_wins_over_the_team_walk()
     {
         ThreeNeighboursReachedFromAPlayersTeam();
+        WorkingList();
+        var found = Repository.LoadAll();
+        Assert.Equal(new[] { 130286 }, found.Select(x => x.Id));
+    }
+
+    /// <summary>
+    /// The player list is the expensive part of the team fallback (the app already holds it), so the repository must
+    /// not ask for it when the game-wide list works. Two working views used to reload it once per view.
+    /// </summary>
+    [Fact]
+    public void A_working_list_does_not_ask_for_the_players()
+    {
+        ThreeNeighboursReachedFromAPlayersTeam();
+        WorkingList();
+        int loads = 0;
+        var found = Repository.LoadAll(() =>
+        {
+            loads++;
+            return new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).LoadAll();
+        });
+        Assert.Equal(0, loads);
+        Assert.Equal(new[] { 130286 }, found.Select(x => x.Id));
+    }
+
+    [Fact]
+    public void The_team_fallback_uses_the_players_it_is_given()
+    {
+        ThreeNeighboursReachedFromAPlayersTeam();
+        int loads = 0;
+        var found = Repository.LoadAll(() =>
+        {
+            loads++;
+            return new PlayerRepository(_w.Memory, _w.Profile, TestWorld.ModuleBase).LoadAll();
+        });
+        Assert.Equal(1, loads);
+        Assert.Equal(new[] { 11, 12, 130286 }, found.Select(x => x.Id));
+    }
+
+    void WorkingList()
+    {
         var c = _w.Profile.Competition!;
         var root = _w.Memory.Map(ListRootObject, 0x100);
         TestWorld.Set64(root, c.ListOffset!.Value, ListArray);
         TestWorld.Set64(root, c.ListOffset.Value + 8, ListArray + 8);
         TestWorld.Set64(_w.Memory.Map(ListArray, 8), 0, Block + 2 * 0x1B0);
         TestWorld.Set64(_w.Memory.Map(TestWorld.ModuleBase + (ulong)c.ListRootRva!.Value, 8), 0, ListRootObject);
-        var found = Repository.LoadAll();
-        Assert.Equal(new[] { 130286 }, found.Select(x => x.Id));
     }
 }

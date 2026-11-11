@@ -18,7 +18,7 @@ public class ClubSponsorListTests
     ];
 
     readonly FakeMemory memory = new();
-    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
     ulong nextAllocation = Allocated;
 
     ulong Allocate(int bytes)

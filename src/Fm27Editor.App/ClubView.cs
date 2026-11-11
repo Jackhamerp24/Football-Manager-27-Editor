@@ -42,9 +42,13 @@ public sealed partial class MainWindow : IClubPanels
         public byte? TypeCode { get; set; }
         public int? SourceType { get; set; }
         public (DateOnly Start, DateOnly End)? Dates { get; set; }
-        public bool HasChanges => Importance is not null || TypeCode is not null || SourceType is not null || Dates is not null;
+        public (ClubVisionItemKind Kind, ushort Index)? ItemTarget { get; set; }
+        public string? ItemTargetName { get; set; }
+        public int? Target { get; set; }
+        public bool HasChanges => Importance is not null || TypeCode is not null || SourceType is not null || Dates is not null || ItemTarget is not null || Target is not null;
     }
     readonly Dictionary<ulong, Dictionary<ulong, ClubVisionRowDraft>> clubVisionDrafts = [];
+    sealed record ClubVisionTargetChoice(string Name, ushort Index);
 
     sealed class ClubAffiliationRowDraft
     {
@@ -429,6 +433,12 @@ public sealed partial class MainWindow : IClubPanels
         {
             if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
             badges.Children.Add(UiKit.MetaText($"{orderedTeams[0].SquadCount} players"));
+        }
+
+        if (club.Gender == Fm27Editor.Core.Offsets.Gender.Women)
+        {
+            if (badges.Children.Count > 0) badges.Children.Add(UiKit.MetaDot());
+            badges.Children.Add(UiKit.MetaText("Women", highlight: true));
         }
 
         var crestImg = graphics.Image("club", club.Id, 72);
@@ -886,9 +896,17 @@ public sealed partial class MainWindow : IClubPanels
         else
         {
             if (!provider.HasReader(session, listSection)) return;
-            if (competitionCache is null && playerRecords.Length > 0 && provider.NeedsCompetitions(session, listSection))
-                competitionCache = session.LoadCompetitions(playerRecords);
-            table = provider.ReadSection(listSection, session, club, activeTeam, loadedClubs, competitionCache, playerRecords);
+            try
+            {
+                table = await Task.Run(() =>
+                {
+                    if (competitionCache is null && playerRecords.Length > 0 && provider.NeedsCompetitions(session, listSection))
+                        competitionCache = session.LoadCompetitions(playerRecords);
+                    return provider.ReadSection(listSection, session, club, activeTeam, loadedClubs, competitionCache, playerRecords);
+                });
+            }
+            catch (Exception ex) { if (version == clubRenderGeneration && clubsActive) status.Text = UserMessage.For(ex); return; }
+            if (version != clubRenderGeneration || !clubsActive || selectedClub?.Address != club.Address || selectedClubSection != listSection) return;
         }
 
         if (!table.HasReader)
@@ -924,19 +942,39 @@ public sealed partial class MainWindow : IClubPanels
     internal static Dictionary<int, string> VisionCompetitionNames(IEnumerable<Fm27Editor.Core.Competitions.CompetitionRecord> competitions) =>
         competitions.Where(c => !string.IsNullOrEmpty(c.DisplayName)).GroupBy(c => c.Index).ToDictionary(g => g.Key, g => g.First().DisplayName);
 
-    void RenderClubVision(GameSession session, ClubEntry club, IReadOnlyList<TeamEntry> orderedTeams, ulong teamAddr)
+    async void RenderClubVision(GameSession session, ClubEntry club, IReadOnlyList<TeamEntry> orderedTeams, ulong teamAddr)
     {
+        var version = clubRenderGeneration;
+        var section = selectedClubSection;
         IReadOnlyList<ClubVisionEntry> entries;
         try
         {
-            // An item index means a competition's index, a nation's position, a continent's position or a club, by its marker.
-            visionCompetitionNames ??= VisionCompetitionNames(session.Competitions.LoadAll());
-            var nationList = session.Nations.LoadAll();
-            visionNationNames ??= nationList.Select((n, i) => (i, n.DisplayName)).ToDictionary(x => x.i, x => x.DisplayName);
-            visionContinentNames ??= session.NationLinks.Continents(nationList).Select((c, i) => (i, c.Name)).ToDictionary(x => x.i, x => x.Name);
-            entries = session.ReadClubVision(teamAddr, loadedClubs, visionCompetitionNames, visionNationNames, visionContinentNames);
+            // The reads run in the background: the name lists are built once per save (8,000+ competitions, 230 nations),
+            // and the vision itself is read from the game; the window stays responsive meanwhile.
+            var competitions = visionCompetitionNames;
+            var nations = visionNationNames;
+            var continents = visionContinentNames;
+            var clubs = loadedClubs;
+            var result = await Task.Run(() =>
+            {
+                // An item index means a competition's index, a nation's position, a continent's position or a club, by its marker.
+                competitions ??= VisionCompetitionNames(session.Competitions.LoadAll());
+                if (nations is null || continents is null)
+                {
+                    var nationList = session.Nations.LoadAll();
+                    nations ??= nationList.Select((n, i) => (i, n.DisplayName)).ToDictionary(x => x.i, x => x.DisplayName);
+                    continents ??= session.NationLinks.Continents(nationList).Select((c, i) => (i, c.Name)).ToDictionary(x => x.i, x => x.Name);
+                }
+                return session.ReadClubVision(teamAddr, clubs, competitions, nations, continents);
+            });
+            visionCompetitionNames = competitions;
+            visionNationNames = nations;
+            visionContinentNames = continents;
+            entries = result;
         }
-        catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
+        catch (Exception ex) { if (version == clubRenderGeneration) status.Text = UserMessage.For(ex); return; }
+        // The user may have moved to another club or section while the vision was being read.
+        if (version != clubRenderGeneration || !clubsActive || selectedClub?.Address != club.Address || selectedClubSection != section) return;
         if (entries.Count == 0) return;
 
         if (!clubVisionDrafts.TryGetValue(teamAddr, out var drafts))
@@ -975,6 +1013,7 @@ public sealed partial class MainWindow : IClubPanels
             var entry = entries[index];
             var d = drafts.GetValueOrDefault(entry.Address);
             var panel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8) };
+            var targetHost = new ContentControl { HorizontalAlignment = HorizontalAlignment.Left };
 
             int curImportance = d?.Importance ?? entry.Importance;
             var box = new TextBox { Text = curImportance.ToString(Inv), Width = 100, HorizontalContentAlignment = HorizontalAlignment.Right };
@@ -1009,6 +1048,10 @@ public sealed partial class MainWindow : IClubPanels
                     byte code = types[typeCombo.SelectedIndex].Code;
                     if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
                     rowDraft.TypeCode = (code == entry.TypeCode) ? null : code;
+                    rowDraft.ItemTarget = null;
+                    rowDraft.ItemTargetName = null;
+                    rowDraft.Target = null;
+                    RefreshTargetRow();
                     UpdateSaveState();
                 }
             };
@@ -1044,6 +1087,94 @@ public sealed partial class MainWindow : IClubPanels
                 new TextBlock { Text = "Source", Width = 90, VerticalAlignment = VerticalAlignment.Center }, sourceCombo
             } });
 
+            panel.Children.Add(targetHost);
+            RefreshTargetRow();
+
+            void RefreshTargetRow()
+            {
+                targetHost.Content = null;
+                var rowDraft = drafts.GetValueOrDefault(entry.Address);
+                byte code = rowDraft?.TypeCode ?? entry.TypeCode;
+                string? targetLabel = ClubVisionTypes.TargetLabel(code);
+                if (targetLabel is null) return;
+                var targetKind = ClubVisionTypes.TargetItemKind(code);
+                bool sameType = code == entry.TypeCode;
+                if (targetKind != ClubVisionItemKind.Unknown)
+                {
+                    ushort? index = rowDraft?.ItemTarget?.Index ?? (sameType ? entry.ItemIndex is { } i ? (ushort)i : null : null);
+                    string targetValue = rowDraft?.ItemTargetName ?? (sameType ? entry.ItemName ?? entry.ClubItem?.DisplayName : null)
+                        ?? index?.ToString(Inv) ?? "";
+                    var valueText = new TextBlock { Text = targetValue, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
+                    var search = new Button { Content = "Search", FontSize = 11, Padding = new Thickness(8, 0), MinHeight = 24 };
+                    search.Click += async (_, _) =>
+                    {
+                        ClubVisionTargetChoice? picked = null;
+                        if (targetKind == ClubVisionItemKind.Competition)
+                        {
+                            var list = session.Competitions.LoadAll();
+                            picked = await PickerDialog.Show(this, "Choose competition", q => list
+                                .Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
+                                .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, (ushort)c.Index))).ToArray(),
+                                "Competition name");
+                        }
+                        else if (targetKind == ClubVisionItemKind.Nation)
+                        {
+                            var list = session.Nations.LoadAll();
+                            picked = await PickerDialog.Show(this, "Choose nation", q => list.Select((n, i) => (n, i))
+                                .Where(x => !string.IsNullOrWhiteSpace(x.n.DisplayName))
+                                .Where(x => MainWindow.Fold(x.n.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Take(200).Select(x => (x.n.DisplayName, new ClubVisionTargetChoice(x.n.DisplayName, (ushort)x.i))).ToArray(),
+                                "Nation name");
+                        }
+                        else if (targetKind == ClubVisionItemKind.Continent)
+                        {
+                            var list = session.NationLinks.Continents(session.Nations.LoadAll());
+                            picked = await PickerDialog.Show(this, "Choose continent", q => list.Select((c, i) => (c, i))
+                                .Where(x => !string.IsNullOrWhiteSpace(x.c.Name))
+                                .Where(x => MainWindow.Fold(x.c.Name).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Take(200).Select(x => (x.c.Name, new ClubVisionTargetChoice(x.c.Name, (ushort)x.i))).ToArray(),
+                                "Continent name");
+                        }
+                        else if (targetKind == ClubVisionItemKind.Club)
+                        {
+                            var list = loadedClubs;
+                            picked = await PickerDialog.Show(this, "Choose club", q => list
+                                .Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
+                                .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, ClubIndex(session, c)))).ToArray(),
+                                "Club name");
+                        }
+                        if (picked is null) return;
+                        if (!drafts.TryGetValue(entry.Address, out var draft)) drafts[entry.Address] = draft = new();
+                        draft.ItemTarget = (targetKind, picked.Index);
+                        draft.ItemTargetName = picked.Name;
+                        valueText.Text = picked.Name;
+                        UpdateSaveState();
+                    };
+                    targetHost.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                    {
+                        new TextBlock { Text = targetLabel, Width = 90, VerticalAlignment = VerticalAlignment.Center },
+                        valueText, search
+                    } };
+                }
+                else
+                {
+                    int current = rowDraft?.Target ?? (sameType ? entry.Target ?? 0 : 0);
+                    var targetBox = new TextBox { Text = current.ToString(Inv), Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
+                    targetBox.TextChanged += (_, _) =>
+                    {
+                        if (!int.TryParse(targetBox.Text, out int value)) return;
+                        if (!drafts.TryGetValue(entry.Address, out var draft)) drafts[entry.Address] = draft = new();
+                        draft.Target = value;
+                        UpdateSaveState();
+                    };
+                    targetHost.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+                    {
+                        new TextBlock { Text = targetLabel, Width = 90, VerticalAlignment = VerticalAlignment.Center }, targetBox
+                    } };
+                }
+            }
             DateOnly curStart = d?.Dates is { } dtStart ? dtStart.Start : (entry.StartDate ?? new DateOnly(2026, 7, 1));
             DateOnly curEnd = d?.Dates is { } dtEnd ? dtEnd.End : (entry.EndDate ?? new DateOnly(2027, 6, 30));
             var startBox = new DateBox { Text = DateSetting.Format(curStart), Width = 130 };
@@ -1078,6 +1209,8 @@ public sealed partial class MainWindow : IClubPanels
                     if (rowDraft.TypeCode is { } tc) actions.Add(() => session.ClubVisionWriter.SetType(teamAddr, ent, tc));
                     if (rowDraft.SourceType is { } st) actions.Add(() => session.ClubVisionWriter.SetSourceType(teamAddr, ent, st));
                     if (rowDraft.Dates is { } dt) actions.Add(() => session.ClubVisionWriter.SetDates(teamAddr, ent, dt.Start, dt.End));
+                    if (rowDraft.ItemTarget is { } itemTarget) actions.Add(() => session.ClubVisionWriter.SetItemTarget(teamAddr, ent, itemTarget.Kind, itemTarget.Index));
+                    if (rowDraft.Target is { } targetValue) actions.Add(() => session.ClubVisionWriter.SetTarget(teamAddr, ent, targetValue));
                 }
                 try
                 {
@@ -1133,36 +1266,115 @@ public sealed partial class MainWindow : IClubPanels
     {
         var types = ClubVisionTypes.All.Select(kv => (Code: kv.Key, Name: kv.Value)).ToList();
         var typeCombo = new ComboBox { ItemsSource = types.Select(t => t.Name).ToArray(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var importanceBox = new TextBox { Text = "5", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var targetBox = new TextBox { Text = "0", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var startBox = new DateBox { Text = DateSetting.Format(new DateOnly(DateTime.UtcNow.Year, 7, 1)), Width = 130 };
-        var endBox = new DateBox { Text = DateSetting.Format(new DateOnly(DateTime.UtcNow.Year + 1, 6, 30)), Width = 130 };
+        var importanceBox = new TextBox { Text = "5", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right, HorizontalAlignment = HorizontalAlignment.Left };
+        var targetBox = new TextBox { Text = "0", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right, HorizontalAlignment = HorizontalAlignment.Left };
+        var targetNameText = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
+        var targetButton = new Button { Content = "Search", IsVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+        var targetContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Children = { targetBox, targetNameText, targetButton } };
+        ushort? targetIndex = null;
+        string? targetName = null;
+        ClubVisionItemKind targetKind = ClubVisionItemKind.Unknown;
+        var startBox = new DateBox { Text = DateSetting.Format(new DateOnly(DateTime.UtcNow.Year, 7, 1)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
+        var endBox = new DateBox { Text = DateSetting.Format(new DateOnly(DateTime.UtcNow.Year + 1, 6, 30)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
 
         var dialog = new Window
         {
             Title = "Add Club Vision Objective",
-            Width = 480,
-            Height = 310,
+            Width = 560,
+            Height = 320,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Brush("#0D0F17"),
         };
 
         var form = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*"), RowSpacing = 10, ColumnSpacing = 12, Margin = new Thickness(16) };
-        void AddRow(string label, Control field, int row)
+        TextBlock AddRow(string label, Control field, int row)
         {
             form.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             var l = new TextBlock { Text = label, Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center };
             Grid.SetRow(l, row); Grid.SetColumn(l, 0);
             Grid.SetRow(field, row); Grid.SetColumn(field, 1);
             form.Children.Add(l); form.Children.Add(field);
+            return l;
         }
 
         AddRow("Objective", typeCombo, 0);
         AddRow("Importance", importanceBox, 1);
-        AddRow("Target", targetBox, 2);
+        var targetRowLabel = AddRow("Target", targetContent, 2);
         AddRow("Start Date", startBox, 3);
         AddRow("End Date", endBox, 4);
+
+        void UpdateTarget()
+        {
+            if (typeCombo.SelectedIndex < 0 || typeCombo.SelectedIndex >= types.Count) return;
+            byte code = types[typeCombo.SelectedIndex].Code;
+            string? label = ClubVisionTypes.TargetLabel(code);
+            targetKind = ClubVisionTypes.TargetItemKind(code);
+            bool hasTarget = label is not null;
+            targetRowLabel.IsVisible = targetContent.IsVisible = hasTarget;
+            if (!hasTarget)
+            {
+                targetIndex = null;
+                targetName = null;
+                targetKind = ClubVisionItemKind.Unknown;
+                return;
+            }
+            targetRowLabel.Text = label!;
+            bool entity = targetKind != ClubVisionItemKind.Unknown;
+            targetBox.IsVisible = !entity;
+            targetNameText.IsVisible = entity;
+            targetButton.IsVisible = entity;
+            if (entity) targetNameText.Text = targetName ?? "";
+        }
+        typeCombo.SelectionChanged += (_, _) => UpdateTarget();
+        UpdateTarget();
+
+        targetButton.Click += async (_, _) =>
+        {
+            if (typeCombo.SelectedIndex < 0 || typeCombo.SelectedIndex >= types.Count) return;
+            var kind = ClubVisionTypes.TargetItemKind(types[typeCombo.SelectedIndex].Code);
+            ClubVisionTargetChoice? picked = null;
+            if (kind == ClubVisionItemKind.Competition)
+            {
+                var list = session.Competitions.LoadAll();
+                picked = await PickerDialog.Show(this, "Choose competition", q =>
+                    list.Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
+                        .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, (ushort)c.Index))).ToArray(),
+                    "Competition name");
+            }
+            else if (kind == ClubVisionItemKind.Nation)
+            {
+                var list = session.Nations.LoadAll();
+                picked = await PickerDialog.Show(this, "Choose nation", q =>
+                    list.Select((n, i) => (n, i)).Where(x => !string.IsNullOrWhiteSpace(x.n.DisplayName))
+                        .Where(x => MainWindow.Fold(x.n.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Take(200).Select(x => (x.n.DisplayName, new ClubVisionTargetChoice(x.n.DisplayName, (ushort)x.i))).ToArray(),
+                    "Nation name");
+            }
+            else if (kind == ClubVisionItemKind.Continent)
+            {
+                var list = session.NationLinks.Continents(session.Nations.LoadAll());
+                picked = await PickerDialog.Show(this, "Choose continent", q =>
+                    list.Select((c, i) => (c, i)).Where(x => !string.IsNullOrWhiteSpace(x.c.Name))
+                        .Where(x => MainWindow.Fold(x.c.Name).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Take(200).Select(x => (x.c.Name, new ClubVisionTargetChoice(x.c.Name, (ushort)x.i))).ToArray(),
+                    "Continent name");
+            }
+            else if (kind == ClubVisionItemKind.Club)
+            {
+                var list = loadedClubs;
+                picked = await PickerDialog.Show(this, "Choose club", q =>
+                    list.Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
+                        .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, ClubIndex(session, c)))).ToArray(),
+                    "Club name");
+            }
+            if (picked is null) return;
+            targetIndex = picked.Index;
+            targetName = picked.Name;
+            targetNameText.Text = picked.Name;
+        };
 
         var createBtn = new Button { Content = "Create objective", Classes = { "accent" } };
         var cancelBtn = new Button { Content = "Cancel" };
@@ -1173,7 +1385,16 @@ public sealed partial class MainWindow : IClubPanels
             if (typeCombo.SelectedIndex < 0 || typeCombo.SelectedIndex >= types.Count) return;
             byte typeCode = types[typeCombo.SelectedIndex].Code;
             if (!byte.TryParse(importanceBox.Text, out byte imp)) { status.Text = "Importance must be a whole number."; return; }
-            if (!int.TryParse(targetBox.Text, out int tgt)) { status.Text = "Target must be a whole number."; return; }
+            var kind = ClubVisionTypes.TargetItemKind(typeCode);
+            int tgt = 0;
+            if (kind != ClubVisionItemKind.Unknown)
+            {
+                if (targetIndex is null) { status.Text = $"Choose {ClubVisionTypes.TargetLabel(typeCode)?.ToLowerInvariant()}."; return; }
+            }
+            else if (ClubVisionTypes.TargetLabel(typeCode) is not null)
+            {
+                if (!int.TryParse(targetBox.Text, out tgt)) { status.Text = "Target must be a whole number."; return; }
+            }
             if (!DateSetting.TryParse(startBox.Text, out var start)
                 || !DateSetting.TryParse(endBox.Text, out var end))
             { status.Text = $"Dates must be in {DateSetting.Hint} format."; return; }
@@ -1181,7 +1402,8 @@ public sealed partial class MainWindow : IClubPanels
             try
             {
                 Func<int, ulong>? allocator = session.Memory is Fm27Editor.Core.Memory.WindowsProcessMemory wpm ? wpm.Allocate : null;
-                backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Vision: Add", () => session.ClubVisionWriter.Create(teamAddr, template, typeCode, imp, tgt, start, end, allocator));
+                backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Vision: Add", () =>
+                    session.ClubVisionWriter.Create(teamAddr, template, typeCode, imp, tgt, start, end, allocator, targetIndex, kind));
                 RenderClubEditor();
                 status.Text = "Objective added. Continue in FM to see updates.";
                 dialog.Close();
@@ -1197,6 +1419,13 @@ public sealed partial class MainWindow : IClubPanels
         dialog.Content = form;
         await dialog.ShowDialog(this);
     }
+
+    static ushort ClubIndex(GameSession session, ClubEntry club)
+    {
+        var bytes = new byte[4];
+        return session.Memory.TryRead(club.Address + 8, bytes) ? (ushort)BitConverter.ToInt32(bytes, 0) : (ushort)0;
+    }
+
 
     void RenderClubAffiliations(GameSession session, ClubEntry club)
     {
@@ -1816,7 +2045,7 @@ public sealed partial class MainWindow : IClubPanels
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         IReadOnlyList<ClubEntry> clubs;
         try { clubs = session.LoadClubs([]); } catch { clubs = []; }
-        var pick = new ComboBox { Width = 260, ItemsSource = clubs.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToArray() };
+        var pick = new ComboBox { Width = 260, ItemsSource = clubs.Where(c => c.Address != club.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToArray() };
         pick.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<ClubEntry>((entry, _) =>
             new TextBlock { Text = entry is null ? "" : $"{entry.Name} ({entry.Id})" });
         var add = new Button { Content = "Add rival" };
@@ -1842,7 +2071,7 @@ public sealed partial class MainWindow : IClubPanels
         if (row.Kind == ClubRelationshipKind.Other) return new Border();
         var value = new TextBox { Text = row.Value.ToString(Inv), Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right };
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        panel.Children.Add(new TextBlock { Text = row.Name ?? "", VerticalAlignment = VerticalAlignment.Center, MinWidth = 150 });
+        panel.Children.Add(new TextBlock { Text = row.Name ?? "Unknown", VerticalAlignment = VerticalAlignment.Center, MinWidth = 150 });
         panel.Children.Add(new TextBlock { Text = "Value", VerticalAlignment = VerticalAlignment.Center });
         panel.Children.Add(value);
         ComboBox? reason = null;

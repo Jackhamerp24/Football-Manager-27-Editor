@@ -29,8 +29,9 @@ public static class ClubCatalog
     static readonly CompareInfo Compare = Inv.CompareInfo;
     const CompareOptions IgnoreCaseAndAccents = CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace;
 
-    public static IReadOnlyList<ClubEntry> Filter(IEnumerable<ClubEntry> clubs, string? query)
+    public static IReadOnlyList<ClubEntry> Filter(IEnumerable<ClubEntry> clubs, string? query, Fm27Editor.Core.Offsets.Gender? gender = null)
     {
+        if (gender is { } g) clubs = clubs.Where(c => c.Gender == g);
         string q = query?.Trim() ?? "";
         if (q.Length == 0)
         {

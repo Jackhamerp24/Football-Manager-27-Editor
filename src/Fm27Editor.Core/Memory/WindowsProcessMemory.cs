@@ -116,6 +116,14 @@ public sealed partial class WindowsProcessMemory : IProcessMemory, IDisposable
         return old;
     }
 
+    /// <summary>Flushes the instruction cache over a range after a code patch (or its undo) changed it, so no thread runs prefetched bytes.</summary>
+    public void FlushInstructionCache(ulong address, int bytes) =>
+        FlushInstructionCache(_handle, (nint)address, (nint)bytes);
+
+    [LibraryImport("kernel32.dll", SetLastError = true, EntryPoint = "FlushInstructionCache")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool FlushInstructionCache(nint process, nint baseAddress, nint size);
+
     public void Free(ulong address) => VirtualFreeEx(_handle, (nint)address, 0, 0x8000);
 
     public void Dispose() => CloseHandle(_handle);

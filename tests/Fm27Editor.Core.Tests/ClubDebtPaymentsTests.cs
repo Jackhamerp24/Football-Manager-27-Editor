@@ -19,7 +19,7 @@ public class ClubDebtPaymentsTests
     static readonly string[] SaoPaulo =
     ["6D37930007600200F825010000000000D432F407D632EA0701010000"];
     readonly FakeMemory memory = new();
-    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426.json"));
+    readonly OffsetProfile profile = OffsetProfile.LoadFile(Path.Combine(AppContext.BaseDirectory, "offsets", "27.0.0+2493426-steam.json"));
 
     void Build(string[] rows)
     {

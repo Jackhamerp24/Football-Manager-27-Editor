@@ -90,9 +90,11 @@ public sealed partial class MainWindow
 
         Action? refreshSquad = null;
 
-        // Golden Generation belongs to the youth squads: the U21 and U18 teams only.
-        bool youthTeam = orderedTeams.Count == 3 && selectedSquadTeamIndex >= 1;
-        var layoutGrid = BuildSquadGridAndActions(getSquad, isNation: false, out refreshSquad, allowGoldenGeneration: youthTeam);
+        // Golden Generation is offered on the first team and works on every other team of the club (reserves, U21, U18...).
+        Func<IReadOnlyList<PlayerRecord>>? youthPlayers = selectedSquadTeamIndex == 0 && orderedTeams.Count > 1
+            ? () => orderedTeams.Skip(1).SelectMany(t => SquadAdapter.ReadSquad(backend.Session, t.Address, allLoadedPlayers)).DistinctBy(p => p.Address).ToList()
+            : null;
+        var layoutGrid = BuildSquadGridAndActions(getSquad, isNation: false, out refreshSquad, youthPlayers, club.Address);
         clubEditorPanel.Children.Add(layoutGrid);
         return true;
     }
@@ -101,9 +103,10 @@ public sealed partial class MainWindow
         Func<IReadOnlyList<PlayerRecord>> getSquadPlayers,
         bool isNation,
         out Action refreshSquad,
-        bool allowGoldenGeneration = false)
+        Func<IReadOnlyList<PlayerRecord>>? youthPlayers = null,
+        ulong? squadClub = null)
     {
-        var currentSquadPlayers = getSquadPlayers();
+        IReadOnlyList<PlayerRecord> currentSquadPlayers = [];
 
         List<SquadPlayerRow> BuildRows(IReadOnlyList<PlayerRecord> players)
         {
@@ -148,7 +151,7 @@ public sealed partial class MainWindow
             return list;
         }
 
-        var squadRows = BuildRows(currentSquadPlayers);
+        List<SquadPlayerRow> squadRows = [];
 
         var squadGrid = ToolGrid.Create();
         squadGrid.ItemsSource = squadRows;
@@ -351,13 +354,31 @@ public sealed partial class MainWindow
         }
         ToolGrid.EnableSort(squadGrid, sortKeys);
 
-        void RefreshSquadLocal()
+        // Reading a squad is one memory read per player per field, so it runs in the background and only the
+        // newest load is shown; the grid stays empty (and the window responsive) until its rows arrive.
+        int squadLoadVersion = 0;
+        async void LoadSquadRows(bool keepSelection)
         {
-            var prevSelected = squadGrid.SelectedItems.OfType<SquadPlayerRow>().Select(r => r.Player.Address).ToHashSet();
-            currentSquadPlayers = getSquadPlayers();
-            SetRows(BuildRows(currentSquadPlayers), prevSelected);
+            int version = ++squadLoadVersion;
+            var prevSelected = keepSelection
+                ? squadGrid.SelectedItems.OfType<SquadPlayerRow>().Select(r => r.Player.Address).ToHashSet()
+                : new HashSet<ulong>();
+            try
+            {
+                var loaded = await Task.Run(() =>
+                {
+                    var players = getSquadPlayers();
+                    return (Players: players, Rows: BuildRows(players));
+                });
+                if (version != squadLoadVersion) return;
+                currentSquadPlayers = loaded.Players;
+                SetRows(loaded.Rows, prevSelected);
+            }
+            catch (Exception ex) { if (version == squadLoadVersion) status.Text = UserMessage.For(ex); }
         }
+        void RefreshSquadLocal() => LoadSquadRows(keepSelection: true);
         refreshSquad = RefreshSquadLocal;
+        LoadSquadRows(keepSelection: false);
 
         var actionsHost = new Border();
         actionsHost.Child = CreatePlayerActionsPanel(
@@ -368,7 +389,8 @@ public sealed partial class MainWindow
             getSelectedPlayers: () => squadRows.Where(r => !excluded.Contains(r.Player.Address)).Select(r => r.Player).ToArray(),
             onApplied: RefreshSquadLocal,
             registerSelectionUpdater: updater => updateSelection = updater,
-            allowGoldenGeneration: allowGoldenGeneration);
+            getYouthPlayers: youthPlayers,
+            squadClub: squadClub);
 
         squadGrid.SelectionChanged += (_, _) =>
         {

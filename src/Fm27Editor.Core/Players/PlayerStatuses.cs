@@ -14,16 +14,22 @@ namespace Fm27Editor.Core.Players;
 public sealed record RelationOffsets(int Pointer, int RecordSize, int Target, int Type, int Code,
     int RegistrationType, int TrainedAtClubType, int TrainedAtNationType,
     int Reason, int Flags, int LikesPersonType, int DislikesPersonType, int LikesTeamType, uint PersonVtable, uint StaffPersonVtable, int PersonName, int PersonFirstName, int PersonLastName, int PersonCommonName,
-    int TargetKind, int PlayerPerson, int RetiredInternationalType, int OtherNationalityType)
+    int TargetKind, int PlayerPerson, int RetiredInternationalType, int OtherNationalityType,
+    int? PersonGender = null, int? PersonGenderMask = null)
 {
     static readonly string[] Keys = ["pointer", "recordSize", "target", "type", "code", "registrationType", "trainedAtClubType", "trainedAtNationType",
         "reason", "flags", "likesPersonType", "dislikesPersonType", "likesTeamType", "personVtable", "staffPersonVtable", "personName", "personFirstName", "personLastName", "personCommonName", "targetKind", "playerPerson", "retiredInternationalType", "otherNationalityType"];
+
+    static int? OptHex(JsonElement e, string key) => e.TryGetProperty(key, out var p)
+        ? (p.GetString() is { } s && s.StartsWith("0x") ? Convert.ToInt32(s[2..], 16) : throw new FormatException($"player.relations.{key}: expected hex"))
+        : null;
 
     internal static RelationOffsets Load(JsonElement e)
     {
         int[] v = Keys.Select(key => Convert.ToInt32(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
             ? s[2..] : throw new FormatException($"player.relations.{key}: expected hex"), 16)).ToArray();
-        return new(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], (uint)v[13], (uint)v[14], v[15], v[16], v[17], v[18], v[19], v[20], v[21], v[22]);
+        return new(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], (uint)v[13], (uint)v[14], v[15], v[16], v[17], v[18], v[19], v[20], v[21], v[22],
+            OptHex(e, "personGender"), OptHex(e, "personGenderMask"));
     }
 
     internal void Write(Utf8JsonWriter w)
@@ -32,6 +38,8 @@ public sealed record RelationOffsets(int Pointer, int RecordSize, int Target, in
             Reason, Flags, LikesPersonType, DislikesPersonType, LikesTeamType, PersonVtable, StaffPersonVtable, PersonName, PersonFirstName, PersonLastName, PersonCommonName, TargetKind, PlayerPerson, RetiredInternationalType, OtherNationalityType];
         w.WriteStartObject("relations");
         for (int i = 0; i < Keys.Length; i++) w.WriteString(Keys[i], $"0x{v[i]:X}");
+        if (PersonGender is { } pg) w.WriteString("personGender", $"0x{pg:X}");
+        if (PersonGenderMask is { } pm) w.WriteString("personGenderMask", $"0x{pm:X}");
         w.WriteEndObject();
     }
 }
@@ -154,12 +162,17 @@ public sealed class PlayerStatusReader(IProcessMemory memory, OffsetProfile prof
     /// <summary>Common name, else first + last, else full name: persons not in play keep only the name entries (+0x40 is null).</summary>
     internal string? PersonName(ulong person, RelationOffsets o)
     {
-        if (!Q(person, out ulong vt) || (vt != moduleBase + o.PersonVtable && vt != moduleBase + o.StaffPersonVtable)) return null;
+        if (!Q(person, out ulong vt) || !IsPersonVtable(vt, o)) return null;
         string? Entry(int at) => Q(person + (ulong)at, out ulong e) && e != 0 ? StringAt(e) : null;
         if (Entry(o.PersonCommonName) is { Length: > 0 } common) return common;
         var parts = new[] { Entry(o.PersonFirstName), Entry(o.PersonLastName) }.Where(s => !string.IsNullOrEmpty(s)).ToArray();
         return parts.Length > 0 ? string.Join(' ', parts) : StringAt(person + (ulong)o.PersonName);
     }
+
+    /// <summary>Player persons and every staff class carry their own person vtable; a person target can be any of them.</summary>
+    bool IsPersonVtable(ulong vt, RelationOffsets o) =>
+        vt == moduleBase + o.PersonVtable || vt == moduleBase + o.StaffPersonVtable ||
+        (profile.Staff?.Kinds.Any(k => vt == moduleBase + k.PersonVtableRva) ?? false);
 
     ClubInfo? TeamClub(ulong team)
     {

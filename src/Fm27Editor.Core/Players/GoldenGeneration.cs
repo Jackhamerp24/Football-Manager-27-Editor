@@ -11,7 +11,7 @@ public sealed record GoldenGenerationPlan(PlayerRecord Player, GoldenGenerationV
 
 /// <summary>
 /// Golden Generation, as FM Studio 1.1.1 does it (CIL of ClubYouthService.ApplyGoldenGeneration, 8/11/2026): PA is a random
-/// value in [min, max] (both kept to 1–200 and swapped when reversed; the studio's defaults are 150 and 180); CA is random in
+/// value in [min, max] (both kept to 1–200; a reversed pair is refused; the studio's defaults are 150 and 180); CA is random in
 /// [min(90, hi), hi] with hi = min(125, PA − 20), then kept to 1..PA; Professionalism 19–20 and Ambition 17–19.
 /// Only those four fields are written. The plan reads them, applying checks all four before writing any, and Undo puts the
 /// snapshot back. <see cref="Random"/> may be seeded so a roll can be replayed.
@@ -21,12 +21,11 @@ public sealed class GoldenGenerationWriter(IProcessMemory memory, OffsetProfile 
     public const int DefaultMinPa = 150, DefaultMaxPa = 180;
     readonly Random _random = random ?? Random.Shared;
 
-    /// <summary>Both bounds are kept to 1–200 and then ordered: a reversed pair is sorted, not collapsed.</summary>
+    /// <summary>Both bounds are kept to 1–200; a reversed pair is refused, the same rule as the detailed windows.</summary>
     public static (int Min, int Max) NormalisePotential(int min, int max)
     {
-        min = Math.Clamp(min, 1, 200);
-        max = Math.Clamp(max, 1, 200);
-        return min > max ? (max, min) : (min, max);
+        var window = GoldenGenerationPotential.Custom(min, max);
+        return (window.Min, window.Max);
     }
 
     /// <summary>The four values a roll produces, without touching the game.</summary>
@@ -104,8 +103,8 @@ public sealed class GoldenGenerationWriter(IProcessMemory memory, OffsetProfile 
     void Write(PlayerRecord player, GoldenGenerationValues values)
     {
         var fields = profile.Fields;
-        Write(player, fields.CurrentAbility, BitConverter.GetBytes((short)values.CurrentAbility));
         Write(player, fields.PotentialAbility, BitConverter.GetBytes((short)values.PotentialAbility));
+        Write(player, fields.CurrentAbility, BitConverter.GetBytes((short)values.CurrentAbility));
         Write(player, profile.Personality[PersonalityAttribute.Professionalism], [(byte)values.Professionalism]);
         Write(player, profile.Personality[PersonalityAttribute.Ambition], [(byte)values.Ambition]);
     }

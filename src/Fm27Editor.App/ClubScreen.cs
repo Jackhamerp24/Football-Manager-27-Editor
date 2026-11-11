@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Layout;
 using Avalonia.Threading;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Game;
@@ -38,6 +39,37 @@ internal sealed class ClubScreen(IScreenHost host, IClubPanels panels)
     IReadOnlyList<PlayerRecord> playersAtLoad = [];
     IReadOnlyList<ClubEntry>? cachedAtLoad;
     (IReadOnlyList<ClubEntry> Clubs, IReadOnlyList<PlayerRecord>? Fresh, DateOnly? Date)? loaded;
+    readonly ComboBox genderFilter = new() { ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch, MaxDropDownHeight = 260 };
+    internal ComboBox GenderFilter => genderFilter;
+
+    Fm27Editor.Core.Offsets.Gender? SelectedGender() => genderFilter.SelectedIndex switch
+    {
+        0 => Fm27Editor.Core.Offsets.Gender.Men,
+        1 => Fm27Editor.Core.Offsets.Gender.Women,
+        _ => null,
+    };
+
+    protected override Control BuildSearchHeader(TextBox searchBox)
+    {
+        ToolTip.SetTip(genderFilter, "Gender filter");
+        genderFilter.SelectionChanged += (_, _) => Filter();
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,104"), ColumnSpacing = 6 };
+        Grid.SetColumn(searchBox, 0); row.Children.Add(searchBox);
+        Grid.SetColumn(genderFilter, 1); row.Children.Add(genderFilter);
+        return row;
+    }
+
+    internal void SetLoadedRowsForTest(IReadOnlyList<MainWindow.ClubPickerItem> rows)
+    {
+        Rows = rows;
+        Clubs = rows.Select(r => r.Club).ToList();
+        Filter(reportStatus: true);
+    }
+
+    protected override string FilteredMessage(int shown, int total) =>
+        SelectedGender() is { } g && SearchText.Length == 0
+            ? $"{shown:N0} of {total:N0} clubs shown ({total - shown:N0} hidden by {g} filter)"
+            : base.FilteredMessage(shown, total);
 
     /// <summary>Set from the command line (--club id): the club to show in the list once it has loaded.</summary>
     public int? StartupClubId { get; set; }
@@ -126,17 +158,19 @@ internal sealed class ClubScreen(IScreenHost host, IClubPanels panels)
     protected override void OnReconnected()
     {
         Clubs = [];
+        genderFilter.SelectedIndex = 0;
         panels.Reconnected();
     }
 
     protected override IReadOnlyList<MainWindow.ClubPickerItem> Apply(IReadOnlyList<MainWindow.ClubPickerItem> rows, string foldedQuery)
     {
-        if (foldedQuery.Length == 0) return rows;
-        var keep = ClubCatalog.Filter(rows.Select(r => r.Club).ToList(), foldedQuery).ToHashSet();
+        var gender = SelectedGender();
+        if (foldedQuery.Length == 0 && gender is null) return rows;
+        var keep = ClubCatalog.Filter(rows.Select(r => r.Club).ToList(), foldedQuery, gender).ToHashSet();
         return rows.Where(r => keep.Contains(r.Club)).ToList();
     }
 
-    protected override bool Matches(MainWindow.ClubPickerItem row, string q) => ClubCatalog.Filter([row.Club], q).Count > 0;
+    protected override bool Matches(MainWindow.ClubPickerItem row, string q) => ClubCatalog.Filter([row.Club], q, SelectedGender()).Count > 0;
 
     protected override ClubEntry RecordOf(MainWindow.ClubPickerItem row) => row.Club;
     protected override ulong AddressOf(ClubEntry record) => record.Address;

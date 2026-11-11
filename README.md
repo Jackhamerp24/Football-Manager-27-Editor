@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/icon.png" alt="Football Manager 27 Editor" width="128"></p>
+<p align="center"><img src="docs/images/icon.png" alt="Football Manager 27 Editor" width="220"></p>
 
 # Football Manager 27 Editor
 
@@ -14,12 +14,12 @@ For single-player, offline saves only. Do not use it online or in shared saves.
 
 | Area | What you can edit |
 |---|---|
-| Players | Attributes, positions, personality, CA/PA, reputation, height, date of birth, nationality and other details; contract and future contract, bonuses and transfer clauses; career plans, relationships, languages, preferred moves; injuries, bans, unhappiness, national call-ups; work permit and promises |
+| Players | Attributes, positions, personality, CA/PA, reputation, height, date of birth, nationality and other details; contract and future contract, bonuses and transfer clauses; career plans, relationships, languages, preferred moves, development speed; injuries, bans, unhappiness, national call-ups; work permit and promises |
 | Moving players | Move to club as a transfer with fee and sell-on, as a loan, or as a **future transfer** with a date and all the transfer terms (instalments, appearance and goal payments, buy-back fee, sell-on, wage contribution, friendly), which can also be removed again; swap two players; release; captain / vice captain; clone attributes to other players; comparison |
 | Staff | Attributes, CA/PA, personality, contract, career plans, relationships, languages, knowledge, formations, tendencies, move to another club with a new role and wage |
 | Clubs | Information, finances, debt, affiliations, club vision, kits and colours, relationships, staff, squads, transfer center |
 | Nations, stadiums, cities, competitions, awards, referees, injury types | Details, reputation and settings, each in its own screen. Stadiums: owner, location, nearby stadium and coordinates. Cities: nation, region, language and weather |
-| Tools | Squad presets with preview and Undo (heal, fitness, morale, lift bans, remove unhappiness, max attributes, prevent retirement, tactical understanding, team cohesion), freezer, export to CSV / JSON, advanced filters, favourites, reload of the current screen (Ctrl+R), settings (date format) |
+| Tools | Squad presets with preview and Undo (grant work permit for the club's country, Golden Generation, heal, fitness, morale, lift bans, remove unhappiness, max attributes, prevent retirement, tactical understanding, team cohesion), freezer, export to CSV / JSON, advanced filters, favourites, reload of the current screen (Ctrl+R), settings (date format) |
 
 Every change goes into a history with Undo. See [CHANGELOG.md](CHANGELOG.md) for what is new.
 
@@ -37,7 +37,7 @@ editor allocates a new one outside the game's allocator. Keep a backup of the sa
 ## Requirements
 
 - Windows 10/11 x64
-- Football Manager 27 `27.0.0+2493426`, Xbox / Game Pass or Steam. Other builds need a new offset profile; see
+- Football Manager 27 `27.0.1+2494687` (or `27.0.0+2493426`), Xbox / Game Pass or Steam. Other builds need a new offset profile; see
   [After a game patch](#after-a-game-patch).
 - [.NET 10 SDK](https://dotnet.microsoft.com/download), only if you build it yourself
 
@@ -45,8 +45,9 @@ What has been checked where:
 
 | Build | Status |
 |---|---|
-| Xbox / Game Pass `27.0.0+2493426` | Main build. Every screen is measured here |
-| Steam `27.0.0+2493426` | Same game build string, separate profile with its own addresses. Every reader and every kind of write has been run against the live Steam game and checked by reading it back, and club, competition, promise and player values match FMRTE on the same save. The screens themselves have not all been clicked through on Steam yet |
+| Xbox / Game Pass `27.0.1+2494687` | Current build. Every reader (71 features) and every kind of write (24 round trips) run against the live game; 88 values checked against a calibration save and FMRTE |
+| Steam `27.0.1+2494687` | Current build. Every reader (71 features) and every kind of write (24 round trips) run against the live game |
+| Xbox / Game Pass and Steam `27.0.0+2493426` | Previous build, still supported |
 | Steam `27.0.0+2486695` | Older build, used by the tests |
 
 ## Download

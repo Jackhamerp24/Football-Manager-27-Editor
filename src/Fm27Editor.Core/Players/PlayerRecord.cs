@@ -20,6 +20,7 @@ public sealed class PlayerRecord
     public required short WorldReputation { get; init; }
     public required short Height { get; init; }
     public DateOnly? DateOfBirth { get; init; }
+    public Offsets.Gender Gender { get; init; }
 
     /// <summary>Null when the profile has no contract offsets or the player has no contract.</summary>
     public ContractInfo? Contract { get; init; }

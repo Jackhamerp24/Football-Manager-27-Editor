@@ -49,3 +49,6 @@ re/tools/mdconst/
 rule.md
 /FM27 Editor Logo.png
 re/massedit-ui/
+
+# Calibration save: game-derived, local only (never commit)
+calibration/saves/

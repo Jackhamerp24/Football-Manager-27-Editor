@@ -42,6 +42,7 @@ internal sealed class ClubFilterPanel : UserControl
     readonly Dictionary<string, Control> pages = [];
     readonly List<(ClubField Field, TextBox Min, TextBox Max)> rangeInputs = [];
     readonly TextBox nameBox = new() { Watermark = "Name", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly ComboBox genderCombo = new() { ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, Width = 140, MinWidth = 140, MaxWidth = 140, HorizontalAlignment = HorizontalAlignment.Left, MaxDropDownHeight = 260 };
 
     public event EventHandler? Changed;
 
@@ -51,6 +52,7 @@ internal sealed class ClubFilterPanel : UserControl
         this.access = access;
 
         nameBox.TextChanged += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        genderCombo.SelectionChanged += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
         pages["General"] = Page(OverviewFields, FinanceFields);
 
         Content = new SectionNav(pages.Select(page => (page.Key, page.Value)).ToArray());
@@ -61,11 +63,28 @@ internal sealed class ClubFilterPanel : UserControl
         var stack = new StackPanel { Spacing = 10, Margin = new Thickness(14, 10) };
         stack.Children.Add(new StackPanel
         {
-            Spacing = 3,
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
             Children =
             {
-                new TextBlock { Text = "NAME", FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
-                nameBox,
+                new StackPanel
+                {
+                    Spacing = 3,
+                    Children =
+                    {
+                        new TextBlock { Text = "NAME", FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
+                        nameBox,
+                    }
+                },
+                new StackPanel
+                {
+                    Spacing = 3,
+                    Children =
+                    {
+                        new TextBlock { Text = "GENDER", FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
+                        genderCombo,
+                    }
+                },
             }
         });
         foreach (var group in groups)
@@ -95,6 +114,15 @@ internal sealed class ClubFilterPanel : UserControl
             ? access.Read(club.FirstTeam?.Address ?? 0, field)
             : access.Read(club.Address, field);
 
+    public Fm27Editor.Core.Offsets.Gender? SelectedGender() => genderCombo.SelectedIndex switch
+    {
+        0 => Fm27Editor.Core.Offsets.Gender.Men,
+        1 => Fm27Editor.Core.Offsets.Gender.Women,
+        _ => null,
+    };
+
+    public int TotalCount => source.Count;
+
     public ClubSearchCriteria? Criteria()
     {
         var ranges = new Dictionary<ClubField, (long, long)>();
@@ -107,7 +135,8 @@ internal sealed class ClubFilterPanel : UserControl
         }
         return new ClubSearchCriteria(
             NameContains: string.IsNullOrWhiteSpace(nameBox.Text) ? null : nameBox.Text.Trim(),
-            Ranges: ranges);
+            Ranges: ranges,
+            Gender: SelectedGender());
     }
 
     public IReadOnlyList<ClubEntry> Matched()
@@ -118,17 +147,41 @@ internal sealed class ClubFilterPanel : UserControl
             : source.Where(c => ClubSearch.Matches(c, criteria, field => Read(c, field))).ToArray();
     }
 
+    bool HasRangeFilters() =>
+        rangeInputs.Any(r => !string.IsNullOrWhiteSpace(r.Min.Text) || !string.IsNullOrWhiteSpace(r.Max.Text));
+
     public int FilterCount()
     {
-        int count = string.IsNullOrWhiteSpace(nameBox.Text) ? 0 : 1;
+        int count = SelectedGender() is not null ? 1 : 0;
+        if (!string.IsNullOrWhiteSpace(nameBox.Text)) count++;
         foreach (var (_, min, max) in rangeInputs)
             if (!string.IsNullOrWhiteSpace(min.Text) || !string.IsNullOrWhiteSpace(max.Text)) count++;
         return count;
     }
 
+    public string SummaryStatus()
+    {
+        int count = FilterCount();
+        var gender = SelectedGender();
+        if (HasRangeFilters() || Criteria() is null)
+            return count == 0 ? "No filters set" : $"{count} filter(s) set{(gender is { } g ? $" (Gender: {g})" : "")}";
+
+        int shown = Matched().Count;
+        int total = source.Count;
+        if (count == 0)
+            return total > 0 ? $"All {total:N0} clubs" : "No filters set";
+
+        string prefix = gender is { } activeGender ? $"{count} filter(s) (Gender: {activeGender})" : $"{count} filter(s)";
+        if (total == 0) return prefix;
+        return shown < total
+            ? $"{prefix} — {shown:N0} of {total:N0} clubs shown ({total - shown:N0} hidden)"
+            : $"{prefix} — {shown:N0} club(s)";
+    }
+
     public void Clear()
     {
         nameBox.Text = "";
+        genderCombo.SelectedIndex = 0;
         foreach (var (_, min, max) in rangeInputs) { min.Text = ""; max.Text = ""; }
     }
 
