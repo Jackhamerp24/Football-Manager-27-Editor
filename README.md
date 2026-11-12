@@ -10,6 +10,16 @@ versions; see [Requirements](#requirements) for what has been checked on each.
 
 For single-player, offline saves only. Do not use it online or in shared saves.
 
+## Acknowledgments
+
+AI assistance was used in developing this repository, including the following models: 
+- Claude: Haiku / Sonnet / Opus 5.5
+- OpenCode Go: DeepSeek v4.1 Flash 1017, MiMo v2.6 Flash, Muse Spark 1.3 Contributor, LongCat 2.5
+- Muse Code: Muse Wonder 1.0, Muse Spark 1.3 Contributor
+- Codex/ChatGPT: Terra / Sol 6.1
+- Gemini/Antigravity: Gemini 3.8 Flash / 4 Argon.
+- The app logo was generated with ChatGPT Image.
+
 ## What it does
 
 | Area | What you can edit |
@@ -88,8 +98,11 @@ You can edit these on the club screen and in Mass Edit:
 - Every Ownership Type, Chairperson Title and Rich Benefactor option.
 - Stadium capacity and pitch sizes.
 
-### Captains and unsaved changes
-**Make Captain** and **Make Vice Captain** work in one click. Every child tab of a player or coach shows a * while it
+### Make Captains
+**Make Captain** and **Make Vice Captain** work in one click. 
+
+## Unsaved changes
+Every child tab of a player or coach shows a * while it
 holds edits you have not saved, so you always know where your changes are.
 
 ### Currency
@@ -293,12 +306,6 @@ If the editor helps you, you can support development:
 - Vietnamese bank transfer (VietQR, Vietcombank): scan with any Vietnamese banking or e-wallet app
 
 <img src="docs/images/donate-vietqr.png" alt="VietQR, Vietcombank" width="220">
-
-## Acknowledgments
-
-AI assistance was used in developing this repository, including the following models: Claude (Haiku / Sonnet / Opus 5.5),
-DeepSeek v4.1 Flash 1017, MiMo v2.6 Flash, Muse Spark 1.3, Muse Wonder 1.0, ChatGPT Terra / Sol 6.1, LongCat 2.5,
-Gemini 3.8 Flash / 4 Argon. The app logo was generated with ChatGPT Image.
 
 ## License
 
