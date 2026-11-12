@@ -123,6 +123,7 @@ public sealed class ClubTests
             [
                 ClubSection.Information,
                 ClubSection.Squads,
+                ClubSection.YouthIntake,     // FMRTE: right after Squads
                 ClubSection.ClubVision,
                 ClubSection.Affiliations,
                 ClubSection.Kits,
@@ -138,6 +139,7 @@ public sealed class ClubTests
             [
                 "Information",
                 "Squads",
+                "Youth Intake",
                 "Club Vision",
                 "Affiliations",
                 "Kits and Colours",
@@ -428,66 +430,38 @@ public sealed class ClubTests
             [new ClubCodeOption(0, "None"), new ClubCodeOption(4, "Transfer Ban"), new ClubCodeOption(8, "8"), new ClubCodeOption(16, "Cannot sign attached players")],
             ClubFieldInfo.OptionsFor(meta, 8));
 
-        // OwnershipType: 1 Limited Liability (Sheffield/Everton/Oxford), 3 Member-Owned (Ismaily), 5 Tottenham unconfirmed full name -> shown as "5" and preserved!
-        Assert.Equal("Limited Liability", ClubFieldInfo.FormatOwnershipType(1));
-        Assert.Equal("Member-Owned", ClubFieldInfo.FormatOwnershipType(3));
-        Assert.Equal("5", ClubFieldInfo.FormatOwnershipType(5));
-        Assert.Equal("2", ClubFieldInfo.FormatOwnershipType(2));
-        Assert.Equal("Limited Liability", ClubFieldInfo.FormatFieldValue(ClubField.OwnershipType, 1));
-        Assert.Equal("Member-Owned", ClubFieldInfo.FormatFieldValue(ClubField.OwnershipType, 3));
-        Assert.Equal("5", ClubFieldInfo.FormatFieldValue(ClubField.OwnershipType, 5));
+        // OwnershipType, ChairpersonTitle, RichBenefactor: every code traced with Frida while FMRTE 27 saved each dropdown choice
+        // in turn on Manchester United (Steam 27.0.1, 13/11/2026); names are FMRTE's. Earlier only 1/3 (ownership),
+        // 1/2 (title) and 0/1/3/4 (benefactor) were known from sample clubs. Codes outside the lists still show as numbers.
+        Assert.Equal("Limited Liability Company", ClubFieldInfo.FormatOwnershipType(1));
+        Assert.Equal("Public Limited Company", ClubFieldInfo.FormatOwnershipType(2));
+        Assert.Equal("Member-Owned (Elections/Ltd)", ClubFieldInfo.FormatOwnershipType(3));
+        Assert.Equal("Consortium Private Limited", ClubFieldInfo.FormatOwnershipType(5));
+        Assert.Equal("Member-Owned (No Elections/PLC)", ClubFieldInfo.FormatOwnershipType(8));
+        Assert.Equal("9", ClubFieldInfo.FormatOwnershipType(9));
         var ownershipMeta = ClubFieldInfo.For(ClubField.OwnershipType);
-        Assert.Equal(
-            [new ClubCodeOption(1, "Limited Liability"), new ClubCodeOption(3, "Member-Owned")],
-            ClubFieldInfo.OptionsFor(ownershipMeta));
-        Assert.Equal(
-            [new ClubCodeOption(1, "Limited Liability"), new ClubCodeOption(3, "Member-Owned"), new ClubCodeOption(5, "5")],
-            ClubFieldInfo.OptionsFor(ownershipMeta, 5));
+        Assert.Equal(Enumerable.Range(1, 8).Select(i => (long)i), ClubFieldInfo.OptionsFor(ownershipMeta).Select(o => o.Value));
+        Assert.Equal(new ClubCodeOption(9, "9"), ClubFieldInfo.OptionsFor(ownershipMeta, 9).Last());
 
-        // ChairpersonTitle: 1 Chairperson (Sheffield/Everton/Oxford/PSG/Tottenham), 2 President (Ismaily).
         Assert.Equal("Chairperson", ClubFieldInfo.FormatChairpersonTitle(1));
         Assert.Equal("President", ClubFieldInfo.FormatChairpersonTitle(2));
+        Assert.Equal("General Manager", ClubFieldInfo.FormatChairpersonTitle(3));
+        Assert.Equal("Founder", ClubFieldInfo.FormatChairpersonTitle(4));
         Assert.Equal("9", ClubFieldInfo.FormatChairpersonTitle(9));
-        Assert.Equal("Chairperson", ClubFieldInfo.FormatFieldValue(ClubField.ChairpersonTitle, 1));
-        Assert.Equal("President", ClubFieldInfo.FormatFieldValue(ClubField.ChairpersonTitle, 2));
-        Assert.Equal("9", ClubFieldInfo.FormatFieldValue(ClubField.ChairpersonTitle, 9));
         var chairMeta = ClubFieldInfo.For(ClubField.ChairpersonTitle);
         Assert.Equal(
-            [new ClubCodeOption(1, "Chairperson"), new ClubCodeOption(2, "President")],
+            [new ClubCodeOption(1, "Chairperson"), new ClubCodeOption(2, "President"), new ClubCodeOption(3, "General Manager"), new ClubCodeOption(4, "Founder")],
             ClubFieldInfo.OptionsFor(chairMeta));
-        Assert.Equal(
-            [new ClubCodeOption(1, "Chairperson"), new ClubCodeOption(2, "President"), new ClubCodeOption(9, "9")],
-            ClubFieldInfo.OptionsFor(chairMeta, 9));
 
-        // RichBenefactor: 0 None (Tottenham/Ismaily), 1 Foreground (PSG), 3 Underwriter (Sheffield/Everton/Oxford), 4 Underwriter (Expects Returns) (Shenzhen).
         Assert.Equal("None", ClubFieldInfo.FormatRichBenefactor(0));
         Assert.Equal("Foreground", ClubFieldInfo.FormatRichBenefactor(1));
+        Assert.Equal("Background", ClubFieldInfo.FormatRichBenefactor(2));
         Assert.Equal("Underwriter", ClubFieldInfo.FormatRichBenefactor(3));
         Assert.Equal("Underwriter (Expects Returns)", ClubFieldInfo.FormatRichBenefactor(4));
-        Assert.Equal("2", ClubFieldInfo.FormatRichBenefactor(2));
-        Assert.Equal("None", ClubFieldInfo.FormatFieldValue(ClubField.RichBenefactor, 0));
-        Assert.Equal("Foreground", ClubFieldInfo.FormatFieldValue(ClubField.RichBenefactor, 1));
-        Assert.Equal("Underwriter", ClubFieldInfo.FormatFieldValue(ClubField.RichBenefactor, 3));
-        Assert.Equal("Underwriter (Expects Returns)", ClubFieldInfo.FormatFieldValue(ClubField.RichBenefactor, 4));
-        Assert.Equal("2", ClubFieldInfo.FormatFieldValue(ClubField.RichBenefactor, 2));
+        Assert.Equal("7", ClubFieldInfo.FormatFieldValue(ClubField.RichBenefactor, 7));
         var benefactorMeta = ClubFieldInfo.For(ClubField.RichBenefactor);
-        Assert.Equal(
-            [
-                new ClubCodeOption(0, "None"),
-                new ClubCodeOption(1, "Foreground"),
-                new ClubCodeOption(3, "Underwriter"),
-                new ClubCodeOption(4, "Underwriter (Expects Returns)"),
-            ],
-            ClubFieldInfo.OptionsFor(benefactorMeta));
-        Assert.Equal(
-            [
-                new ClubCodeOption(0, "None"),
-                new ClubCodeOption(1, "Foreground"),
-                new ClubCodeOption(2, "2"),
-                new ClubCodeOption(3, "Underwriter"),
-                new ClubCodeOption(4, "Underwriter (Expects Returns)"),
-            ],
-            ClubFieldInfo.OptionsFor(benefactorMeta, 2));
+        Assert.Equal([0L, 1, 2, 3, 4], ClubFieldInfo.OptionsFor(benefactorMeta).Select(o => o.Value));
+        Assert.Equal(new ClubCodeOption(7, "7"), ClubFieldInfo.OptionsFor(benefactorMeta, 7).Last());
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
@@ -179,7 +179,9 @@ public sealed partial class MainWindow
     /// <summary>What the Load Game button does: forget every cached list and read the game again.</summary>
     async Task ReloadGameAsync()
     {
+        if (busy) return;
         unifiedCacheLoaded = false;
+        unifiedCacheTask = null;
         unifiedClubs = [];
         unifiedNations = [];
         unifiedCompetitions = [];
@@ -193,8 +195,15 @@ public sealed partial class MainWindow
         status.Text = "Loading game…";
         watchedSave = null;
         await ConnectAsync();
-        if (backend.State.Status == ConnectionStatus.Connected && staleOverlay is not null) staleOverlay.IsVisible = false;
-        _ = Task.Run(() => EnsureUnifiedCache());
+        if (backend.State.Status == ConnectionStatus.Connected)
+        {
+            // Loading a save frees every object, so tabs opened against the old one would only show stale addresses.
+            CloseDetailTab();
+            drafts.Clear();
+            playerScalarDrafts.Clear();
+            clubDrafts.Clear();
+            if (staleOverlay is not null) staleOverlay.IsVisible = false;
+        }
     }
 }
 

@@ -14,8 +14,8 @@ public sealed partial class MainWindow
         ["Grant work permit"] = "Gives every ticked player a work permit for the country the club plays in. Players who already have one are left alone.",
         ["Release Player"] = "Releases the player from his club; he becomes a free agent.",
         ["Undo last release"] = "Puts the last released player back at his club.",
-        ["Set captain"] = "Makes this player the team captain.",
-        ["Set vice captain"] = "Makes this player the vice captain.",
+        ["Make Captain"] = "Makes this player the captain of the team he plays in.",
+        ["Make Vice Captain"] = "Makes this player the vice captain of the team he plays in.",
         ["Undo captain change"] = "Puts the previous captain back.",
         ["Heal"] = "Removes injuries and brings fitness and match sharpness back to full.",
         ["Inspire"] = "Makes the player as happy and motivated as possible.",
@@ -33,8 +33,7 @@ public sealed partial class MainWindow
         ["All-in-one"] = "Heal, Inspire, No Bans and Tactical Understanding at once.",
         ["Prevent retirement"] = "Cancels a planned retirement so the player keeps playing.",
         ["Golden Generation"] = "Turns every youth and reserve player of the club into a top prospect: high potential, good ability, very professional and ambitious.",
-        ["Golden Batch"] = "Only for the newly arrived youth intake: take a snapshot before intake day, then after it give just the new players a high potential. You see the result before anything is written.",
-        ["Set speed"] = "Makes the player improve faster from training while the game runs. Normal speed turns it off.",
+        ["Set speed"] = "Makes the player improve faster from training while the game runs: type a speed such as 2.5, or 1 for normal speed.",
     };
 
     /// <summary>

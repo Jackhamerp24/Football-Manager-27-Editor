@@ -32,6 +32,9 @@ public sealed partial class MainWindow : IClubPanels
     }
 
     readonly ListBox clubSectionList = SectionHost.CreateRailListBox(stretchVertically: false);
+    readonly HashSet<ClubSection> clubDirtySections = [];
+    readonly HashSet<ClubSection> clubScalarSections = [];
+    int clubChangeCount;
     readonly Dictionary<ulong, ulong> clubSelectedTeam = [];
     Dictionary<int, string>? visionCompetitionNames, visionNationNames, visionContinentNames;
     readonly Dictionary<(ulong Club, ClubSection Section), int> clubListSelectedRow = [];
@@ -56,11 +59,15 @@ public sealed partial class MainWindow : IClubPanels
         public bool? PlayersOnLoan { get; set; }
         public bool? FirstOption { get; set; }
         public bool? PlayFriendlies { get; set; }
-        public int? ParentWagePercent { get; set; }
-        public int? FriendlyChance { get; set; }
+        int? parentWagePercent;
+        int? friendlyChance;
+        // FMRTE documents both as 0-100; the box may show a typed value, the stored edit is always in range.
+        public int? ParentWagePercent { get => parentWagePercent; set => parentWagePercent = value is { } v ? Math.Clamp(v, 0, 100) : null; }
+        public int? FriendlyChance { get => friendlyChance; set => friendlyChance = value is { } v ? Math.Clamp(v, 0, 100) : null; }
         public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
-        public int? AnnualFee { get; set; }
+        int? annualFee;
+        public int? AnnualFee { get => annualFee; set => annualFee = value is { } v ? Math.Max(0, v) : null; }
 
         public bool HasChanges => ScoutingShared != null || PlayersOnLoan != null || FirstOption != null
             || PlayFriendlies != null || ParentWagePercent != null || FriendlyChance != null
@@ -129,11 +136,11 @@ public sealed partial class MainWindow : IClubPanels
                 ? null
                 : new TextBlock
                 {
-                    Text = opt.Title,
+                    Text = clubDirtySections.Contains(opt.Section) ? opt.Title + " *" : opt.Title,
                     FontSize = 13,
                     FontWeight = FontWeight.Medium,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(2, 2, 14, 2),
+                    Margin = new Thickness(2, 2, 8, 2),
                 });
         clubSectionList.ItemsSource = ClubFieldInfo.Sections
             .Select(s => new ClubSectionOption(s, ClubFieldInfo.SectionTitle(s)))
@@ -173,6 +180,7 @@ public sealed partial class MainWindow : IClubPanels
 
     void IClubPanels.Reconnected()
     {
+        youthIntakeDrafts.Clear();
         kitDrafts.Clear();
         clubSelectedTeam.Clear();
         visionCompetitionNames = visionNationNames = visionContinentNames = null;
@@ -186,7 +194,8 @@ public sealed partial class MainWindow : IClubPanels
 
     bool IClubPanels.HasPending(ClubEntry club) =>
         (kitDrafts.TryGetValue(club.Address, out var kits) && kits.Count > 0)
-        || pendingAffiliationRemovals.ContainsKey(club.Address) || clubFamiliarityDrafts.ContainsKey(club.Address);
+        || pendingAffiliationRemovals.ContainsKey(club.Address) || clubFamiliarityDrafts.ContainsKey(club.Address)
+        || (youthIntakeDrafts.TryGetValue(club.Address, out var youth) && youth.HasChanges);
 
     ulong IClubPanels.TeamOf(ClubEntry club) => ResolveSelectedTeam(club)?.Address ?? 0;
     bool IClubPanels.IsValid(ulong clubAddress) => IsClubObjectValid(clubAddress);
@@ -194,6 +203,22 @@ public sealed partial class MainWindow : IClubPanels
     int IClubPanels.SaveClub(ClubEntry club, ClubDraft draft)
     {
         int count = 0;
+        // FMRTE docs: the six supporter groups must add up to exactly 100% (an empty profile may be all zero).
+        ClubField[] supporterFields = [ClubField.SupportersHardcore, ClubField.SupportersCore, ClubField.SupportersFamily,
+            ClubField.SupportersFairWeather, ClubField.SupportersCorporate, ClubField.SupportersCasual];
+        long supporterTotal = 0;
+        bool supporterEdited = false;
+        foreach (var field in supporterFields)
+        {
+            if (draft.Current(field) is not { } value) continue;
+            supporterTotal += value;
+            supporterEdited |= draft.IsChanged(field);
+        }
+        if (supporterEdited && supporterTotal is not (0 or 100))
+        {
+            status.Text = $"Supporter groups must add up to 100% (currently {supporterTotal}%).";
+            return 0;
+        }
         clubSaveInScalar = false;
         if (kitDrafts.TryGetValue(club.Address, out var pending) && pending.Count > 0)
         {
@@ -220,6 +245,8 @@ public sealed partial class MainWindow : IClubPanels
             pendingAffiliationRemovals.Remove(club.Address);
             count++;
         }
+        if (youthIntakeDrafts.TryGetValue(club.Address, out var youth) && (youth.Count > 0 || youth.InvalidCount > 0))
+            count += SaveYouthIntake(backend.Session, club);
         if (draft.CanSave)
         {
             clubSaveInScalar = true;
@@ -311,20 +338,59 @@ public sealed partial class MainWindow : IClubPanels
         UpdateClubStatusFromDraft();
     }
 
+    /// <summary>
+    /// Stars the rail entries whose own drafts hold edits (FMRTE marks every child tab that changed) and keeps the
+    /// shell's tab star in step. Each section keeps its own store, so a Club Vision or Kits edit stars that tab only.
+    /// </summary>
     void UpdateClubStatusFromDraft()
     {
         if (!clubsActive) return;
         if (selectedClub is not { } club || !clubDrafts.TryGetValue(club.Address, out var draft))
         {
             status.Text = "";
+            clubDirtySections.Clear();
+            clubScalarSections.Clear();
+            clubChangeCount = 0;
+            SetActiveTabDirty(false);
             return;
         }
-        if (draft.InvalidCount > 0)
-            status.Text = $"{draft.InvalidCount} invalid value(s)";
-        else if (draft.Count > 0)
-            status.Text = $"{draft.Count} unsaved change(s)";
-        else
-            status.Text = "";
+
+        int scalarChanges = draft.Count;
+        int youthChanges = youthIntakeDrafts.TryGetValue(club.Address, out var youth) ? youth.Count : 0;
+        int youthInvalid = youth?.InvalidCount ?? 0;
+        int visionChanges = club.Teams.Sum(t => clubVisionDrafts.TryGetValue(t.Address, out var vision) ? vision.Values.Count(r => r.HasChanges) : 0);
+        int affiliationChanges = (clubAffiliationDrafts.TryGetValue(club.Address, out var affiliations) ? affiliations.Values.Count(r => r.HasChanges) : 0)
+            + (pendingAffiliationRemovals.ContainsKey(club.Address) ? 1 : 0);
+        int kitChanges = kitDrafts.TryGetValue(club.Address, out var kits) ? kits.Values.Count(k => k.Colours.Count > 0 || k.Style is not null) : 0;
+        int total = scalarChanges + youthChanges + visionChanges + affiliationChanges + kitChanges;
+
+        if (draft.InvalidCount > 0) status.Text = $"{draft.InvalidCount} invalid value(s)";
+        else if (total > 0) status.Text = $"{total} unsaved change(s)";
+        else status.Text = "";
+
+        if (scalarChanges == 0) clubScalarSections.Clear();
+        else if (scalarChanges > clubChangeCount && ClubFieldInfo.ScalarSections.Contains(selectedClubSection)) clubScalarSections.Add(selectedClubSection);
+        clubChangeCount = scalarChanges;
+
+        var dirty = new HashSet<ClubSection>(clubScalarSections);
+        if (youthChanges > 0 || youthInvalid > 0) dirty.Add(ClubSection.YouthIntake);
+        if (visionChanges > 0) dirty.Add(ClubSection.ClubVision);
+        if (affiliationChanges > 0) dirty.Add(ClubSection.Affiliations);
+        if (kitChanges > 0) dirty.Add(ClubSection.Kits);
+        if (clubFamiliarityDrafts.ContainsKey(club.Address)) dirty.Add(ClubSection.Relationships);
+
+        if (!dirty.SetEquals(clubDirtySections))
+        {
+            clubDirtySections.Clear();
+            foreach (var section in dirty) clubDirtySections.Add(section);
+            clubUpdating = true;
+            int railIndex = clubSectionList.SelectedIndex;
+            clubSectionList.ItemsSource = ClubFieldInfo.Sections.Select(s => new ClubSectionOption(s, ClubFieldInfo.SectionTitle(s))).ToArray();
+            clubSectionList.SelectedIndex = railIndex;
+            clubUpdating = false;
+        }
+
+        SetActiveTabDirty(total > 0 || draft.InvalidCount > 0 || youthInvalid > 0);
     }
 
     void IClubPanels.BuildClub(ClubEntry club, ClubDraft draft)
@@ -446,6 +512,12 @@ public sealed partial class MainWindow : IClubPanels
 
         if (HookClubSquadsView(club, orderedTeams, activeTeam, teamAddr)) return;
 
+        if (selectedClubSection == ClubSection.YouthIntake)
+        {
+            RenderClubYouthIntake(session, club);
+            return;
+        }
+
         if (selectedClubSection == ClubSection.Finances)
         {
             RenderClubFinancesSection(session, club, orderedTeams, activeTeam, teamAddr, profile, access, values, draft);
@@ -493,7 +565,7 @@ public sealed partial class MainWindow : IClubPanels
         }
 
         var items = groups.Select(g => (BuildClubGroupCard(g, draft), g.Fields.Count)).ToList();
-        clubEditorPanel.Children.Add(UiKit.TwoColumnMasonry(items, gap: 10));
+        clubEditorPanel.Children.Add(UiKit.TwoColumnMasonry(items, gap: 14));
     }
 
     /// <summary>FMRTE's Team Cohesion card: the squad average, and Max sets every squad player's cohesion to the top.</summary>
@@ -841,6 +913,11 @@ public sealed partial class MainWindow : IClubPanels
             RenderClubDebts(session, club);
             return;
         }
+        if (listSection == ClubSection.RegionalDivisions && session.Profile.Club?.Lists is { RegionalSize: >= 0xA })
+        {
+            RenderClubRegionalDivisions(session, club);
+            return;
+        }
         if (listSection == ClubSection.Sponsors && session.Profile.Club?.FinanceLists is { SponsorTotal: >= 0 })
         {
             RenderClubSponsors(session, club);
@@ -927,12 +1004,11 @@ public sealed partial class MainWindow : IClubPanels
             Child = Detail(selectedIdx),
         };
 
-        clubEditorPanel.Children.Add(BuildClubListTable(table, selectedIdx, newIdx =>
+        AddClubListSection(BuildClubListTable(table, selectedIdx, newIdx =>
         {
             clubListSelectedRow[selKey] = newIdx;
             detailHost.Child = Detail(newIdx);
-        }));
-        clubEditorPanel.Children.Add(detailHost);
+        }), detailHost);
     }
 
     /// <summary>
@@ -1006,6 +1082,7 @@ public sealed partial class MainWindow : IClubPanels
         {
             bool dirty = drafts.Values.Any(d => d.HasChanges);
             if (saveBtn is not null) saveBtn.IsEnabled = dirty;
+            UpdateClubStatusFromDraft();
         }
 
         Control Detail(int index)
@@ -1114,7 +1191,7 @@ public sealed partial class MainWindow : IClubPanels
                             var list = session.Competitions.LoadAll();
                             picked = await PickerDialog.Show(this, "Choose competition", q => list
                                 .Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
-                                .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id))
                                 .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, (ushort)c.Index))).ToArray(),
                                 "Competition name");
                         }
@@ -1123,7 +1200,7 @@ public sealed partial class MainWindow : IClubPanels
                             var list = session.Nations.LoadAll();
                             picked = await PickerDialog.Show(this, "Choose nation", q => list.Select((n, i) => (n, i))
                                 .Where(x => !string.IsNullOrWhiteSpace(x.n.DisplayName))
-                                .Where(x => MainWindow.Fold(x.n.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Where(x => PickerSearch.Hit(q, x.n.DisplayName, x.n.ShortName))
                                 .Take(200).Select(x => (x.n.DisplayName, new ClubVisionTargetChoice(x.n.DisplayName, (ushort)x.i))).ToArray(),
                                 "Nation name");
                         }
@@ -1132,7 +1209,7 @@ public sealed partial class MainWindow : IClubPanels
                             var list = session.NationLinks.Continents(session.Nations.LoadAll());
                             picked = await PickerDialog.Show(this, "Choose continent", q => list.Select((c, i) => (c, i))
                                 .Where(x => !string.IsNullOrWhiteSpace(x.c.Name))
-                                .Where(x => MainWindow.Fold(x.c.Name).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Where(x => PickerSearch.Hit(q, x.c.Name))
                                 .Take(200).Select(x => (x.c.Name, new ClubVisionTargetChoice(x.c.Name, (ushort)x.i))).ToArray(),
                                 "Continent name");
                         }
@@ -1141,7 +1218,7 @@ public sealed partial class MainWindow : IClubPanels
                             var list = loadedClubs;
                             picked = await PickerDialog.Show(this, "Choose club", q => list
                                 .Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
-                                .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                                .Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id))
                                 .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, ClubIndex(session, c)))).ToArray(),
                                 "Club name");
                         }
@@ -1258,8 +1335,7 @@ public sealed partial class MainWindow : IClubPanels
         }
 
         var detail = new Border { Child = Detail(selected) };
-        clubEditorPanel.Children.Add(BuildClubListTable(table, selected, index => { clubListSelectedRow[key] = index; detail.Child = Detail(index); }));
-        clubEditorPanel.Children.Add(detail);
+        AddClubListSection(BuildClubListTable(table, selected, index => { clubListSelectedRow[key] = index; detail.Child = Detail(index); }), detail);
     }
 
     async Task ShowAddClubVisionObjectiveDialogAsync(GameSession session, ulong teamAddr, ClubVisionEntry template)
@@ -1339,7 +1415,7 @@ public sealed partial class MainWindow : IClubPanels
                 var list = session.Competitions.LoadAll();
                 picked = await PickerDialog.Show(this, "Choose competition", q =>
                     list.Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
-                        .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id))
                         .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, (ushort)c.Index))).ToArray(),
                     "Competition name");
             }
@@ -1348,7 +1424,7 @@ public sealed partial class MainWindow : IClubPanels
                 var list = session.Nations.LoadAll();
                 picked = await PickerDialog.Show(this, "Choose nation", q =>
                     list.Select((n, i) => (n, i)).Where(x => !string.IsNullOrWhiteSpace(x.n.DisplayName))
-                        .Where(x => MainWindow.Fold(x.n.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Where(x => PickerSearch.Hit(q, x.n.DisplayName, x.n.ShortName))
                         .Take(200).Select(x => (x.n.DisplayName, new ClubVisionTargetChoice(x.n.DisplayName, (ushort)x.i))).ToArray(),
                     "Nation name");
             }
@@ -1357,7 +1433,7 @@ public sealed partial class MainWindow : IClubPanels
                 var list = session.NationLinks.Continents(session.Nations.LoadAll());
                 picked = await PickerDialog.Show(this, "Choose continent", q =>
                     list.Select((c, i) => (c, i)).Where(x => !string.IsNullOrWhiteSpace(x.c.Name))
-                        .Where(x => MainWindow.Fold(x.c.Name).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Where(x => PickerSearch.Hit(q, x.c.Name))
                         .Take(200).Select(x => (x.c.Name, new ClubVisionTargetChoice(x.c.Name, (ushort)x.i))).ToArray(),
                     "Continent name");
             }
@@ -1366,7 +1442,7 @@ public sealed partial class MainWindow : IClubPanels
                 var list = loadedClubs;
                 picked = await PickerDialog.Show(this, "Choose club", q =>
                     list.Where(c => !string.IsNullOrWhiteSpace(c.DisplayName))
-                        .Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                        .Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id))
                         .Take(200).Select(c => (c.DisplayName, new ClubVisionTargetChoice(c.DisplayName, ClubIndex(session, c)))).ToArray(),
                     "Club name");
             }
@@ -1385,6 +1461,7 @@ public sealed partial class MainWindow : IClubPanels
             if (typeCombo.SelectedIndex < 0 || typeCombo.SelectedIndex >= types.Count) return;
             byte typeCode = types[typeCombo.SelectedIndex].Code;
             if (!byte.TryParse(importanceBox.Text, out byte imp)) { status.Text = "Importance must be a whole number."; return; }
+            imp = Math.Min((byte)10, imp);   // FMRTE docs: importance 0 to 10
             var kind = ClubVisionTypes.TargetItemKind(typeCode);
             int tgt = 0;
             if (kind != ClubVisionItemKind.Unknown)
@@ -1457,6 +1534,7 @@ public sealed partial class MainWindow : IClubPanels
         {
             bool dirty = drafts.Values.Any(d => d.HasChanges) || pendingAffiliationRemovals.ContainsKey(club.Address);
             if (saveBtn is not null) saveBtn.IsEnabled = dirty;
+            UpdateClubStatusFromDraft();
         }
 
         Control Detail(int index)
@@ -1693,6 +1771,82 @@ public sealed partial class MainWindow : IClubPanels
         public override string ToString() => Label;
     }
 
+    /// <summary>Competition id -> name for the regional division rows, read once per save in the background.</summary>
+    IReadOnlyDictionary<int, string>? regionalCompetitionNames;
+    bool regionalCompetitionsLoading;
+
+    sealed record RegionalCompetitionOption(int Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    /// <summary>Regional Divisions as FMRTE shows them: Name, Level, Year; the selected row's competition, level and year are editable.</summary>
+    void RenderClubRegionalDivisions(GameSession session, ClubEntry club)
+    {
+        IReadOnlyList<ClubRegionalDivisionEntry> rows;
+        try { rows = session.ReadRegionalDivisions(club.Address); }
+        catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
+        if (rows.Count == 0) return;
+        if (regionalCompetitionNames is null)
+        {
+            clubEditorPanel.Children.Add(new TextBlock { Text = "Reading competitions…", Margin = new Thickness(6) });
+            if (!regionalCompetitionsLoading)
+            {
+                regionalCompetitionsLoading = true;
+                _ = Task.Run(() => session.Competitions.LoadAll()
+                        .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                        .GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.First().Name!))
+                    .ContinueWith(t => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        regionalCompetitionsLoading = false;
+                        if (t.IsCompletedSuccessfully) { regionalCompetitionNames = t.Result; RenderClubEditor(); }
+                        else status.Text = UserMessage.For(t.Exception?.InnerException ?? new InvalidOperationException("Competitions unreadable"));
+                    }));
+            }
+            return;
+        }
+        var names = regionalCompetitionNames;
+        string NameOf(int? id) => id is { } i && names.TryGetValue(i, out var n) ? n : id is { } j ? $"Competition {j}" : "";
+        var table = ClubListBuilder.BuildRegionalDivisions(rows.Select(r => new RegionalDivisionRow(r.Level, NameOf(r.CompetitionId), null, r.Year)));
+        var key = (club.Address, ClubSection.RegionalDivisions);
+        int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, rows.Count - 1) : 0;
+        clubListSelectedRow[key] = selected;
+        var options = names.Select(p => new RegionalCompetitionOption(p.Key, p.Value)).OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        Control Detail(int index)
+        {
+            var row = rows[index];
+            var competition = new AutoCompleteBox
+            {
+                Width = 320, FilterMode = AutoCompleteFilterMode.ContainsOrdinal, MinimumPrefixLength = 1,
+                ItemsSource = options.Select(o => o.Name).ToList(), Text = NameOf(row.CompetitionId),
+            };
+            var level = new NumericUpDown { Minimum = 0, Maximum = 100, Value = Math.Clamp((int)row.Level, 0, 100), Width = 110, FormatString = "0" };   // in-game editor: 0-100
+            var year = new NumericUpDown { Minimum = 0, Maximum = 100, Value = Math.Clamp((int)(row.Year ?? 0), 0, 100), Width = 110, FormatString = "0" };   // in-game editor: 0-100
+            var apply = new Button { Content = "Apply" };
+            apply.Click += (_, _) =>
+            {
+                var chosen = options.FirstOrDefault(o => string.Equals(o.Name, competition.Text?.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (chosen is null) { status.Text = "Choose a competition from the list."; return; }
+                try
+                {
+                    backend.Edits.Execute("Club", club.DisplayName, "Regional division", () =>
+                        session.RegionalDivisionWriter.Set(row, chosen.Id, (byte)(level.Value ?? row.Level), (short)(year.Value ?? 0)));
+                    RenderClubEditor();
+                    status.Text = "Saved. Continue in FM to see updates.";
+                }
+                catch (Exception ex) { status.Text = UserMessage.For(ex); }
+            };
+            Control Line(string label, Control input) => new StackPanel
+            {
+                Orientation = Orientation.Horizontal, Spacing = 8,
+                Children = { new TextBlock { Text = label, Width = 90, VerticalAlignment = VerticalAlignment.Center }, input },
+            };
+            return new StackPanel { Spacing = 8, Children = { Line("Competition", competition), Line("Level", level), Line("Year", year), apply } };
+        }
+        var detail = new Border { Child = Detail(selected), Margin = new Thickness(0, 8, 0, 0) };
+        AddClubListSection(BuildClubListTable(table, selected, i => { clubListSelectedRow[key] = i; detail.Child = Detail(i); }), detail);
+    }
+
     /// <summary>Sponsors and Other: existing records are editable, and records can be added or removed.</summary>
     void RenderClubSponsors(GameSession session, ClubEntry club)
     {
@@ -1885,12 +2039,11 @@ public sealed partial class MainWindow : IClubPanels
         int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, debts.Count - 1) : 0;
         clubListSelectedRow[key] = selected;
         var detail = new Border { Child = BuildClubDebtDetail(session, club, debts[selected]) };
-        clubEditorPanel.Children.Add(BuildClubListTable(table, selected, index =>
+        AddClubListSection(BuildClubListTable(table, selected, index =>
         {
             clubListSelectedRow[key] = index;
             detail.Child = BuildClubDebtDetail(session, club, debts[index]);
-        }));
-        clubEditorPanel.Children.Add(detail);
+        }), detail);
 
         var clearAll = new Button { Content = "Clear all debts" };
         clearAll.Click += (_, _) =>
@@ -2029,12 +2182,11 @@ public sealed partial class MainWindow : IClubPanels
         int selected = clubListSelectedRow.TryGetValue(key, out int saved) ? Math.Clamp(saved, 0, ordered.Count - 1) : 0;
         clubListSelectedRow[key] = selected;
         var detailHost = new Border { Child = BuildClubRelationshipDetail(session, club, ordered[selected]) };
-        clubEditorPanel.Children.Add(BuildClubListTable(ClubRelationshipLabels.BuildTable(ordered), selected, index =>
+        AddClubListSection(BuildClubListTable(ClubRelationshipLabels.BuildTable(ordered), selected, index =>
         {
             clubListSelectedRow[key] = index;
             detailHost.Child = BuildClubRelationshipDetail(session, club, ordered[index]);
-        }));
-        clubEditorPanel.Children.Add(detailHost);
+        }), detailHost);
         clubEditorPanel.Children.Add(BuildClubRelationshipActions(session, club));
     }
 
@@ -2045,13 +2197,21 @@ public sealed partial class MainWindow : IClubPanels
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         IReadOnlyList<ClubEntry> clubs;
         try { clubs = session.LoadClubs([]); } catch { clubs = []; }
-        var pick = new ComboBox { Width = 260, ItemsSource = clubs.Where(c => c.Address != club.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToArray() };
-        pick.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<ClubEntry>((entry, _) =>
-            new TextBlock { Text = entry is null ? "" : $"{entry.Name} ({entry.Id})" });
+        ClubEntry? chosenRival = null;
+        var pick = new Button { Width = 300, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose club…" };
+        pick.Click += async (_, _) =>
+        {
+            var choices = clubs.Where(c => c.Address != club.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women)
+                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            var chosen = await PickerDialog.Show<ClubEntry>(this, "Choose rival club", q => choices.Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id)).Select(c => ($"{c.Name} ({c.Id})", c)).ToList());
+            if (chosen is null) return;
+            chosenRival = chosen;
+            pick.Content = $"{chosen.Name} ({chosen.Id})";
+        };
         var add = new Button { Content = "Add rival" };
         add.Click += (_, _) =>
         {
-            if (pick.SelectedItem is not ClubEntry rival || rival.Address == club.Address) { status.Text = "Pick another club"; return; }
+            if (chosenRival is not { } rival || rival.Address == club.Address) { status.Text = "Pick another club"; return; }
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Relationships: Add Rival", () => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).AddRival(club.Address, rival.Address, 50, 2, null));
@@ -2090,7 +2250,7 @@ public sealed partial class MainWindow : IClubPanels
         var save = new Button { IsVisible = false, Content = "Save changes" };
         save.Click += (_, _) =>
         {
-            if (!int.TryParse(value.Text, out int v) || v is < 1 or > 100) { status.Text = "Value must be 1 to 100"; return; }
+            if (!int.TryParse(value.Text, out int v) || v is < 0 or > 100) { status.Text = "Value must be 0 to 100"; return; }
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Relationships: Edit", () => session.SetClubRelationship(club.Address, row,
@@ -2122,7 +2282,7 @@ public sealed partial class MainWindow : IClubPanels
         var save = new Button { IsVisible = false, Content = "Save changes" };
         save.Click += (_, _) =>
         {
-            if (!int.TryParse(value.Text, out int fee) || fee < 0) { status.Text = "Enter a valid transfer fee"; return; }
+            if (!int.TryParse(value.Text, out int fee) || fee is < 0 or > 1_000_000_000) { status.Text = "Enter a transfer fee between 0 and 1,000,000,000"; return; }
             try
             {
                 backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Transfer Offer: Fee", () => session.ProposalWriter.SetValue(offer.Proposal, fee));
@@ -2307,6 +2467,17 @@ public sealed partial class MainWindow : IClubPanels
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(leftMargin, 0, 0, 0),
         };
+    }
+
+    /// <summary>Table plus its detail card, spaced the same way as the form sections on every entity screen.</summary>
+    void AddClubListSection(Control table, Control detail)
+    {
+        clubEditorPanel.Children.Add(new StackPanel
+        {
+            Spacing = 10,
+            Margin = new Thickness(12, 0, 0, 0),
+            Children = { table, detail },
+        });
     }
 
     Control? BuildClubListDetailCard(ClubListRowModel row)
@@ -2599,15 +2770,20 @@ public sealed partial class MainWindow : IClubPanels
         };
         string format = field.Kind is ClubDisplayKind.FormattedInt or ClubDisplayKind.Money ? "N0" : "0";
         decimal increment = field.Kind == ClubDisplayKind.Money ? 10_000 : 1;
+        // Money is stored in pounds; the box shows the player's chosen currency like the game does.
+        bool money = field.Kind == ClubDisplayKind.Money;
+        decimal moneyRate = money ? Fm27Editor.Core.Settings.CurrencySetting.RatePerGbp : 1m;
+        decimal Show(long pounds) => Math.Round(pounds * moneyRate, 0, MidpointRounding.AwayFromZero);
+        long Hide(decimal display) => (long)Math.Round(display / moneyRate, 0, MidpointRounding.AwayFromZero);
 
         // -1 is the game's "not set" (4,955 of 5,251 clubs have no Social Media Followers); an empty box says so, a number would lie.
         bool notSet = currentVal == -1 && field.Min >= -1;
         var numeric = new NumericUpDown
         {
-            Minimum = field.Min,
-            Maximum = field.Max,
-            Increment = increment,
-            Value = notSet ? null : currentVal,
+            Minimum = money ? Show(field.Min) : field.Min,
+            Maximum = money ? Show(field.Max) : field.Max,
+            Increment = money ? Math.Max(1m, Math.Round(increment * moneyRate)) : increment,
+            Value = notSet ? null : money ? Show(currentVal) : currentVal,
             Watermark = notSet ? "None" : null,
             FormatString = format,
             ShowButtonSpinner = false,
@@ -2621,6 +2797,7 @@ public sealed partial class MainWindow : IClubPanels
                 ? RatingColor((int)Math.Clamp(currentVal, 1, 20))
                 : Brush("#F8FAFC"),
         };
+        if (money) numeric.TextConverter = MoneyTextConverter.Instance;
         numeric.ValueChanged += (_, e) =>
         {
             if (clubUpdating || e.OldValue == e.NewValue) return;
@@ -2631,7 +2808,10 @@ public sealed partial class MainWindow : IClubPanels
                 return;
             }
             numeric.BorderBrush = Brush("#282E42");
-            long value = Math.Clamp((long)Math.Round(e.NewValue.Value), field.Min, field.Max);
+            // A money box set back to the amount it showed keeps the stored pounds exactly: in a currency worth more than
+            // a pound (KWD) several pound values share one displayed number, and converting back must not move them.
+            long value = money ? Fm27Editor.Core.Settings.CurrencySetting.FromDisplay(e.NewValue.Value, currentVal) : (long)Math.Round(e.NewValue.Value);
+            value = Math.Clamp(value, field.Min, field.Max);
             StageValid(value);
             if (field.Kind == ClubDisplayKind.Rating20)
                 numeric.Foreground = RatingColor((int)Math.Clamp(value, 1, 20));
@@ -2657,6 +2837,26 @@ public sealed partial class MainWindow : IClubPanels
                 },
             }
             : numeric;
+        if (money)
+        {
+            rightControl = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 3,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = Fm27Editor.Core.Settings.CurrencySetting.Current.Symbol,
+                        FontSize = 13,
+                        Foreground = Brush("#94A3B8"),
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                    numeric,
+                },
+            };
+        }
 
         DockPanel.SetDock(rightControl, Dock.Right);
         line.Children.Add(rightControl);

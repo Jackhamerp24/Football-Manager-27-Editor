@@ -139,8 +139,11 @@ public class StadiumTests
             (StadiumField.PitchDeteriorationRate, 2), (StadiumField.Environment, 3), (StadiumField.OwnerType, 1),
             (StadiumField.PitchType, 8), (StadiumField.UsedByNationalTeam, 0), (StadiumField.UsedByNationalU21Team, 0), (StadiumField.UsedByNationalU19Team, 0),
         ];
-        Assert.Equal(Enum.GetValues<StadiumField>().Length, expected.Length);
+        // Old Trafford's International size box is unticked in FMRTE (FFFF FFFF): no value, so neither field is read.
+        Assert.Equal(Enum.GetValues<StadiumField>().Length - 2, expected.Length);
         Assert.All(expected, e => Assert.Equal(e.Item2, f[e.Item1]));
+        Assert.False(f.ContainsKey(StadiumField.InternationalPitchLength));
+        Assert.False(f.ContainsKey(StadiumField.InternationalPitchWidth));
         Assert.Equal(new[] { 20000, 6600, 11844, 3300, 8000, 3300, 14000, 7000 }, s.Stands.Select(t => t.Capacity));
         Assert.Equal(74044, s.StandsTotal);
         Assert.All(s.Stands, t => Assert.True(t.HasRoof && t.HasSeats));

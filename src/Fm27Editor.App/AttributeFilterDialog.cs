@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -48,7 +48,11 @@ public sealed class AttributeFilterDialog : Window
     readonly IReadOnlyList<ClubEntry> clubsCatalogue;
     readonly StackPanel relationStack = new() { Spacing = 8 };
 
-    readonly TabControl scopeTabs = new();
+    readonly Button playerScopeButton = MakeScopeButton("Player");
+    readonly Button coachScopeButton = MakeScopeButton("Coach");
+    readonly Button clubScopeButton = MakeScopeButton("Club");
+    readonly ContentControl scopeContent = new();
+    int scopeIndex;
     readonly ContentControl coachHost = new();
     readonly ContentControl clubHost = new();
     readonly Func<IReadOnlyList<StaffRecord>>? staffSource;
@@ -75,8 +79,49 @@ public sealed class AttributeFilterDialog : Window
     readonly Dictionary<PlayerPosition, Button> positionDots = [];
     readonly Dictionary<string, (TextBox Min, TextBox Max)> rangeInputs = [];
     readonly Dictionary<string, ComboBox> choiceInputs = [];
+    readonly Dictionary<short, (ComboBox Presence, TextBox Min, TextBox Max)> clauseInputs = [];
+    static readonly string[] ClausePresenceOptions = ["Any", "Yes", "No"];
+    readonly ComboBox contractTypeCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220, MaxDropDownHeight = 260 };
+    readonly ComboBox playingTimeCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220, MaxDropDownHeight = 260 };
+    readonly ComboBox contractStatusCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220, MaxDropDownHeight = 260 };
+    readonly Button teamPickButton = new() { Content = "Choose…", Width = 240, HorizontalContentAlignment = HorizontalAlignment.Left };
+    ulong teamClubAddress;
+    string teamClubName = "";
     sealed record FilterChoice(long? Value, string Name) { public override string ToString() => Name; }
+
+    /// <summary>Exactly what FMRTE's Type dropdown offers, in its order; Non Contract is not listed there.</summary>
+    static readonly (ContractType? Value, string Name)[] ContractTypeOptions =
+    [
+        (null, "Any"),
+        (ContractType.Youth, "Youth Contract"),
+        (ContractType.Amateur, "Amateur"),
+        (ContractType.PartTime, "Part Time Contract"),
+        (ContractType.FullTime, "Full Time Contract"),
+    ];
+    static readonly (PlayingTime? Value, string Name)[] PlayingTimeOptions =
+        [(null, "Any"), .. Enum.GetValues<PlayingTime>().Select(t => ((PlayingTime?)t, ContractLabels.Of(t)))];
+    static readonly (ContractStatusFilter? Value, string Name)[] ContractStatusOptions =
+    [
+        (null, "Any"),
+        (ContractStatusFilter.FreePlayer, "Free Player"),
+        (ContractStatusFilter.Expired, "Expired"),
+        (ContractStatusFilter.Expiring6Months, "Expiring in 6 Months"),
+        (ContractStatusFilter.ExpiringYear, "Expiring in 1 Year"),
+    ];
+    static readonly (short Type, string Name)[] ReleaseClauseRows =
+    [
+        (0, "Minimum Fee Release Clause"),
+        (2, "Non Promotion Release Clause"),
+        (1, "Relegation Release Clause"),
+    ];
+    static readonly (short Type, string Name)[] WageClauseRows =
+    [
+        (4, "Promotion Wage Rise"),
+        (5, "Relegation Wage Drop"),
+        (3, "Yearly Wage Rise"),
+    ];
     readonly Dictionary<string, NumericRange> initialRanges = [];
+    readonly Dictionary<short, ContractClauseCriterion> initialClauses = [];
     readonly List<CheckBox> preferredMoveChecks = [];
     ulong initialPreferredMoves;
     readonly Dictionary<PlayerAttribute, RowControls> rows = [];
@@ -174,6 +219,22 @@ public sealed class AttributeFilterDialog : Window
     public string? ResultDivision => divisionCombo.SelectedItem is string s && s != AllLeagues ? s : null;
     public string? ResultClub => clubCombo.SelectedItem is string s && s != AllClubs ? s : null;
     public string? ResultNationality => nationCombo.SelectedItem is string s && s != AllNationalities ? s : null;
+    public ulong? ResultTeamClubAddress => teamClubAddress == 0 ? null : teamClubAddress;
+    public string? ResultTeamClubName => string.IsNullOrEmpty(teamClubName) ? null : teamClubName;
+    public ContractType? ResultContractType => contractTypeCombo.SelectedIndex > 0
+        && contractTypeCombo.SelectedItem is string name ? ContractTypeOptions.First(o => o.Name == name).Value : null;
+    public PlayingTime? ResultPlayingTime => playingTimeCombo.SelectedIndex > 0
+        && playingTimeCombo.SelectedItem is string name ? PlayingTimeOptions.First(o => o.Value is not null && ContractLabels.Of(o.Value.Value) == name).Value : null;
+    public ContractStatusFilter? ResultContractStatus => contractStatusCombo.SelectedIndex > 0
+        && contractStatusCombo.SelectedItem is string name ? ContractStatusOptions.First(o => o.Name == name).Value : null;
+    public IReadOnlyList<ContractClauseCriterion> ResultClauses =>
+        clauseInputs.Select(entry => (entry.Key, Presence: entry.Value.Presence.SelectedItem as string,
+                Min: ParseOptInt(entry.Value.Min.Text), Max: ParseOptInt(entry.Value.Max.Text)))
+            .Where(entry => entry.Presence is "Yes" or "No")
+            .Select(entry => entry.Presence == "Yes"
+                ? new ContractClauseCriterion(entry.Key, true, entry.Min, entry.Max)
+                : new ContractClauseCriterion(entry.Key, false))
+            .ToArray();
     public IReadOnlyList<FilterPreset> UpdatedPresets => presets;
 
     /// <summary>Relationship conditions, ANDed like the other tabs; a row without a target is ignored.</summary>
@@ -237,7 +298,7 @@ public sealed class AttributeFilterDialog : Window
                 return;
             case RelationTargetKind.Nation:
             {
-                var picked = await PickerDialog.Show(this, "Choose nation", q => nationsCatalogue.Where(n => MainWindow.Fold(n.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                var picked = await PickerDialog.Show(this, "Choose nation", q => nationsCatalogue.Where(n => PickerSearch.Hit(q, n.DisplayName, n.ShortName))
                     .Take(200).Select(n => (n.DisplayName, n)).ToArray(), "Nation name");
                 if (picked is null) return;
                 row.TargetAddress = picked.Address;
@@ -249,7 +310,7 @@ public sealed class AttributeFilterDialog : Window
                 var clubs = ResultGender == Fm27Editor.Core.Offsets.Gender.Women
                     ? clubsCatalogue
                     : clubsCatalogue.Where(c => c.Gender != Fm27Editor.Core.Offsets.Gender.Women).ToArray();
-                var picked = await PickerDialog.Show(this, "Choose club", q => clubs.Where(c => MainWindow.Fold(c.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                var picked = await PickerDialog.Show(this, "Choose club", q => clubs.Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id))
                     .Take(200).Select(c => (c.DisplayName, c)).ToArray(), "Club name");
                 if (picked is null) return;
                 if (type.Target == RelationTargetKind.Team && picked.FirstTeam is null) return;
@@ -262,7 +323,7 @@ public sealed class AttributeFilterDialog : Window
                 var people = ResultGender == Fm27Editor.Core.Offsets.Gender.Women
                     ? allPlayers
                     : allPlayers.Where(p => p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women).ToArray();
-                var picked = await PickerDialog.Show(this, "Choose person", q => people.Where(p => MainWindow.Fold(p.DisplayName).Contains(MainWindow.Fold(q), StringComparison.Ordinal))
+                var picked = await PickerDialog.Show(this, "Choose person", q => people.Where(p => PickerSearch.Hit(q, p.DisplayName))
                     .Take(200).Select(p => ($"{p.DisplayName} ({p.ClubName})", p)).ToArray(), "Player name");
                 if (picked is null) return;
                 row.TargetAddress = picked.Address;
@@ -272,6 +333,17 @@ public sealed class AttributeFilterDialog : Window
         }
         row.Target.Content = row.TargetName;
     }
+    async Task PickTeamClub()
+    {
+        var picked = await PickerDialog.Show(this, "Choose team", q => clubsCatalogue.Where(c => PickerSearch.Hit(q, c.DisplayName, c.ShortName, c.Id))
+            .Take(200).Select(c => (c.DisplayName, c)).ToArray(), "Team name");
+        if (picked is null) return;
+        teamClubAddress = picked.Address;
+        teamClubName = picked.DisplayName;
+        teamPickButton.Content = picked.DisplayName;
+        UpdateSummary();
+    }
+
     public string? SelectedPresetName { get; private set; }
 
     public AttributeFilterDialog(
@@ -333,6 +405,21 @@ public sealed class AttributeFilterDialog : Window
             ? Array.FindIndex(nations, n => string.Equals(n, initialFilter.Nationality, StringComparison.InvariantCultureIgnoreCase))
             : 0;
         nationCombo.SelectedIndex = natIdx >= 0 ? natIdx : 0;
+
+        contractTypeCombo.ItemsSource = ContractTypeOptions.Select(o => o.Name).ToArray();
+        contractTypeCombo.ItemTemplate = TextItem(220);
+        playingTimeCombo.ItemsSource = PlayingTimeOptions.Select(o => o.Name).ToArray();
+        playingTimeCombo.ItemTemplate = TextItem(220);
+        contractStatusCombo.ItemsSource = ContractStatusOptions.Select(o => o.Name).ToArray();
+        contractStatusCombo.ItemTemplate = TextItem(220);
+        contractTypeCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractTypeOptions, o => o.Value == initialFilter.ContractType));
+        playingTimeCombo.SelectedIndex = Math.Max(0, Array.FindIndex(PlayingTimeOptions, o => o.Value == initialFilter.AgreedPlayingTime));
+        contractStatusCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractStatusOptions, o => o.Value == initialFilter.ContractStatus));
+        teamClubAddress = initialFilter.TeamClubAddress ?? 0;
+        teamClubName = initialFilter.TeamClubName ?? "";
+        teamPickButton.Content = teamClubAddress == 0 ? "Choose…" : teamClubName;
+        foreach (var clause in initialFilter.Clauses ?? [])
+            initialClauses.TryAdd(clause.Type, clause);
 
         RefreshDialogLeagues(initialFilter.Division, initialFilter.Club);
 
@@ -426,28 +513,28 @@ public sealed class AttributeFilterDialog : Window
             ("Preferred Moves", BuildPreferredMoves()),
             ("Relationships", BuildRelationships()));
 
-        var playerRoot = new DockPanel();
+        playerRoot = new DockPanel();
         var topBar = BuildPresetBar();
         DockPanel.SetDock(topBar, Dock.Top);
         playerRoot.Children.Add(topBar);
         playerRoot.Children.Add(playerSections);
 
-        scopeTabs.ItemsSource = new[]
+        var scopeStrip = new StackPanel
         {
-            new TabItem { Header = "Player", Content = playerRoot },
-            new TabItem { Header = "Coach", Content = coachHost },
-            new TabItem { Header = "Club", Content = clubHost },
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            Margin = new Thickness(0, 4, 0, 0),
+            Children = { playerScopeButton, coachScopeButton, clubScopeButton },
         };
-        scopeTabs.Margin = new Thickness(0, 4, 0, 0);
-        scopeTabs.SelectionChanged += (_, _) =>
-        {
-            EnsureScopePanels();
-            UpdateScopeSummary();
-        };
-        root.Children.Add(scopeTabs);
+        playerScopeButton.Click += (_, _) => SelectScope(0);
+        coachScopeButton.Click += (_, _) => SelectScope(1);
+        clubScopeButton.Click += (_, _) => SelectScope(2);
+        DockPanel.SetDock(scopeStrip, Dock.Top);
+        root.Children.Add(scopeStrip);
+        root.Children.Add(scopeContent);
 
         Content = root;
-        scopeTabs.SelectedIndex = initialScope switch { "Coach" => 1, "Club" => 2, _ => 0 };
+        SelectScope(initialScope switch { "Coach" => 1, "Club" => 2, _ => 0 });
 
         foreach (var tb in new[] { nameQueryBox, minAgeBox, maxAgeBox, minCaBox, maxCaBox, minPaBox, maxPaBox })
             tb.TextChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
@@ -459,15 +546,49 @@ public sealed class AttributeFilterDialog : Window
 
     static Control SideSections(params (string Title, Control Content)[] pages) => new SectionNav(pages);
 
+    /// <summary>Scope buttons exactly like the main module tabs: text with an accent underline when active.</summary>
+    static Button MakeScopeButton(string header) => new()
+    {
+        Content = header,
+        FontSize = 13,
+        Padding = new Thickness(11, 3),
+        MinHeight = 25,
+        Height = 25,
+        CornerRadius = new CornerRadius(3),
+        Background = Brushes.Transparent,
+        BorderThickness = new Thickness(0, 0, 0, 2),
+        BorderBrush = Brushes.Transparent,
+        Foreground = Brush("#94A3B8"),
+    };
+
+    void SelectScope(int index)
+    {
+        scopeIndex = index;
+        SelectedScope = index switch { 1 => "Coach", 2 => "Club", _ => "Player" };
+        foreach (var (button, i) in new[] { playerScopeButton, coachScopeButton, clubScopeButton }.Select((b, i) => (b, i)))
+        {
+            bool active = i == index;
+            button.Foreground = Brush(active ? "#F8FAFC" : "#94A3B8");
+            button.FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
+            button.Background = active ? Brush("#201B38") : Brushes.Transparent;
+            button.BorderBrush = active ? UiKit.Accent : Brushes.Transparent;
+        }
+        EnsureScopePanels();
+        scopeContent.Content = index switch { 1 => coachHost, 2 => clubHost, _ => playerRoot };
+        UpdateScopeSummary();
+    }
+
+    DockPanel playerRoot = new();
+
     void EnsureScopePanels()
     {
-        if (scopeTabs.SelectedIndex == 1 && coachPanel is null)
+        if (scopeIndex == 1 && coachPanel is null)
         {
             coachPanel = new StaffFilterPanel(staffSource?.Invoke() ?? Array.Empty<StaffRecord>(), today, staffRelations);
             coachPanel.Changed += (_, _) => UpdateScopeSummary();
             coachHost.Content = coachPanel;
         }
-        if (scopeTabs.SelectedIndex == 2 && clubPanel is null)
+        if (scopeIndex == 2 && clubPanel is null)
         {
             if (clubAccess is null)
             {
@@ -487,8 +608,7 @@ public sealed class AttributeFilterDialog : Window
 
     void UpdateScopeSummary()
     {
-        if (scopeTabs.SelectedIndex < 0) return;
-        SelectedScope = scopeTabs.SelectedIndex switch { 1 => "Coach", 2 => "Club", _ => "Player" };
+        if (scopeIndex is < 0 or > 2) return;
         if (SelectedScope == "Player")
         {
             UpdateSummary();
@@ -574,6 +694,19 @@ public sealed class AttributeFilterDialog : Window
                 minPaBox.Text = chosen.MinPa?.ToString() ?? "";
                 maxPaBox.Text = chosen.MaxPa?.ToString() ?? "";
                 posMinRatingInput.Value = Math.Clamp(chosen.PositionMinRating, 1, 20);
+                contractTypeCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractTypeOptions, o => o.Value == chosen.ContractType));
+                playingTimeCombo.SelectedIndex = Math.Max(0, Array.FindIndex(PlayingTimeOptions, o => o.Value == chosen.AgreedPlayingTime));
+                contractStatusCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractStatusOptions, o => o.Value == chosen.ContractStatus));
+                teamClubAddress = chosen.TeamClubAddress ?? 0;
+                teamClubName = chosen.TeamClubName ?? "";
+                teamPickButton.Content = teamClubAddress == 0 ? "Choose…" : teamClubName;
+                foreach (var clause in chosen.Clauses ?? [])
+                {
+                    if (!clauseInputs.TryGetValue(clause.Type, out var boxes)) continue;
+                    boxes.Presence.SelectedIndex = clause.HasClause ? 1 : 2;
+                    boxes.Min.Text = clause.MinimumValue?.ToString() ?? "";
+                    boxes.Max.Text = clause.MaximumValue?.ToString() ?? "";
+                }
                 updatingControls = false;
 
                 stagedPositions.Clear();
@@ -652,7 +785,13 @@ public sealed class AttributeFilterDialog : Window
                 RequiredPreferredMoves = ResultPreferredMoves,
                 Division = ResultDivision,
                 Club = ResultClub,
-                Nationality = ResultNationality
+                Nationality = ResultNationality,
+                TeamClubAddress = ResultTeamClubAddress,
+                TeamClubName = ResultTeamClubName,
+                ContractStatus = ResultContractStatus,
+                ContractType = ResultContractType,
+                AgreedPlayingTime = ResultPlayingTime,
+                Clauses = ResultClauses
             };
             presets = FilterPresetStore.Upsert(presets, preset);
             try { FilterPresetStore.Save(presets); } catch { }
@@ -1376,6 +1515,7 @@ public sealed class AttributeFilterDialog : Window
         }
         AddChoice("Ethnicity", new[] { new FilterChoice(null, "Unset") }.Concat(InformationLabels.Ethnicities.Select(value => new FilterChoice(value.Code, value.Name))));
         AddChoice("Treated As Non-EU In Italy", [new(null, "Any"), new(1, "Yes"), new(0, "No")]);
+        AddChoice("Regen", [new(null, "Any"), new(1, "Yes"), new(0, "No")]);
         return panel;
     }
 
@@ -1406,8 +1546,92 @@ public sealed class AttributeFilterDialog : Window
         var stack = new StackPanel { Spacing = 10, Margin = new Thickness(14, 10) };
         stack.Children.Add(RangeCard("Wages", "WAGES"));
         stack.Children.Add(RangeCard("Asking Price", "ASKING PRICE"));
+        stack.Children.Add(ClauseCard("Release Clauses", ReleaseClauseRows));
+        stack.Children.Add(ClauseCard("Wage Clauses", WageClauseRows));
+        stack.Children.Add(BuildContractChoicesCard());
         return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = stack };
     }
+
+    Control ClauseCard(string title, (short Type, string Name)[] rows)
+    {
+        var body = new StackPanel { Spacing = 6, Margin = new Thickness(12, 10) };
+        foreach (var (type, name) in rows)
+        {
+            initialClauses.TryGetValue(type, out var criterion);
+            var presence = new ComboBox
+            {
+                ItemsSource = ClausePresenceOptions,
+                SelectedIndex = criterion is null ? 0 : criterion.HasClause ? 1 : 2,
+                Width = 90,
+                MinWidth = 90,
+                MaxWidth = 90,
+                MaxDropDownHeight = 260,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            presence.ItemTemplate = TextItem(90);
+            var min = new TextBox { Width = 92, Watermark = "Min", Text = criterion?.MinimumValue?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var max = new TextBox { Width = 92, Watermark = "Max", Text = criterion?.MaximumValue?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            clauseInputs[type] = (presence, min, max);
+            presence.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+            min.TextChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+            max.TextChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+            body.Children.Add(new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = name, Width = 190, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap },
+                    presence,
+                    new TextBlock { Text = "Value", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center },
+                    min,
+                    new TextBlock { Text = "to", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center },
+                    max,
+                },
+            });
+        }
+        return UiKit.Card(title, body);
+    }
+
+    Control BuildContractChoicesCard()
+    {
+        var teamRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        teamRow.Children.Add(new TextBlock { Text = "Team", Width = 220, VerticalAlignment = VerticalAlignment.Center });
+        teamRow.Children.Add(teamPickButton);
+        var teamClear = new Button { Content = "Clear", Width = 90 };
+        teamClear.Click += (_, _) =>
+        {
+            teamClubAddress = 0;
+            teamClubName = "";
+            teamPickButton.Content = "Choose…";
+            if (!updatingControls) UpdateSummary();
+        };
+        teamRow.Children.Add(teamClear);
+        teamPickButton.Click += async (_, _) => await PickTeamClub();
+
+        var contract = new StackPanel { Spacing = 6, Margin = new Thickness(12, 10) };
+        contract.Children.Add(LabeledCombo("Contract", contractStatusCombo));
+        contract.Children.Add(LabeledCombo("Type", contractTypeCombo));
+        contract.Children.Add(teamRow);
+        contractTypeCombo.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+        contractStatusCombo.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+
+        var transfer = new StackPanel { Spacing = 6, Margin = new Thickness(12, 10) };
+        transfer.Children.Add(LabeledCombo("Agreed Playing Time", playingTimeCombo));
+        playingTimeCombo.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
+
+        var both = new StackPanel { Spacing = 10 };
+        both.Children.Add(UiKit.Card("Contract Details", contract));
+        both.Children.Add(UiKit.Card("Transfer Details", transfer));
+        return both;
+    }
+
+    static StackPanel LabeledCombo(string label, ComboBox combo) => new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        Children = { new TextBlock { Text = label, Width = 220, VerticalAlignment = VerticalAlignment.Center }, combo },
+    };
 
     readonly Dictionary<TextBox, (long Min, long Max)> limits = [];
 
@@ -1438,6 +1662,7 @@ public sealed class AttributeFilterDialog : Window
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
+            Margin = new Thickness(12, 10),
             Children = { min, new TextBlock { Text = "to", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center }, max }
         });
     }
@@ -1467,6 +1692,13 @@ public sealed class AttributeFilterDialog : Window
             positionRatings.Clear();
             positionRanges.Clear();
             foreach (var (_, controls) in rangeInputs) { controls.Min.Text = ""; controls.Max.Text = ""; }
+            foreach (var (_, boxes) in clauseInputs) { boxes.Presence.SelectedIndex = 0; boxes.Min.Text = ""; boxes.Max.Text = ""; }
+            contractTypeCombo.SelectedIndex = 0;
+            playingTimeCombo.SelectedIndex = 0;
+            contractStatusCombo.SelectedIndex = 0;
+            teamClubAddress = 0;
+            teamClubName = "";
+            teamPickButton.Content = "Choose…";
             foreach (var combo in choiceInputs.Values) combo.SelectedIndex = 0;
             foreach (var box in preferredMoveChecks) box.IsChecked = false;
             SyncPositionButtons();
@@ -1527,6 +1759,14 @@ public sealed class AttributeFilterDialog : Window
                     (ParseOptLong(controls.Min.Text) is { } min && ParseOptLong(controls.Max.Text) is { } max && min > max))
                 { summaryText.Text = "Invalid range"; return; }
             }
+            foreach (var (_, boxes) in clauseInputs)
+            {
+                if (boxes.Presence.SelectedItem as string != "Yes") continue;
+                if ((!string.IsNullOrWhiteSpace(boxes.Min.Text) && ParseOptInt(boxes.Min.Text) is null) ||
+                    (!string.IsNullOrWhiteSpace(boxes.Max.Text) && ParseOptInt(boxes.Max.Text) is null) ||
+                    (ParseOptInt(boxes.Min.Text) is { } lo && ParseOptInt(boxes.Max.Text) is { } hi && lo > hi))
+                { summaryText.Text = "Invalid range"; return; }
+            }
             SelectedScope = "Player";
             Saved = true;
             Close();
@@ -1572,12 +1812,12 @@ public sealed class AttributeFilterDialog : Window
             Grid.SetColumn(a, 0); grid.Children.Add(a); Grid.SetColumn(b, 1); grid.Children.Add(b);
             return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
         }
-        return new TabControl { ItemsSource = new[]
+        return UiKit.OptionTabs(new List<(string Title, Control Content)>
         {
-            new TabItem { Header = "Technical / GK", Content = Pair("Technical", "Goalkeeping") },
-            new TabItem { Header = "Mental", Content = Pair("Mental", "Personality") },
-            new TabItem { Header = "Physical / Hidden", Content = Pair("Physical", "Hidden") },
-        } };
+            ("Technical / GK", Pair("Technical", "Goalkeeping")),
+            ("Mental", Pair("Mental", "Personality")),
+            ("Physical / Hidden", Pair("Physical", "Hidden")),
+        });
     }
 
     Control BuildPersonalityRanges()
@@ -1608,17 +1848,15 @@ public sealed class AttributeFilterDialog : Window
     Control BuildGroupCard(string title, IEnumerable<FieldDescriptor<PlayerRecord>> fields)
     {
         var stack = new StackPanel { Spacing = 0 };
-        int idx = 0;
         foreach (var f in fields)
         {
             if (!Enum.TryParse<PlayerAttribute>(f.Id, out var attr)) continue;
-            var row = CreateAttributeRow(attr, f.Label, idx++ % 2 == 1);
-            stack.Children.Add(row);
+            stack.Children.Add(CreateAttributeRow(attr, f.Label));
         }
         return UiKit.Card(title, stack);
     }
 
-    Control CreateAttributeRow(PlayerAttribute attr, string label, bool odd)
+    Control CreateAttributeRow(PlayerAttribute attr, string label)
     {
         var toggle = new CheckBox
         {
@@ -1675,7 +1913,8 @@ public sealed class AttributeFilterDialog : Window
         {
             Padding = new Thickness(8, 1, 8, 1),
             BorderThickness = new Thickness(2, 0, 0, 0),
-            Background = odd ? Brush("#121520") : Brushes.Transparent,
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
             Child = dock
         };
 
@@ -1708,7 +1947,7 @@ public sealed class AttributeFilterDialog : Window
             {
                 staged.Remove(attr);
             }
-            SyncRow(rc, odd);
+            SyncRow(rc);
             UpdateSummary();
         }
 
@@ -1730,13 +1969,12 @@ public sealed class AttributeFilterDialog : Window
 
     void SyncAllRowsFromStaged()
     {
-        int i = 0;
         foreach (var rc in rows.Values)
-            SyncRow(rc, i++ % 2 == 1);
+            SyncRow(rc);
         UpdateSummary();
     }
 
-    void SyncRow(RowControls rc, bool odd)
+    void SyncRow(RowControls rc)
     {
         updatingControls = true;
         bool active = staged.TryGetValue(rc.Attribute, out var range);
@@ -1756,20 +1994,25 @@ public sealed class AttributeFilterDialog : Window
         rc.RangeText.IsVisible = active;
         rc.NameText.Foreground = Brush(active ? "#F8FAFC" : "#94A3B8");
         rc.NameText.FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
-        rc.RowBorder.Background = active ? Brush("#221A3A") : (odd ? Brush("#121520") : Brushes.Transparent);
+        rc.RowBorder.Background = active ? Brush("#221A3A") : Brushes.Transparent;
         rc.RowBorder.BorderBrush = active ? Brush("#7C3AED") : Brushes.Transparent;
         updatingControls = false;
     }
 
     void UpdateSummary()
     {
-        if (scopeTabs.SelectedIndex > 0) { UpdateScopeSummary(); return; }
+        if (scopeIndex > 0) { UpdateScopeSummary(); return; }
         var parts = new List<string>();
         if (ResultGender is { } activeGender) parts.Add($"Gender: {activeGender}");
         if (ResultNameQuery is not null) parts.Add($"Name: {ResultNameQuery}");
         if (ResultDivision is not null) parts.Add($"League: {ResultDivision}");
         if (ResultClub is not null) parts.Add($"Club: {ResultClub}");
+        if (ResultTeamClubName is not null) parts.Add($"Team: {ResultTeamClubName}");
         if (ResultNationality is not null) parts.Add($"Nation: {ResultNationality}");
+        if (ResultContractType is { } contractType) parts.Add(ContractLabels.Of(contractType));
+        if (ResultPlayingTime is { } playingTime) parts.Add(ContractLabels.Of(playingTime));
+        if (ResultContractStatus is { } contractStatus) parts.Add(ContractStatusOptions.First(o => o.Value == contractStatus).Name);
+        if (ResultClauses.Count > 0) parts.Add($"{ResultClauses.Count} clause(s)");
         if (ResultMinAge is not null || ResultMaxAge is not null) parts.Add("Age");
         if (ResultMinCa is not null || ResultMaxCa is not null) parts.Add("CA");
         if (ResultMinPa is not null || ResultMaxPa is not null) parts.Add("PA");

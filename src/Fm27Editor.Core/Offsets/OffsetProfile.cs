@@ -69,6 +69,8 @@ public sealed class OffsetProfile
     public ProposalOffsets? Proposals { get; init; }
     public FutureTransferOffsets? FutureTransfers { get; init; }
     public CallUpOffsets? CallUps { get; init; }
+    /// <summary>Profile <c>youthCandidates</c>: the pre-intake candidate manager and record offsets (null when the build was not measured).</summary>
+    public Clubs.YouthCandidateOffsets? YouthCandidates { get; init; }
     /// <summary>Player offset of the 8-byte preferred-moves bit field (profile <c>player.preferredMoves</c>).</summary>
     public int? PreferredMoves { get; init; }
     /// <summary>Profile <c>stadium</c>.</summary>
@@ -129,6 +131,7 @@ public sealed class OffsetProfile
             Proposals = player.TryGetProperty("proposals", out var tp) ? ProposalOffsets.Load(tp) : null,
             FutureTransfers = player.TryGetProperty("futureTransfers", out var ft) ? FutureTransferOffsets.Load(ft) : null,
             CallUps = player.TryGetProperty("callUps", out var cu) ? CallUpOffsets.Load(cu) : null,
+            YouthCandidates = root.TryGetProperty("youthCandidates", out var yc) ? Clubs.YouthCandidateOffsets.Load(yc) : null,
             PreferredMoves = player.TryGetProperty("preferredMoves", out _) ? Hex(player, "preferredMoves") : null,
             Stadium = root.TryGetProperty("stadium", out var sd)
                 ? Fm27Editor.Core.Stadiums.StadiumOffsets.Load(sd, e => FieldMap<Stadiums.StadiumField>(e, rootRequired: false)) : null,
@@ -149,6 +152,7 @@ public sealed class OffsetProfile
                 LastName = Hex(player, "lastName"),
                 CommonName = Hex(player, "commonName"),
                 Id = OptHex(player, "id"),
+                PersonIndex = OptHex(player, "personIndex"),
             },
             Contract = root.TryGetProperty("contract", out var c) ? new ContractOffsets
             {
@@ -163,6 +167,11 @@ public sealed class OffsetProfile
                 JoinedDate = Hex(c, "joinedDate"),
                 TeamClub = Hex(c, "teamClub"),
                 PlayingTime = OptHex(c, "playingTime"),
+                PreviousPlayingTime = OptHex(c, "previousPlayingTime"),
+                LoanStatusOffset = OptHex(c, "loanStatusOffset"),
+                LoanStatusMask = OptHex(c, "loanStatusMask"),
+                RollingContractOffset = OptHex(c, "rollingContractOffset"),
+                RollingContractMask = OptHex(c, "rollingContractMask"),
                 Type = OptHex(c, "type"),
                 Started = OptHex(c, "started"),
                 LoyaltyBonus = OptHex(c, "loyaltyBonus"),
@@ -389,6 +398,7 @@ public sealed class OffsetProfile
             H("height", f.Height); H("dateOfBirth", f.DateOfBirth);
             H("fullName", f.FullName); H("firstName", f.FirstName); H("lastName", f.LastName); H("commonName", f.CommonName);
             if (f.Id is { } pid) H("id", pid);
+            if (f.PersonIndex is { } pix) H("personIndex", pix);
             Injuries?.Write(w);
             Relations?.Write(w);
             Bans?.Write(w);
@@ -432,7 +442,10 @@ public sealed class OffsetProfile
                 void O(string name, int? v) { if (v is { } x) H(name, x); }
                 O("seniorTeam", c.SeniorTeam);
                 O("owner", c.Owner); O("job", c.Job);
-                O("playingTime", c.PlayingTime); O("type", c.Type); O("started", c.Started); O("loyaltyBonus", c.LoyaltyBonus);
+                O("playingTime", c.PlayingTime); O("previousPlayingTime", c.PreviousPlayingTime);
+                O("loanStatusOffset", c.LoanStatusOffset); O("loanStatusMask", c.LoanStatusMask);
+                O("rollingContractOffset", c.RollingContractOffset); O("rollingContractMask", c.RollingContractMask);
+                O("type", c.Type); O("started", c.Started); O("loyaltyBonus", c.LoyaltyBonus);
                 O("squadNumber", c.SquadNumber); O("happiness", c.Happiness); O("playingTimeHappiness", c.PlayingTimeHappiness);
                 O("futurePlayingTime", c.FuturePlayingTime); O("futurePlayingTimeYear", c.FuturePlayingTimeYear);
                 O("playerJoinedClub", c.PlayerJoinedClub); O("clauses", c.Clauses);
@@ -441,6 +454,7 @@ public sealed class OffsetProfile
             }
             Staff?.Write(w);
             Stadium?.Write(w);
+            YouthCandidates?.Write(w);
             if (Team is { } tm)
             {
                 w.WriteStartObject("team");
@@ -668,4 +682,9 @@ public sealed class PlayerFieldOffsets
     public required int CommonName { get; init; }
     /// <summary>int32 unique ID as FMRTE shows it; names are not unique (two Nacho Gil).</summary>
     public int? Id { get; init; }
+    /// <summary>
+    /// int32 index the game uses to refer to a person from other records (unhappiness "Person"). Steam 27.0.1: +0x290;
+    /// Jamal Baptiste 19117, Matt Doherty 26196, matching Tahith Chong's motives in FMRTE.
+    /// </summary>
+    public int? PersonIndex { get; init; }
 }

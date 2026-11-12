@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Players;
 
@@ -68,7 +68,7 @@ public static class SquadScalarDefinitions
         new(PlayerField.Condition, "Condition", 0, 10000, 110),
         new(PlayerField.MatchSharpness, "Sharpness", 0, 10000, 110),
         new(PlayerField.Jadedness, "Jadedness", -500, 1000, 110),
-        new(PlayerField.Morale, "Morale", 1, 20, 85),
+        new(PlayerField.Morale, "Morale", 0, 20, 85),   // FMRTE docs: 0-20
         new(PlayerField.AskingPrice, "Asking Price", 0, 2_147_483_647, 145),
         new(PlayerField.Caps, "Caps", 0, 999, 85),
         new(PlayerField.InternationalGoals, "Int Goals", 0, 999, 85),

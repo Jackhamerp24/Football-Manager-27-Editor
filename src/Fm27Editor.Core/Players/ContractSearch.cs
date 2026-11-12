@@ -5,7 +5,8 @@ namespace Fm27Editor.Core.Players;
 /// <summary>Contract filters use only values actually read; unavailable data is reported separately.</summary>
 public sealed record ContractSearchCriteria(ContractType? Type = null, PlayingTime? PlayingTime = null,
     long? MinimumWage = null, long? MaximumWage = null, long? MinimumAskingPrice = null, long? MaximumAskingPrice = null,
-    short? ClauseType = null, bool? HasClause = null, int? MinimumClauseValue = null, int? MaximumClauseValue = null)
+    short? ClauseType = null, bool? HasClause = null, int? MinimumClauseValue = null, int? MaximumClauseValue = null,
+    bool? LoanListed = null)
 {
     public IReadOnlyList<ContractClauseCriterion> Clauses { get; init; } = [];
 }
@@ -36,19 +37,21 @@ public sealed class ContractSearch(ContractWriter contracts)
             bool needsPrice = criteria.MinimumAskingPrice is not null || criteria.MaximumAskingPrice is not null;
             if (needsPrice && player.DisplayAskingPrice is null) { unavailable.Add(player); continue; }
             if (needsPrice && (player.DisplayAskingPrice < criteria.MinimumAskingPrice || player.DisplayAskingPrice > criteria.MaximumAskingPrice)) continue;
-            bool needsContract = criteria.Type is not null || criteria.PlayingTime is not null || criteria.MinimumWage is not null || criteria.MaximumWage is not null || clauseCriteria.Count > 0;
+            bool needsContract = criteria.Type is not null || criteria.PlayingTime is not null || criteria.MinimumWage is not null || criteria.MaximumWage is not null || clauseCriteria.Count > 0 || criteria.LoanListed is not null;
             if (!needsContract) { matches.Add(player); continue; }
             if (player.Contract is null) { unavailable.Add(player); continue; }
             try
             {
                 var details = contracts.Read(player);
-                if (details is null || (criteria.Type is not null && details.Type is null) || (criteria.PlayingTime is not null && details.PlayingTime is null))
+                if (details is null || (criteria.Type is not null && details.Type is null) || (criteria.PlayingTime is not null && details.PlayingTime is null)
+                    || (criteria.LoanListed is not null && details.LoanListed is null))
                 {
                     unavailable.Add(player);
                     continue;
                 }
                 if (criteria.Type is { } type && details.Type != type) continue;
                 if (criteria.PlayingTime is { } playing && details.PlayingTime != playing) continue;
+                if (criteria.LoanListed is { } loan && details.LoanListed != loan) continue;
                 if (details.Wage < criteria.MinimumWage || details.Wage > criteria.MaximumWage) continue;
                 if (clauseCriteria.Count > 0)
                 {

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Clubs;
@@ -23,7 +23,7 @@ public sealed partial class MainWindow
 
         public OfferContractFields? Parse()
         {
-            if (!int.TryParse(Wages.Text, System.Globalization.NumberStyles.AllowThousands, Inv, out var w) || w < 0
+            if (!int.TryParse(Wages.Text, System.Globalization.NumberStyles.AllowThousands, Inv, out var w) || w is < 0 or > 3_500_000
                 || !DateSetting.TryParse(Started.Text, out var s)
                 || !DateSetting.TryParse(Expires.Text, out var e)
                 || e < s) return null;
@@ -108,6 +108,13 @@ public sealed partial class MainWindow
                 proposals = session.Profile.Proposals is null
                     ? []
                     : session.Proposals.Read(player).Where(p => TransferProposalReader.ShownByFmrte(p.Status)).ToList();
+                // An offer made after Load Game can live only in the heap: the cached map misses it. The player's
+                // id list still names it, so rescan once instead of showing an empty tab.
+                if (proposals.Count == 0 && session.Profile.Proposals is not null && HasOfferIds(player))
+                {
+                    session.Proposals.Refresh();
+                    proposals = session.Proposals.Read(player).Where(p => TransferProposalReader.ShownByFmrte(p.Status)).ToList();
+                }
                 contracts = session.Profile.FutureTransfers is null
                     ? new Dictionary<int, OfferContract>()
                     : session.FutureTransfers.OfferContracts(player);
@@ -310,7 +317,7 @@ public sealed partial class MainWindow
             var contractChanges = new List<(OfferContract Contract, OfferContractFields Fields)>();
             foreach (var e in editors.Where(e => e.Changed()))
             {
-                if (e.Parse() is not { } fields) { status.Text = "Contract: enter wages of 0 or more and dates like 2027-06-30, expiry after start"; return; }
+                if (e.Parse() is not { } fields) { status.Text = "Contract: enter wages from 0 to 3,500,000 and dates like 2027-06-30, expiry after start"; return; }
                 contractChanges.Add((e.Contract, fields));
             }
             try
@@ -387,35 +394,44 @@ public sealed partial class MainWindow
     Control ContractTabs(PlayerRecord player)
     {
         var session = backend.Session;
-        CurrentLoanInspection? loan = null;
-        try { loan = session.ReadCurrentLoan(player); } catch { }
-        bool onLoan = loan is { Status: CurrentLoanStatus.Present };
-
-        ulong future = 0;
-        if (session.Profile.FutureTransfers is not null && session.Profile.Proposals is not null)
+        var contractContent = ContractPanel(player);
+        var host = new ContentControl { Content = contractContent };
+        // The loan and future-contract tabs need the offer map, and resolving it is a heap scan (about ten seconds on the
+        // first use). Opening Contract must not wait for it: show the contract at once and add the extra tabs when the
+        // background read finds a loan or a future contract.
+        _ = Task.Run(() =>
         {
-            var contracts = session.FutureTransfers.OfferContracts(player);
-            future = session.FutureTransfers.Read(player, session.Proposals.Read(player))
-                .Select(t => contracts.GetValueOrDefault(t.Offer.Id)).FirstOrDefault(c => c is { Loan: false })?.Address ?? 0;
-        }
+            CurrentLoanInspection? loan = null;
+            try { loan = session.ReadCurrentLoan(player); } catch { }
+            bool onLoan = loan is { Status: CurrentLoanStatus.Present };
 
-        if (!onLoan && future == 0) return ContractPanel(player);
-
-        var tabList = new List<TabItem>();
-        if (onLoan)
-            tabList.Add(new TabItem { Header = "Loan", Content = LoanPanel(player, loan!) });
-
-        tabList.Add(new TabItem { Header = "Contract", Content = ContractPanel(player) });
-
-        if (future != 0)
-            tabList.Add(new TabItem { Header = "Future Contract", Content = ContractPanel(player, future) });
-
-        var tabs = new TabControl
+            ulong future = 0;
+            if (session.Profile.FutureTransfers is not null && session.Profile.Proposals is not null && HasOfferIds(player))
+            {
+                var contracts = session.FutureTransfers.OfferContracts(player);
+                future = session.FutureTransfers.Read(player, session.Proposals.Read(player))
+                    .Select(t => contracts.GetValueOrDefault(t.Offer.Id)).FirstOrDefault(c => c is { Loan: false })?.Address ?? 0;
+            }
+            return (loan, onLoan, future);
+        }).ContinueWith(t => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            ItemsSource = tabList,
-            SelectedIndex = 0,
-        };
-        return tabs;
+            if (t.IsFaulted || TopLevel.GetTopLevel(host) is null) return;
+            var (loan, onLoan, future) = t.Result;
+            if (!onLoan && future == 0) return;
+
+            var pages = new List<(string Title, Control Content)>();
+            if (onLoan && loan is not null)
+                pages.Add(("Loan", LoanPanel(player, loan)));
+
+            host.Content = null;
+            pages.Add(("Contract", contractContent));
+
+            if (future != 0)
+                pages.Add(("Future Contract", ContractPanel(player, future)));
+
+            host.Content = UiKit.OptionTabs(pages);
+        }));
+        return host;
     }
 
     /// <summary>Contract / Future Contract, kept across saves and player changes like the outer tab.</summary>
@@ -519,7 +535,7 @@ public sealed partial class MainWindow
                 if (v != t.Offer.Value) writes.Add(() => session.ProposalWriter.SetValue(t.Offer, v));
                 if (r.Contract is { } e && e.Changed())
                 {
-                    if (e.Parse() is not { } fields) { status.Text = "Contract: enter wages of 0 or more and dates like 2027-06-30, expiry after start"; return; }
+                    if (e.Parse() is not { } fields) { status.Text = "Contract: enter wages from 0 to 3,500,000 and dates like 2027-06-30, expiry after start"; return; }
                     writes.Add(() => session.FutureTransferWriter.SetContract(e.Contract, fields));
                 }
             }

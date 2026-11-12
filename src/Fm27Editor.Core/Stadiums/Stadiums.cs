@@ -16,7 +16,7 @@ public enum StadiumField
 {
     Capacity, SeatingCapacity, UsedCapacity, AllSeaterCapacity, ExpansionCapacity,
     BuildDate, RebuildDate, PitchLastRelaid, PitchRelayRequired,
-    PitchLength, PitchWidth, MinPitchLength, MinPitchWidth, MaxPitchLength, MaxPitchWidth,
+    PitchLength, PitchWidth, InternationalPitchLength, InternationalPitchWidth, MinPitchLength, MinPitchWidth, MaxPitchLength, MaxPitchWidth,
     PitchCondition, Decay, PitchRecoveryRate, PitchDeteriorationRate, Environment, OwnerType,
     /// <summary>Byte +0xAD, FMRTE's Pitch Type list order: 1 Grass … 8 Grass/Synthetic Mix.</summary>
     PitchType,
@@ -202,7 +202,10 @@ public sealed class StadiumWriter(IProcessMemory memory, OffsetProfile profile, 
         foreach (var (f, o) in S.Fields)
         {
             var b = new byte[ClubFieldAccess.Size(o.Type)];
-            if (memory.TryRead(stadium + (ulong)o.Path[^1], b)) values[f] = ClubFieldAccess.Decode(b, o);
+            if (!memory.TryRead(stadium + (ulong)o.Path[^1], b)) continue;
+            // FFFF is FMRTE's unticked International size box: no value, not 0 m.
+            if (f is StadiumField.InternationalPitchLength or StadiumField.InternationalPitchWidth && BitConverter.ToInt16(b) <= 0) continue;
+            values[f] = ClubFieldAccess.Decode(b, o);
         }
         return values;
     }

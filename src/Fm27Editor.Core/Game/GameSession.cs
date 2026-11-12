@@ -58,6 +58,12 @@ public sealed class GameSession : IDisposable
     public Presets.AcceleratedDevelopment AcceleratedDevelopment =>
         _accelerated ??= new(_memory, _memory.CanWrite ? _memory : null, Profile, Game.ModuleBase, Game.ModuleSize);
 
+    Presets.GoldenGenerationHook? _golden;
+
+    /// <summary>Golden Generation as a hook on the regen code; one instance per session so the located code site is reused.</summary>
+    public Presets.GoldenGenerationHook GoldenGenerationHook =>
+        _golden ??= new(_memory, _memory.CanWrite ? _memory : null, Profile, Game.ModuleBase, Game.ModuleSize);
+
     /// <summary>Current in-game date, read fresh on every call; null if unknown.</summary>
     public DateOnly? ReadGameDate() => GameClock.Read(_memory, Profile, Game.ModuleBase);
 
@@ -69,9 +75,20 @@ public sealed class GameSession : IDisposable
     public IReadOnlyList<Clubs.TransferClause> ReadTransferClauses(ulong clubAddress, IReadOnlyDictionary<int, CompetitionInfo>? competitions = null) =>
         (_clauseReader ??= new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase)).Read(clubAddress, competitions);
 
-    /// <summary>Every clause on 27.0.1+ (scanned), for the player screens that filter by player id.</summary>
-    public IReadOnlyList<Clubs.TransferClause> ReadAllTransferClauses(IReadOnlyDictionary<int, CompetitionInfo>? competitions = null) =>
-        (_clauseReader ??= new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase)).ReadAll(competitions);
+    /// <summary>
+    /// Every clause. 27.0.1+ reads each club's transfer-clause vector; builds whose profile still says
+    /// <c>scan</c> fall back to the one-off heap scan.
+    /// </summary>
+    public IReadOnlyList<Clubs.TransferClause> ReadAllTransferClauses(IReadOnlyDictionary<int, CompetitionInfo>? competitions = null)
+    {
+        var reader = _clauseReader ??= new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase);
+        if (Profile.Club?.TransferClauses is { Scan: false }) return reader.ReadAll(LoadClubs(Players.LoadAll()), competitions);
+        return reader.ReadAll(competitions);
+    }
+
+    /// <summary>Runs the clause heap scan once, so the first Contract card does not wait for it.</summary>
+    public void EnsureTransferClausesLoaded() =>
+        (_clauseReader ??= new Clubs.TransferClauseReader(_memory, Profile, Game.ModuleBase)).EnsureLoaded();
 
     IReadOnlyDictionary<int, CompetitionInfo>? _competitionList;
     readonly object _competitionListGate = new();
@@ -223,6 +240,21 @@ public sealed class GameSession : IDisposable
     public TransferProposalReader Proposals => _proposals ??= new(_memory, Profile, Game.ModuleBase);
     public TransferProposalWriter ProposalWriter => new(_memory, Profile, Game.ModuleBase);
 
+    /// <summary>
+    /// Seller acceptance by data, not by a code patch: writes FMRTE's status 5 (seller accepted) on the proposal.
+    /// Confirmed in FMRTE on 12/11: the deal word is game-owned and goes back to "Offer made", while status 5 holds.
+    /// </summary>
+    public void AcceptTransferOffer(PlayerRecord player, TransferProposal offer)
+    {
+        if (offer.Type != ProposalType.Transfer) throw new InvalidOperationException("Only a transfer offer has a seller acceptance");
+        ProposalWriter.SetStatus(offer, 5);
+    }
+
+    /// <summary>Youth candidates: one reader per session so its manager scan runs once; entries are revalidated on use.</summary>
+    Clubs.YouthCandidateReader? _youthCandidates;
+    public Clubs.YouthCandidateReader YouthCandidates => _youthCandidates ??= new(_memory, Profile, Game.ModuleBase);
+    public Clubs.YouthCandidateWriter YouthCandidateWriter => new(_memory, Profile, Game.ModuleBase);
+
     /// <summary>Contracts offered with transfer proposals, and future transfers (Confirmed offers with an agreed date).</summary>
     public FutureTransferReader FutureTransfers => new(_memory, Profile, Game.ModuleBase);
     public FutureTransferWriter FutureTransferWriter => new(_memory, Profile, Game.ModuleBase);
@@ -261,7 +293,9 @@ public sealed class GameSession : IDisposable
         new PlayerCloner(_memory, Profile, Game.ModuleBase).Clone(source, target, parts);
 
     /// <summary>National squads (Swap National Call Up).</summary>
-    public NationalCallUpReader CallUps => new(_memory, Profile, Game.ModuleBase);
+    /// <summary>One reader per session so the national-squad walk is cached; Invalidate after a swap.</summary>
+    NationalCallUpReader? _callUps;
+    public NationalCallUpReader CallUps => _callUps ??= new(_memory, Profile, Game.ModuleBase);
     public NationalCallUpWriter CallUpWriter => new(_memory, Profile, Game.ModuleBase);
 
     /// <summary>The full contract editor on a future transfer's contract (FMRTE's Future Contract tab).</summary>
@@ -370,6 +404,10 @@ public sealed class GameSession : IDisposable
         new UnhappinessReader(_memory, Profile, Game.ModuleBase).Read(player);
 
     /// <summary>Removes the active unhappiness motives (all when <paramref name="which"/> is null). Returns how many.</summary>
+    public void EditUnhappiness(PlayerRecord player, PlayerUnhappiness row, UnhappinessWriter.MotiveValues values) =>
+        new UnhappinessWriter(_memory, Profile, Game.ModuleBase).Edit(player, row, values);
+    public void AddUnhappiness(PlayerRecord player, UnhappinessWriter.MotiveValues values) =>
+        new UnhappinessWriter(_memory, Profile, Game.ModuleBase).Add(player, values, AllocateGameBlock);
     public int RemoveUnhappiness(PlayerRecord player, Func<PlayerUnhappiness, bool>? which = null) =>
         new UnhappinessWriter(_memory, Profile, Game.ModuleBase).RemoveActive(player,
             ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), which);
@@ -555,6 +593,7 @@ public sealed class GameSession : IDisposable
     public Transfer.SwapResult SwapPlayers(Players.PlayerRecord first, Players.PlayerRecord second) =>
         new Transfer.PlayerSwapService(_memory, Profile, Game.ModuleBase).Swap(first, second,
             () => Players.LoadAll(), () => LoadClubs(Players.LoadAll()), AllocateGameBlock);
+    public Clubs.RegionalDivisionWriter RegionalDivisionWriter => new(_memory, Profile);
     public Clubs.ClubSponsorWriter SponsorWriter => new(_memory, Profile, ModuleBase, AllocateGameBlock);
     public void SetSponsorTotal(ulong clubAddress, Clubs.ClubSponsorEntry entry, int value) =>
         SponsorWriter.SetTotal(clubAddress, entry, value);

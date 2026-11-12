@@ -210,6 +210,56 @@ public sealed class ForceAcceptPlanner(OffsetProfile profile, IProcessMemory mem
         return pending.Count;
     }
 
+    /// <summary>
+    /// Puts the original bytes back for a plan whose sites are all <see cref="ForceAcceptSiteState.AlreadyApplied"/>.
+    /// Every site is re-read and must still hold the replacement before the first write; a failure part-way puts back
+    /// what this call restored. The run is one history group, so one undo re-applies the preset if wanted.
+    /// </summary>
+    /// <param name="gamePaused">True only while the game is paused, for the same torn-instruction reason as <see cref="Apply"/>.</param>
+    /// <exception cref="InvalidOperationException">The game is running, or the plan is not <see cref="ForceAcceptPlanState.Active"/>.</exception>
+    /// <exception cref="StaleObjectException">A site no longer holds the replacement bytes; nothing was written.</exception>
+    /// <exception cref="MemoryAccessException">A site could not be read, written or read back; everything this call wrote was put back.</exception>
+    public int Restore(ForceAcceptPlan plan, bool gamePaused)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!gamePaused)
+            throw new InvalidOperationException("The force-accept presets are restored only while the game is paused");
+        if (plan.State != ForceAcceptPlanState.Active)
+            throw new InvalidOperationException($"The {plan.Preset} preset is {plan.State}: nothing was restored");
+        var sites = plan.Sites.Where(s => s.State == ForceAcceptSiteState.AlreadyApplied && s.Address is not null).ToList();
+
+        foreach (var site in sites)
+        {
+            var current = new byte[site.Replacement.Length];
+            if (!memory.TryRead(site.Address!.Value, current) || !current.AsSpan().SequenceEqual(site.Replacement))
+                throw new StaleObjectException($"{site.Key} no longer holds the replacement bytes: nothing was restored");
+        }
+
+        var restored = new List<ForceAcceptSitePlan>(sites.Count);
+        IDisposable? scope = journal?.Begin(JournalKind, Entity(plan.Preset), "Restore", Labels(sites));
+        try
+        {
+            foreach (var site in sites)
+            {
+                try
+                {
+                    CodePage.Write(memory, site.Address!.Value, site.Original);
+                    restored.Add(site);
+                    var readBack = new byte[site.Original.Length];
+                    if (!memory.TryRead(site.Address.Value, readBack) || !readBack.AsSpan().SequenceEqual(site.Original))
+                        throw new MemoryAccessException($"Read-back of {site.Key} failed");
+                }
+                catch
+                {
+                    foreach (var done in restored) CodePage.TryWrite(memory, done.Address!.Value, done.Replacement);
+                    throw;
+                }
+            }
+        }
+        finally { scope?.Dispose(); }
+        return sites.Count;
+    }
+
     /// <summary>The history group's entity: the preset's name as the history window shows it.</summary>
     static string Entity(ForceAcceptPreset preset) => preset switch
     {

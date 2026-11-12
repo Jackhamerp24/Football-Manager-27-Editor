@@ -69,6 +69,9 @@ public sealed class StaffDraft
         "CA" or "PA" => (1, 200),
         _ when key.StartsWith("mgr:", StringComparison.Ordinal) => (1, 100),
         _ when key.StartsWith("rep:", StringComparison.Ordinal) => (0, 10000),
+        "caps" or "goals" => (0, short.MaxValue),
+        "license" => (-7, 8),
+        _ when key.StartsWith("train:", StringComparison.Ordinal) => (0, 10),
         _ => (1, 20),
     };
 

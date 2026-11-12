@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -27,12 +27,12 @@ public sealed partial class MainWindow
         /// <summary>The fields as typed, or null with the problem in <paramref name="error"/>.</summary>
         public BanWriter.BanFields? Parse(int scopeFallback, int reasonFallback, out string error)
         {
-            error = "Unavailability: enter whole numbers, a date like 2026-11-25, 0–127 matches and a fulfilled count within that total";
+            error = "Unavailability: enter whole numbers, a date like 2026-11-25, 1 day or more, 0–127 matches and a fulfilled count within that total";
             int days = -1;
             if (!int.TryParse(Item.Text, out var item) || !int.TryParse(Points.Text, out var points) || (!string.IsNullOrWhiteSpace(Days.Text) && !int.TryParse(Days.Text, out days))
                 || !int.TryParse(Matches.Text, out var matches) || !int.TryParse(Fulfilled.Text, out var fulfilled)
                 || !DateSetting.TryParse(Start.Text, out var start)
-                || points is < 0 or > 127 || days is < -1 or > short.MaxValue || matches is < 0 or > 127 || fulfilled < 0 || fulfilled > matches)
+                || points is < 0 or > 127 || days is < 1 or > short.MaxValue || matches is < 0 or > 127 || fulfilled < 0 || fulfilled > matches)
                 return null;
             int scope = ScopeCode(scopeFallback);
             if (!(BanLabels.Scopes.FirstOrDefault(s => s.Code == scope)?.HasItem ?? true)) item = -1;

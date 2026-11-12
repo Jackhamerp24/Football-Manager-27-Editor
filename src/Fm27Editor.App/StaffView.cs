@@ -37,7 +37,7 @@ internal interface IStaffPanels
 }
 
 /// <summary>Staff: the list with club and job filters, and a tab per member with attributes, contract, knowledge and the rest.</summary>
-internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
+internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
     : EntityScreen<StaffRecord, StaffRow, StaffDraft>(host, "staff", "Staff", "staff", "Search staff name or ID...")
 {
     const string AllClubs = "All clubs", AllJobs = "All jobs";
@@ -194,6 +194,19 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
                 w.SetManagerAttribute(s, Enum.Parse<ManagerAttribute>(key[4..]), value);
             foreach (var (key, value) in v.Where(kv => kv.Key.StartsWith("pers:", StringComparison.Ordinal)))
                 w.SetPersonality(s, Enum.Parse<StaffPersonality>(key[5..]), value);
+            if (v.TryGetValue("caps", out int caps)) w.SetCaps(s, caps);
+            if (v.TryGetValue("goals", out int goals)) w.SetGoals(s, goals);
+            if (v.TryGetValue("license", out int license)) w.SetLicense(s, (StaffLicense)(sbyte)license);
+            foreach (var (key, value) in v.Where(kv => kv.Key.StartsWith("role:", StringComparison.Ordinal)))
+                w.SetRole(s, Enum.Parse<StaffRole>(key[5..]), value);
+            // Training ratings last, one category at a time on a fresh read: categories share Determination, Authority
+            // and Motivating, so each one is planned on what the previous one wrote (FMRTE's "Set to" rule).
+            foreach (var (key, half) in v.Where(kv => kv.Key.StartsWith("train:", StringComparison.Ordinal)))
+            {
+                var fresh = Host.Backend.Session.Staff.Reload(s.Address) ?? throw new Fm27Editor.Core.Players.StaleObjectException("Staff member is gone");
+                foreach (var change in StaffDetailsMassEdit.Training([fresh], Enum.Parse<TrainingCategory>(key[6..]), Fm27Editor.Core.Players.MassEditMode.Set, half / 2.0, w))
+                    StaffDetailsMassEdit.Apply(change, Host.Backend.Session.Staff);
+            }
             if (v.ContainsKey("CA") || v.ContainsKey("PA"))
                 w.SetAbility(s, v.GetValueOrDefault("CA", s.CurrentAbility), v.GetValueOrDefault("PA", s.PotentialAbility));
             if (v.Keys.Any(k => k.StartsWith("rep:", StringComparison.Ordinal)))
@@ -208,7 +221,7 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
     {
         TextBox Box(string key, string original, double width = 48)
         {
-            bool isRating20 = key.StartsWith("attr:", StringComparison.Ordinal) || key.StartsWith("pers:", StringComparison.Ordinal);
+            bool isRating20 = key.StartsWith("attr:", StringComparison.Ordinal) || key.StartsWith("pers:", StringComparison.Ordinal) || key.StartsWith("role:", StringComparison.Ordinal);
             var box = new TextBox
             {
                 Text = draft.Changes.GetValueOrDefault(key, original),
@@ -311,6 +324,8 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
         {
             var freeze = new Button { Content = "Freeze" };
             var unfreeze = new Button { Content = "Unfreeze" };
+            ToolTip.SetTip(freeze, "Keeps this staff member's attributes from changing while you play. Edits made here still apply.");
+            ToolTip.SetTip(unfreeze, "Lets this staff member's attributes change again.");
             freeze.Click += (_, _) =>
             {
                 try { Host.Backend.Edits.Execute(() => freezer.SetStaff(s, FrozenStaff.AllAttributes(s))); Host.SetStatus($"Frozen: {s.DisplayName}"); }
@@ -329,11 +344,34 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
         var col = new[] { new StackPanel { Spacing = 10 }, new StackPanel { Spacing = 10 }, new StackPanel { Spacing = 10 } };
         for (int i = 0; i < 3; i++) { Grid.SetColumn(col[i], i * 2); columns.Children.Add(col[i]); }
 
-        col[0].Children.Add(UiKit.Card("Information", Rows([
+        var info = new List<(string, Control)>
+        {
             ("Unique ID", Text(s.Id.ToString(Inv), "#F1F5F9")),
             ("Full Name", Text(s.FullName ?? "", "#F1F5F9", trim: true)),
             ("Born", Text(DateSetting.Format(s.DateOfBirth), "#F1F5F9")),
-        ])));
+        };
+        if (s.Caps is { } capsValue) info.Add(("Caps", Box("caps", capsValue.ToString(Inv), 58)));
+        if (s.Goals is { } goalsValue) info.Add(("Goals", Box("goals", goalsValue.ToString(Inv), 58)));
+        if (s.License is { } licenseValue) info.Add(("License", LicenseBox(licenseValue)));
+        col[0].Children.Add(UiKit.Card("Information", Rows(info)));
+
+        // FMRTE's licence dropdown; the draft keeps the chosen code like any other field.
+        ComboBox LicenseBox(StaffLicense current)
+        {
+            var options = StaffDetailsMassEdit.Licenses;
+            var box = new ComboBox { ItemsSource = options.Select(o => o.Name).ToList(), Width = 196, Height = 22, MinHeight = 22, FontSize = 12.5, Padding = new Thickness(6, 0) };
+            string original = ((int)current).ToString(Inv);
+            int at = Array.FindIndex(options, o => ((int)o.Value).ToString(Inv) == draft.Changes.GetValueOrDefault("license", original));
+            box.SelectedIndex = at;
+            box.SelectionChanged += (_, _) =>
+            {
+                if (box.SelectedIndex < 0) return;
+                string code = ((int)options[box.SelectedIndex].Value).ToString(Inv);
+                if (code == original) draft.Changes.Remove("license"); else draft.Changes["license"] = code;
+                changed();
+            };
+            return box;
+        }
         col[0].Children.Add(UiKit.Card("Ability", Rows([
             ("CA", Box("CA", s.CurrentAbility.ToString(Inv), 58)),
             ("PA", Box("PA", s.PotentialAbility.ToString(Inv), 58)),
@@ -348,6 +386,10 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
                 .Select(m => (m.Label, (Control)Box($"mgr:{m.Attribute}", mgr[(int)m.Attribute].ToString(Inv), 42))))));
         col[0].Children.Add(UiKit.Card("Personality", Rows(Enum.GetValues<StaffPersonality>()
             .Select(t => (t.ToString(), (Control)Box($"pers:{t}", s.Personality[(int)t].ToString(Inv)))))));
+
+        if (s.Roles is { } roles)
+            col[0].Children.Add(UiKit.Card("Roles", Rows(Enum.GetValues<StaffRole>().Where(r => (int)r < roles.Length)
+                .Select(r => (StaffDetailsMassEdit.RoleLabel(r), (Control)Box($"role:{r}", roles[(int)r].ToString(Inv)))))));
 
         int[] placement = [1, 2, 1, 1, 2, 2];
         for (int g = 0; g < StaffLabels.Groups.Length; g++)
@@ -367,6 +409,7 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
             new("Information", "Information", columns),
             new("Contract", "Contract", panels.Contract(s)),
             new("Career Plans", "Career Plans", panels.CareerPlans(s)),
+            new("Training Rating", "Training Rating", TrainingRatingCard(s, draft, changed)),
             new("Relationships", "Relationships", panels.Relationships(s)),
             new("Languages", "Languages", panels.Languages(s)),
             new("Knowledge", "Knowledge", panels.Knowledge(s)),
@@ -377,6 +420,54 @@ internal sealed class StaffScreen(IScreenHost host, IStaffPanels panels)
         var hostContent = SectionHost.Build("staff", sections, sectionKey, key => { sectionKey = key; EnsureMoveLoaded(); }, RailHost);
         EnsureMoveLoaded();
         Editor.Children.Add(hostContent);
+    }
+}
+
+internal sealed partial class StaffScreen
+{
+    /// <summary>
+    /// FMRTE's Training Rating tab: the eleven categories in stars (0-5, half steps), worked out from the coach's attributes
+    /// the way FMRTE does (<see cref="TrainingRatings"/>). Each one is a slider; saving sets every attribute in that
+    /// category's formula to stars × 4, as FMRTE does.
+    /// </summary>
+    static Control TrainingRatingCard(StaffRecord s, StaffDraft draft, Action changed)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var rows = Enum.GetValues<TrainingCategory>().Select(c =>
+        {
+            string key = $"train:{c}";
+            int original = (int)Math.Round(TrainingRatings.Stars(s, c) * 2);
+            int shown = draft.Changes.TryGetValue(key, out var text) && int.TryParse(text, inv, out int staged) ? staged : original;
+            var slider = new StarSlider(shown / 2.0) { HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(12, 0, 10, 0) };
+            var number = new TextBlock
+            {
+                Width = 30, FontSize = 13, FontWeight = FontWeight.Bold, TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            void Show(int half)
+            {
+                number.Text = (half / 2.0).ToString("0.0", inv);
+                number.Foreground = half == original ? MainWindow.RatingColor(half * 2) : UiKit.Brush("#F1F5F9");
+            }
+            Show(shown);
+            slider.ValueChanged += v =>
+            {
+                int half = (int)Math.Round(v * 2);
+                if (half == original) draft.Changes.Remove(key); else draft.Changes[key] = half.ToString(inv);
+                Show(half);
+                changed();
+            };
+            var line = new Grid { ColumnDefinitions = new ColumnDefinitions("210,*,Auto"), MinHeight = 28 };
+            var label = new TextBlock { Text = TrainingRatings.Label(c), FontSize = 13, Foreground = UiKit.Brush("#CBD5E1"), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(slider, 1); Grid.SetColumn(number, 2);
+            line.Children.Add(label); line.Children.Add(slider); line.Children.Add(number);
+            return (Control)line;
+        });
+        var card = MainWindow.AttributeCard("Training Rating", rows, rightHeader: UiKit.InfoBadge("How good this coach is at training each area, from 0 to 5 stars, based on his attributes. " +
+            "Changing a rating changes the attributes behind it, so other ratings can move too."));
+        card.MaxWidth = 720;
+        card.HorizontalAlignment = HorizontalAlignment.Left;
+        return card;
     }
 }
 

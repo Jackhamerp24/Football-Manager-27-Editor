@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Fm27Editor.Core.Nations;
 
 namespace Fm27Editor.App;
@@ -32,6 +32,7 @@ public sealed partial class MainWindow : IScreenHost
     EditorBackend IScreenHost.Backend => backend;
     GraphicsCatalog IScreenHost.Graphics => graphics;
     void IScreenHost.SetStatus(string text) => status.Text = text;
+    void IScreenHost.SetUnsaved(bool dirty) => SetActiveTabDirty(dirty);
 
     void IScreenHost.AddModule(string title, Control root, object navItem)
     {
@@ -58,14 +59,14 @@ public sealed partial class MainWindow : IScreenHost
     Task IScreenHost.OpenClubAsync(ulong address) => OpenPlayerClubAsync(address);
     void IScreenHost.OpenCity(ulong address)
     {
-        if (backend.Session.Cities.Read(address) is { } city) cityScreen.Pick(city); else status.Text = "City unavailable";
+        if (backend.Session.Cities.Read(address) is { } city) { openLinkedEntityInNewTab = true; cityScreen.Pick(city); } else status.Text = "City unavailable";
     }
     void IScreenHost.OpenStadium(ulong address)
     {
-        if (backend.Session.Stadiums.Reload(address) is { } stadium) stadiumScreen.Pick(stadium); else status.Text = "Stadium unavailable";
+        if (backend.Session.Stadiums.Reload(address) is { } stadium) { openLinkedEntityInNewTab = true; stadiumScreen.Pick(stadium); } else status.Text = "Stadium unavailable";
     }
     Avalonia.Controls.Window IScreenHost.Window => this;
-    void IScreenHost.OpenStaff(Fm27Editor.Core.Staff.StaffRecord staff) => OpenClubStaff(staff);
+    void IScreenHost.OpenStaff(Fm27Editor.Core.Staff.StaffRecord staff) { openLinkedEntityInNewTab = true; OpenClubStaff(staff); }
     IReadOnlyList<Fm27Editor.Core.Players.PlayerRecord> IScreenHost.Players() => Players();
     IReadOnlyList<Fm27Editor.Core.Clubs.ClubEntry> IScreenHost.Clubs() => clubCache ??= backend.Session.LoadClubs(Players());
     Control IScreenHost.BuildKits(ulong owner, IReadOnlyList<Fm27Editor.Core.Clubs.ClubKitItem> items, Action changed) => BuildKitsControl(owner, items, changed);

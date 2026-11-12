@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
@@ -25,14 +25,16 @@ internal sealed record CompetitionDraft(string? Reputation, string? Substitution
     IReadOnlyDictionary<int, string>? Positions = null,
     IReadOnlyDictionary<(int ClubId, CompetitionStandingField Field), string>? StandingPoints = null,
     byte? VarType = null, bool? VarTvOnly = null, bool? VarEnabled = null, string? VarFromDate = null,
-    IReadOnlyDictionary<int, string>? CommonRules = null, bool? ClassificationEnabled = null)
+    IReadOnlyDictionary<int, string>? CommonRules = null, bool? ClassificationEnabled = null,
+    byte? UsesExtraOfficials = null, byte? SeatedStadiumsOnly = null)
 {
     public static CompetitionDraft Empty { get; } = new(null, null, null, null, null, null, null, null);
 
     public bool Any => new[] { Reputation, SubstitutionRules, Foreground, Background, Trim, WinterBall, WinterBallStart, WinterBallEnd, PrizeWin, PrizeDraw, PrizeDefeat }
         .Any(v => v is not null) || Positions is { Count: > 0 } || StandingPoints is { Count: > 0 }
         || VarType is not null || VarTvOnly is not null || VarEnabled is not null || VarFromDate is not null
-        || CommonRules is { Count: > 0 } || ClassificationEnabled is not null;
+        || CommonRules is { Count: > 0 } || ClassificationEnabled is not null
+        || UsesExtraOfficials is not null || SeatedStadiumsOnly is not null;
 }
 
 /// <summary>
@@ -82,7 +84,7 @@ internal sealed class CompetitionScreen(IScreenHost host)
     {
         string label = CommonRuleLabels.TryGetValue(code, out var fmrte)
             ? fmrte
-            : CompetitionRuleNames.Name(code) ?? $"Rule 0x{code:X}";
+            : CompetitionRuleNames.Name(code) ?? $"Unnamed rule 0x{code:X3}";
         if (isMinimum == true && !label.StartsWith("Minimum", StringComparison.Ordinal)) label += " (min)";
         else if (isMinimum == false && !label.StartsWith("Maximum", StringComparison.Ordinal)) label += " (max)";
         return label;
@@ -99,13 +101,24 @@ internal sealed class CompetitionScreen(IScreenHost host)
         _ => $"condition {key}",
     };
 
-    /// <summary>Read-only detail rows; anything the reader could not validate reads as unknown.</summary>
-    static List<(string Label, Control Value)> DetailRows(CompetitionDetails d)
+    /// <summary>Detail rows; anything the reader could not validate reads as unknown. The two byte flags are editable.</summary>
+    List<(string Label, Control Value)> DetailRows(CompetitionDetails d, CompetitionState state, Action changed)
     {
+        Control Flag(byte? current, byte? staged, Action<byte?> set)
+        {
+            if (current is not { } value) return Text("Unknown", true);
+            var box = new CheckBox { IsChecked = (staged ?? value) != 0, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            box.IsCheckedChanged += (_, _) =>
+            {
+                byte v = (byte)(box.IsChecked == true ? 1 : 0);
+                set(v == value ? null : v);
+                changed();
+            };
+            return box;
+        }
         static TextBlock Text(string value, bool unknown = false) =>
             new() { Text = value, Foreground = unknown ? UiKit.TextSecondary : UiKit.Brush("#E2E8F0"), TextAlignment = TextAlignment.Right };
         static string YesNo(bool? value) => value is { } v ? (v ? "Yes" : "No") : "Unknown";
-        static bool? Flag(byte? value) => value is { } v ? v != 0 : null;
         string Position(short? value) =>
             value is null ? "Unknown" : value < 0 ? "Not available" : value.Value.ToString(Inv);
         return
@@ -117,8 +130,8 @@ internal sealed class CompetitionScreen(IScreenHost host)
             ("Lowest Official Category", Text(d.LowestOfficialCategoryName ?? "Unknown", d.LowestOfficialCategoryName is null)),
             ("Continental Position", Text(Position(d.ContinentalPosition), d.ContinentalPosition is null)),
             ("Last Continental Position", Text(Position(d.LastContinentalPosition), d.LastContinentalPosition is null)),
-            ("Uses Extra Officials", Text(YesNo(Flag(d.UsesExtraOfficials)), d.UsesExtraOfficials is null)),
-            ("Seated Stadiums Only", Text(YesNo(Flag(d.SeatedStadiumsOnly)), d.SeatedStadiumsOnly is null)),
+            ("Uses Extra Officials", Flag(d.UsesExtraOfficials, state.Draft.UsesExtraOfficials, v => state.Draft = state.Draft with { UsesExtraOfficials = v })),
+            ("Seated Stadiums Only", Flag(d.SeatedStadiumsOnly, state.Draft.SeatedStadiumsOnly, v => state.Draft = state.Draft with { SeatedStadiumsOnly = v })),
         ];
     }
 
@@ -409,7 +422,7 @@ internal sealed class CompetitionScreen(IScreenHost host)
         var overviewLeft = new StackPanel { Spacing = 12 };
         overviewLeft.Children.Add(CardRows("Competition", [("Reputation", reputation), ("Substitution Rules", subs)]));
         if (details is not null)
-            overviewLeft.Children.Add(CardRows("Details", DetailRows(details)));
+            overviewLeft.Children.Add(CardRows("Details", DetailRows(details, state, changed)));
         if (varSettings is not null)
             overviewLeft.Children.Add(CardRows("VAR Settings", [
                 ("Enable custom VAR settings", varEnabled!), ("VAR", varType!), ("From date", varFromDate!), ("VAR - TV Matches Only", varTvOnly!),
@@ -507,21 +520,21 @@ internal sealed class CompetitionScreen(IScreenHost host)
         if (primaryFields.Count > 0)
         {
             var squadCard = CardRows("Squad Registration", primaryFields);
-            squadCard.MaxWidth = 620;
+            squadCard.MaxWidth = 760;
             squadCard.HorizontalAlignment = HorizontalAlignment.Left;
             sections.Add(new("Squad Rules", "Squad Rules", squadCard));
         }
         if (matchFields.Count > 0)
         {
             var matchCard = CardRows("Match Rules", matchFields);
-            matchCard.MaxWidth = 620;
+            matchCard.MaxWidth = 760;
             matchCard.HorizontalAlignment = HorizontalAlignment.Left;
             sections.Add(new("Match Rules", "Match Rules", matchCard));
         }
         if (otherFields.Count > 0)
         {
             var otherCard = CardRows("Other Rules", otherFields);
-            otherCard.MaxWidth = 620;
+            otherCard.MaxWidth = 760;
             otherCard.HorizontalAlignment = HorizontalAlignment.Left;
             sections.Add(new("Other Rules", "Other Rules", otherCard));
         }
@@ -671,6 +684,9 @@ internal sealed class CompetitionScreen(IScreenHost host)
             if (!DateSetting.TryParse(dateText.Trim(), out var parsedDate)) return $"VAR date must be {DateSetting.Hint} or empty";
             varFromDate = parsedDate;
         }
+        var detailWrites = new List<Action<CompetitionDetails>>();
+        if (d.UsesExtraOfficials is { } extraOfficials) detailWrites.Add(snap => writer.SetUsesExtraOfficials(record, snap, extraOfficials));
+        if (d.SeatedStadiumsOnly is { } seatedOnly) detailWrites.Add(snap => writer.SetSeatedStadiumsOnly(record, snap, seatedOnly));
         var varEdits = new List<(CompetitionVarField Field, byte Value)>();
         if (d.VarType is { } vt) varEdits.Add((CompetitionVarField.Type, vt));
         if (d.VarTvOnly is { } tv) varEdits.Add((CompetitionVarField.TvOnly, tv ? (byte)1 : (byte)0));
@@ -689,6 +705,12 @@ internal sealed class CompetitionScreen(IScreenHost host)
             {
                 if (subs != c.SubstitutionRules) steps.Add($"substitution rules 0x{c.SubstitutionRules:X2} → 0x{subs:X2}");
                 writer.SetSubstitutionRules(c, subs);
+            }
+            if (detailWrites.Count > 0)
+            {
+                var snapshot = state.Details ?? throw new InvalidOperationException("Competition detail snapshot is unavailable");
+                foreach (var action in detailWrites) action(snapshot);
+                steps.Add("competition details");
             }
             foreach (var (argb, current, slot, name) in colours)
             {

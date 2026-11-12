@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Offsets;
 
@@ -8,6 +8,7 @@ public enum ClubSection
 {
     Information,
     Squads,
+    YouthIntake,
     Finances,
     Supporters,
     TacticalUnderstanding,
@@ -63,24 +64,42 @@ public static class ClubFieldInfo
         [16] = "Cannot sign attached players",
     };
 
+    // Codes for the next four lists were traced with Frida while FMRTE 27 saved each choice in turn on Manchester United
+    // (Steam 27.0.1, 13/11/2026); names and order are FMRTE's dropdowns. Man Utd was put back afterwards.
     public static IReadOnlyDictionary<long, string> OwnershipTypes { get; } = new Dictionary<long, string>
     {
-        [1] = "Limited Liability",
-        [3] = "Member-Owned",
+        [1] = "Limited Liability Company",
+        [2] = "Public Limited Company",
+        [3] = "Member-Owned (Elections/Ltd)",
+        [4] = "Member-Owned (No Elections/Ltd)",
+        [5] = "Consortium Private Limited",
+        [6] = "Consortium Public Limited",
+        [7] = "Member-Owned (Elections/PLC)",
+        [8] = "Member-Owned (No Elections/PLC)",
     };
 
     public static IReadOnlyDictionary<long, string> ChairpersonTitles { get; } = new Dictionary<long, string>
     {
         [1] = "Chairperson",
         [2] = "President",
+        [3] = "General Manager",
+        [4] = "Founder",
     };
 
     public static IReadOnlyDictionary<long, string> RichBenefactors { get; } = new Dictionary<long, string>
     {
         [0] = "None",
         [1] = "Foreground",
+        [2] = "Background",
         [3] = "Underwriter",
         [4] = "Underwriter (Expects Returns)",
+    };
+
+    public static IReadOnlyDictionary<long, string> ClubStatuses { get; } = new Dictionary<long, string>
+    {
+        [1] = "Professional",
+        [2] = "Semi Professional",
+        [3] = "Amateur",
     };
 
     public static string FormatEmbargoReason(long code) =>
@@ -153,6 +172,7 @@ public static class ClubFieldInfo
     [
         ClubSection.Information,
         ClubSection.Squads,
+        ClubSection.YouthIntake,
         .. TopLevelListSections.Where(s => s is not ClubSection.RegionalDivisions),
         ClubSection.RegionalDivisions,
         ClubSection.Finances,
@@ -174,6 +194,7 @@ public static class ClubFieldInfo
     {
         ClubSection.Information => "Information",
         ClubSection.Squads => "Squads",
+        ClubSection.YouthIntake => "Youth Intake",
         ClubSection.Finances => "Finances",
         ClubSection.Supporters => "Supporters",
         ClubSection.TacticalUnderstanding => "Tactical Understanding",
@@ -193,7 +214,7 @@ public static class ClubFieldInfo
     [
         // Information / Overview
         new(ClubField.YearFounded, "Year Founded", ClubSection.Information, "Overview", ClubDisplayKind.PlainInt, 0, 2300),
-        new(ClubField.Status, "Status", ClubSection.Information, "Overview", ClubDisplayKind.PlainInt, -128, 1000),
+        new(ClubField.Status, "Status", ClubSection.Information, "Overview", ClubDisplayKind.PlainInt, 1, 3, ClubStatuses),
         new(ClubField.ChairmanStatus, "Chairman Status", ClubSection.Information, "Overview", ClubDisplayKind.FormattedInt, 0, 10000),
         new(ClubField.Morale, "Morale", ClubSection.Information, "Overview", ClubDisplayKind.Rating20, 0, 20),
         new(ClubField.AverageAttendance, "Average Attendance", ClubSection.Information, "Overview", ClubDisplayKind.FormattedInt, 0, 1_000_000),

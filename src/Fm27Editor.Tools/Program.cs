@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Fm27Editor.Core.Discovery;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Competitions;
+using Fm27Editor.Core.ForceAccept;
 using Fm27Editor.Core.Game;
 using Fm27Editor.Core.MassEdit;
 using Fm27Editor.Core.Memory;
@@ -43,6 +44,7 @@ try
     {
         "status" => Status(),
         "accelerate" => AccelerateCli.Run(args[1..], Attach),
+        "golden" => GoldenCli.Run(args[1..], Attach),
         "players" => Players(args.Length > 1 ? string.Join(' ', args[1..]) : null),
         "healthplayers" => HealthPlayers(),
         "healthstructure" => HealthStructure(),
@@ -73,6 +75,9 @@ try
         "retirements" => Retirements(args[1..].Select(int.Parse).ToArray()),
         "keepplaying" => KeepPlaying(int.Parse(args[1]), args.Contains("--write")),
         "keepplayingbatch" => KeepPlayingBatch(args[1..]),
+        "forceaccept" => ForceAcceptCommand(args[1..]),
+        "forceacceptdeal" => ForceAcceptDealCommand(args[1..]),
+        "forceacceptoffer" => ForceAcceptOfferCommand(args[1..]),
         "captain" => CaptainCommand(args[1..]),
         "maxattrs" => MaxAttributesCommand(int.Parse(args[1]), args.Contains("--write")),
         "masswagecheck" => MassWageCheck(int.Parse(args[1]), args[2..].Select(int.Parse).ToArray()),
@@ -169,7 +174,7 @@ try
         "future" => FutureCommand(string.Join(" ", args[1..])),
         "future-create" => FutureCreateCommand(args[1..]),
         "untrained" => UntrainedCommand(args[1..]),
-        "proposalsurvey" => ProposalSurvey(),
+        "proposalsurvey" => ProposalSurvey(args[1..]),
             "proposalsurveyraw" => ProposalSurveyRaw(),
         "offerlist" => OfferList(args.Length > 1 ? string.Join(" ", args[1..]) : null),
         "careers" => CareersCommand(string.Join(" ", args[1..])),
@@ -4107,8 +4112,11 @@ int UntrainedCommand(string[] words)
     return removed ? 0 : 1;
 }
 
-int ProposalSurvey()
+// proposalsurvey [type] [--all]   counts by type/status; a type name lists every FMRTE-visible offer of that type
+int ProposalSurvey(string[] rest)
 {
+    bool all = rest.Contains("--all");
+    string? typeFilter = rest.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
     using var session = Attach(writable: false);
     if (session.Profile.Proposals is null) { Console.WriteLine("profile has no proposal offsets"); return 2; }
     int players = 0, proposals = 0;
@@ -4130,10 +4138,12 @@ int ProposalSurvey()
     {
         foreach (var x in session.Proposals.Read(p).Where(x => TransferProposalReader.ShownByFmrte(x.Status)))
         {
-            if (shown++ >= 10) break;
-            Console.WriteLine($"  shown: {p.DisplayName} {p.Id} {x.Type} {x.From} -> {x.To} fee {x.Value} status {ProposalStatusName(x.Status)}");
+            if (typeFilter is not null && !x.Type.ToString().Equals(typeFilter, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!all && shown >= 10) break;
+            shown++;
+            Console.WriteLine($"  shown: {p.DisplayName} {p.Id} {x.Type} {x.From} -> {x.To} fee {x.Value} status {ProposalStatusName(x.Status)} code {x.Status}");
         }
-        if (shown >= 10) break;
+        if (!all && shown >= 10) break;
     }
     Console.WriteLine($"{proposals} proposals for {players} players");
     foreach (var (k, n) in byStatus.OrderByDescending(kv => kv.Value)) Console.WriteLine($"{n,6} {k}");
@@ -7001,6 +7011,100 @@ int PermitsCommand(string[] rest)
 }
 
 // permitbatch <club name> <nation> [--write]   grant a work permit from <nation> to the club's first-team squad, then read every permit back
+int ForceAcceptCommand(string[] rest)
+{
+    string action = rest.Length > 0 ? rest[0].ToLowerInvariant() : "plan";
+    string presetName = rest.Length > 1 ? rest[1].ToLowerInvariant() : "transfer";
+    var preset = presetName switch
+    {
+        "board" => ForceAcceptPreset.BoardRequests,
+        "contract" => ForceAcceptPreset.ContractOffers,
+        "transfer" => ForceAcceptPreset.TransferOffers,
+        _ => Enum.Parse<ForceAcceptPreset>(presetName, true),
+    };
+    bool write = rest.Contains("--write", StringComparer.OrdinalIgnoreCase);
+    bool paused = rest.Contains("--paused", StringComparer.OrdinalIgnoreCase);
+    using var session = Attach(writable: write);
+    var planner = new ForceAcceptPlanner(session.Profile, session.Memory, session.Game.ModuleBase);
+    var plan = planner.Plan(preset);
+    Console.WriteLine($"{preset}: {plan.State}");
+    foreach (var site in plan.Sites)
+        Console.WriteLine($"  {site.Key}: {site.State} rva={(site.Rva is { } r ? $"0x{r:X}" : "-")} current={(site.Current is null ? "-" : Convert.ToHexString(site.Current))}");
+    if (action == "plan") return 0;
+    if (action is not ("apply" or "restore"))
+    {
+        Console.WriteLine("usage: forceaccept plan|apply|restore [board|contract|transfer] [--write --paused]");
+        return 2;
+    }
+    if (!write || !paused)
+    {
+        Console.WriteLine("apply/restore need --write --paused (only while the game is paused)");
+        return 2;
+    }
+    int changed = action == "apply" ? planner.Apply(plan, gamePaused: true) : planner.Restore(plan, gamePaused: true);
+    Console.WriteLine($"{action}: {changed} site(s)");
+    var after = planner.Plan(preset);
+    Console.WriteLine($"{preset}: {after.State}");
+    foreach (var site in after.Sites)
+        Console.WriteLine($"  {site.Key}: {site.State} current={(site.Current is null ? "-" : Convert.ToHexString(site.Current))}");
+    return 0;
+}
+
+int ForceAcceptDealCommand(string[] rest)
+{
+    bool write = rest.Contains("--write", StringComparer.OrdinalIgnoreCase);
+    string key = rest.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))
+        ?? throw new InvalidOperationException("usage: forceacceptdeal <player id|name> [--write]");
+    using var session = Attach(writable: write);
+    var matches = session.Players.LoadAll()
+        .Where(p => p.Id?.ToString() == key || string.Equals(p.DisplayName, key, StringComparison.OrdinalIgnoreCase))
+        .Take(2).ToList();
+    if (matches.Count != 1) throw new InvalidOperationException(matches.Count == 0 ? $"no player '{key}'" : $"player name '{key}' is ambiguous");
+    var player = matches[0];
+    var deal = session.TransferDeals.FindForPlayer(session.PersonOf(player))
+        ?? throw new InvalidOperationException($"{player.DisplayName} has no transfer deal");
+    Console.WriteLine($"{player.DisplayName}: deal 0x{deal.Address:X} status=0x{deal.StatusRaw:X} ({deal.Status}) fee={deal.Fee} " +
+        $"{session.TransferDeals.TeamName(deal.BuyingTeam)} <- {session.TransferDeals.TeamName(deal.SellingTeam)}");
+    if (!write)
+    {
+        Console.WriteLine("plan only; add --write to accept this deal (data write, no code patch)");
+        return 0;
+    }
+    if (!deal.IsOpen)
+        Console.WriteLine($"warning: deal is {deal.Status}; writing the accepted status anyway");
+    session.TransferDealWriter.AcceptOffer(deal);
+    var after = session.TransferDeals.Read(deal.Address) ?? throw new InvalidOperationException("deal disappeared");
+    Console.WriteLine($"after: status=0x{after.StatusRaw:X} ({after.Status}) accepted={after.IsAccepted}");
+    return 0;
+}
+
+int ForceAcceptOfferCommand(string[] rest)
+{
+    bool write = rest.Contains("--write", StringComparer.OrdinalIgnoreCase);
+    string key = rest.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))
+        ?? throw new InvalidOperationException("usage: forceacceptoffer <player id|name> [offer id] [--write]");
+    int? offerId = rest.Skip(1).Select(a => int.TryParse(a, out int n) ? n : (int?)null).FirstOrDefault(n => n is not null);
+    using var session = Attach(writable: write);
+    var matches = session.Players.LoadAll()
+        .Where(p => p.Id?.ToString() == key || string.Equals(p.DisplayName, key, StringComparison.OrdinalIgnoreCase))
+        .Take(2).ToList();
+    if (matches.Count != 1) throw new InvalidOperationException(matches.Count == 0 ? $"no player '{key}'" : $"player name '{key}' is ambiguous");
+    var player = matches[0];
+    var offers = session.Proposals.Read(player).Where(o => o.Type == ProposalType.Transfer).ToList();
+    var offer = offerId is { } id ? offers.FirstOrDefault(o => o.Id == id) : offers.FirstOrDefault();
+    if (offer is null) throw new InvalidOperationException($"{player.DisplayName} has no transfer offer{(offerId is { } x ? $" #{x}" : "")}");
+    Console.WriteLine($"{player.DisplayName}: offer #{offer.Id} {offer.From} -> {offer.To} fee={offer.Value} status={offer.Status}");
+    if (!write)
+    {
+        Console.WriteLine("plan only; add --write to set seller accepted (proposal status 5; data, no code patch)");
+        return 0;
+    }
+    session.AcceptTransferOffer(player, offer);
+    var after = session.Proposals.ReadOffer(offer.Address) ?? throw new InvalidOperationException("offer disappeared");
+    Console.WriteLine($"after: offer status={after.Status} (5 = seller accepted)");
+    return 0;
+}
+
 int PermitBatchCommand(string[] rest)
 {
     bool write = rest.Contains("--write", StringComparer.OrdinalIgnoreCase);

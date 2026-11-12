@@ -70,6 +70,8 @@ public static class ContractLabels
         PlayingTime.SquadPlayer2 => "Squad Player",
         PlayingTime.FringePlayer2 => "Fringe Player",
         PlayingTime.BTeamRegular => "B Team Regular",
+        PlayingTime.FirstChoiceGoalkeeper => "First-Choice Goalkeeper",
+        PlayingTime.CupGoalkeeper2 => "Cup Goalkeeper",
         _ => Spaced(value.ToString()),
     };
 
@@ -85,6 +87,25 @@ public static class ContractLabels
         _ => Spaced(kind.ToString()),
     };
 
+    /// <summary>
+    /// A clause's name; an appearance-fee record that counts league goals is a goals fee (FM: "Goals Money"). A counter the
+    /// editor has not identified keeps the appearance-fee name with its code.
+    /// </summary>
+    public static string Of(TransferClause c) => c.Kind != TransferClauseKind.AppearanceFee ? Of(c.Kind) : c.Condition switch
+    {
+        null or TransferClauseCondition.LeagueAppearances => "Appearance Fee",
+        TransferClauseCondition.LeagueGoals => "Goals Fee",
+        { } other => $"Appearance Fee (type {other})",
+    };
+
+    /// <summary>What an appearance-fee record counts: "apps", "goals", or "" when not identified.</summary>
+    public static string CountUnit(TransferClause c) => c.Condition switch
+    {
+        null or TransferClauseCondition.LeagueAppearances => "apps",
+        TransferClauseCondition.LeagueGoals => "goals",
+        _ => "",
+    };
+
     /// <summary>Amount column of a transfer clause; a sell-on is a percentage, not a sum.</summary>
     public static string Amount(TransferClause c) =>
         c.Kind == TransferClauseKind.SellOn ? $"{c.Percentage}%" : c.Amount?.ToString("N0", CultureInfo.InvariantCulture) ?? "";
@@ -92,7 +113,7 @@ public static class ContractLabels
     public static string Detail(TransferClause c) => c.Kind switch
     {
         TransferClauseKind.SellOn when c.SignedFor is { } f => $"signed for {f.ToString("N0", CultureInfo.InvariantCulture)}",
-        TransferClauseKind.AppearanceFee => $"{c.AppearancesSoFar} / {c.Appearances} apps",
+        TransferClauseKind.AppearanceFee => $"{c.AppearancesSoFar} / {c.Appearances} {CountUnit(c)}".TrimEnd(),
         TransferClauseKind.CompetitionBonus => string.Join("  ", new[]
         {
             Competition(c),

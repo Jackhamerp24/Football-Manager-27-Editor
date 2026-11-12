@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Offsets;
 
@@ -177,6 +177,20 @@ public sealed class ClubDraft(ulong clubAddress)
     }
 
     public long OriginalValue(ClubFieldTarget target) => snapshots[target];
+
+    /// <summary>The staged value when this field has an edit, otherwise the snapshot; null when the club has no such field.</summary>
+    public long? Current(ClubField field)
+    {
+        foreach (var (target, value) in changes) if (target.Field == field) return value;
+        foreach (var (target, value) in snapshots) if (target.Field == field) return value;
+        return null;
+    }
+
+    public bool IsChanged(ClubField field)
+    {
+        foreach (var target in changes.Keys) if (target.Field == field) return true;
+        return false;
+    }
 
     public long Value(ClubFieldTarget target) =>
         changes.TryGetValue(target, out long value) ? value : snapshots[target];

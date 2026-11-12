@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Fm27Editor.App;
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.History;
@@ -24,6 +24,7 @@ public sealed class GenderFilterTests
         public GraphicsCatalog Graphics { get; } = new();
         public string LastStatus { get; private set; } = "";
         public void SetStatus(string text) => LastStatus = text;
+    public void SetUnsaved(bool dirty) { }
         public void AddModule(string title, Control root, object navItem) { }
         public object? SelectedNav => null;
         public event EventHandler? NavChanged { add { } remove { } }

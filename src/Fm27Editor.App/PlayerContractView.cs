@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -68,6 +68,9 @@ public sealed partial class MainWindow
             if (value == original) draft.Changes.Remove(key); else draft.Changes[key] = value;
             if (save is not null) save.IsEnabled = draft.Changes.Count > 0;
             status.Text = draft.Changes.Count > 0 ? $"{draft.Changes.Count} unsaved contract change(s)" : "";
+            // The contract tab has no Save of its own (the shell's Save writes it), so it stars itself.
+            if (draft.Changes.Count > 0) SetActiveTabDirty(true);
+            MarkSection(player, "Contract", draft.Changes.Count > 0);
         }
         Control Text(string key, string original, double width = 140)
         {
@@ -99,21 +102,42 @@ public sealed partial class MainWindow
             combo.SelectionChanged += (_, _) => { if (combo.SelectedItem is EnumOption<T> o) Changed(key, original.ToString(), o.Value.ToString()); };
             return combo;
         }
+        // Loan Status is a single flag bit, not an enum: None and Not for Loan share the cleared bit and read back as None.
+        // Transfer and Loan Status: FMRTE's options, one status byte underneath (see ContractStatusFlags).
+        Control StatusChoice(string key, string original, string[] options)
+        {
+            var current = draft.Changes.TryGetValue(key, out var changed) && Array.IndexOf(options, changed) >= 0 ? changed : original;
+            var combo = new ComboBox { Width = 196, ItemsSource = options, SelectedItem = current };
+            combo.SelectionChanged += (_, _) => { if (combo.SelectedItem is string o) Changed(key, original, o); };
+            return combo;
+        }
+        Control RollingCheck(bool original)
+        {
+            bool current = draft.Changes.TryGetValue("On Rolling Contract", out var changed) ? changed == "true" : original;
+            var box = new CheckBox { IsChecked = current, VerticalAlignment = VerticalAlignment.Center };
+            box.IsCheckedChanged += (_, _) => Changed("On Rolling Contract", original ? "true" : "false", box.IsChecked == true ? "true" : "false");
+            return box;
+        }
 
         // Two columns of label + value using reusable OOP TwoColumnFormBuilder.
         var form = new UiKit.TwoColumnFormBuilder();
+        static TextBlock Unknown() => new() { Text = "Unknown", FontSize = 13, Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center };
         form.AddRow(0, "Type", s.Type is { } t ? Choice("Type", t, ContractLabels.Of, Enum.GetValues<ContractType>()) : null);
         form.AddRow(0, "Started", s.Started is not null || backend.Session.Profile.Contract?.Started is not null ? DateText("Started", D(s.Started)) : null);
         form.AddRow(0, "Signed", DateText("Signed", D(s.Signed)));
         form.AddRow(0, "Wages (per week)", Text("Wage", s.Wage.ToString(Inv)));
         form.AddRow(0, "Loyalty Bonus (per week)", s.LoyaltyBonus is { } lb ? Text("Loyalty Bonus", lb.ToString(Inv)) : null);
         form.AddRow(0, "Number", s.SquadNumber is { } n ? Text("Number", n < 0 ? "" : n.ToString(Inv), 64) : null);
+        form.AddRow(0, "Transfer Status", s.Transfer is { } tl ? StatusChoice("Transfer Status", TransferNames[(int)tl], TransferNames) : null);
+        form.AddRow(0, "Happiness", s.Happiness is { } h ? Text("Happiness", h.ToString(Inv), 64) : null);
+        form.AddRow(0, "On Rolling Contract", s.OnRollingContract is { } rolling ? RollingCheck(rolling) : null);
         form.AddRow(1, "Expires", DateText("Expires", D(s.Expires)));
         form.AddRow(1, "Joined Club", DateText("Joined Club", D(s.JoinedClub)));
         form.AddRow(1, "Agreed Playing Time", s.PlayingTime is { } pt ? Choice("Playing Time", pt, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null);
+        form.AddRow(1, "Previous Playing Time", s.PreviousPlayingTime is { } pp ? Choice("Previous Playing Time", pp, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null);
         form.AddRow(1, "Future Playing Time", s.FuturePlayingTime is { } fp ? Choice("Future Playing Time", fp, ContractLabels.Of, Enum.GetValues<PlayingTime>()) : null,
-            s.FuturePlayingTimeYear is { } fy ? Text("Future Year", ContractYearInput.Format(fy), 64) : null);
-        form.AddRow(1, "Happiness", s.Happiness is { } h ? Text("Happiness", h.ToString(Inv), 64) : null);
+            s.FuturePlayingTimeYear is { } fy && fy > 0 ? Text("Future Year", ContractYearInput.Format(fy), 64) : null);
+        form.AddRow(1, "Loan Status", s.Loan is { } ll ? StatusChoice("Loan Status", LoanNames[(int)ll], LoanNames) : null);
         form.AddRow(1, "Playing Time Happiness", s.PlayingTimeHappiness is { } ph ? Text("Playing Time Happiness", ph.ToString(Inv), 64) : null);
 
         panel.Children.Add(form.BuildCard("Contract Details"));
@@ -155,6 +179,12 @@ public sealed partial class MainWindow
             var addValue = new TextBox { Width = 116, Text = "", HorizontalContentAlignment = HorizontalAlignment.Right };
             var paramLabel = new TextBlock { FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8"), Width = 52 };
             var add = new Button { Content = "Add", IsEnabled = false };
+        static Control InColumn(Control c, int column, HorizontalAlignment align = HorizontalAlignment.Stretch)
+        {
+            c.HorizontalAlignment = align;
+            Grid.SetColumn(c, column);
+            return c;
+        }
             addType.SelectionChanged += (_, _) =>
             {
                 var type = (addType.SelectedItem as TermOption)?.Type;
@@ -179,11 +209,19 @@ public sealed partial class MainWindow
                 BorderBrush = UiKit.BorderSubtle,
                 BorderThickness = new Thickness(0, s.Terms.Count > 0 ? 1 : 0, 0, 0),
                 Padding = new Thickness(12, 10),
-                Child = new StackPanel
+                Child = new Grid
                 {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 8,
-                    Children = { addType, paramLabel, addParam, new TextBlock { Text = "Value", FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, addValue, add }
+                    ColumnDefinitions = new ColumnDefinitions("*,64,112,64,112,88"),
+                    ColumnSpacing = 8,
+                    Children =
+                    {
+                        InColumn(addType, 0),
+                        InColumn(paramLabel, 1, HorizontalAlignment.Right),
+                        InColumn(addParam, 2, HorizontalAlignment.Right),
+                        InColumn(new TextBlock { Text = "Value", FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#94A3B8") }, 3, HorizontalAlignment.Right),
+                        InColumn(addValue, 4, HorizontalAlignment.Right),
+                        InColumn(add, 5, HorizontalAlignment.Right),
+                    }
                 }
             };
             clauseStack.Children.Add(addBar);
@@ -215,9 +253,9 @@ public sealed partial class MainWindow
         }
         // 27.0.1+ finds clauses by scanning the game's heap (several seconds). Read them off the UI thread so opening
         // the Contract tab stays instant; the card fills in when the read finishes.
-        var players = Players();
         _ = Task.Run(() =>
         {
+            var players = Players();
             var competitions = backend.Session.LoadCompetitions(players);
             var scan = backend.Session.Profile.Club?.TransferClauses?.Scan == true;
             var clauses = (scan
@@ -246,7 +284,7 @@ public sealed partial class MainWindow
             {
                 int row = list.RowDefinitions.Count; list.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                 void Cell(Control control, int col) { control.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(control, row); Grid.SetColumn(control, col); list.Children.Add(control); }
-                Cell(Label(ContractLabels.Of(c.Kind), "#F1F5F9"), 0);
+                Cell(Label(ContractLabels.Of(c), "#F1F5F9"), 0);
                 Cell(Label(c.Beneficiary?.DisplayName ?? "", "#CBD5E1"), 1);
                 string main = ClauseKey(c, "main"), extra = ClauseKey(c, "extra");
                 switch (c.Kind)
@@ -258,8 +296,8 @@ public sealed partial class MainWindow
                     case TransferClauseKind.AppearanceFee:
                         Cell(text(main, $"{c.Amount}", 110), 2);
                         Control[] appItems = c.AppearancesSoFar is { } soFar
-                            ? [Label($"{soFar} /"), text(extra, $"{c.Appearances}", 52), Label("apps")]
-                            : [text(extra, $"{c.Appearances}", 52), Label("apps")];
+                            ? [Label($"{soFar} /"), text(extra, $"{c.Appearances}", 52), Label(ContractLabels.CountUnit(c))]
+                            : [text(extra, $"{c.Appearances}", 52), Label(ContractLabels.CountUnit(c))];
                         Cell(Line(appItems), 3);
                         break;
                     default:
@@ -270,7 +308,7 @@ public sealed partial class MainWindow
                 if (c.Origin is { } origin)
                 {
                     var removeClause = new Button { Content = "Remove" };
-                    string removed = $"{ContractLabels.Of(c.Kind)} removed";
+                    string removed = $"{ContractLabels.Of(c)} removed";
                     removeClause.Click += (_, _) => ClauseChange(player, draft, () => backend.Session.TransferClauses.RemoveClause(club.Address, c), removed);
                     Cell(removeClause, 4);
                 }
@@ -280,44 +318,125 @@ public sealed partial class MainWindow
         }
     }
 
-    /// <summary>Active unhappiness motives (as FMRTE lists them), each removable, plus Remove All. Null when there are none.</summary>
+    /// <summary>
+    /// Unhappiness as FMRTE shows it on the Contract tab: empty unless the player shows motives; each motive is a block with
+    /// Motive, Type, Start and End dates and, when the motive names someone, Person, each editable and removable; the +
+    /// in the header opens an empty block to add one, and Remove All clears them. Null only when the build has no offsets.
+    /// </summary>
     Control? UnhappinessPanel(PlayerRecord player)
     {
-        if (backend.Session.Profile.Unhappiness is null || backend.Session.ReadGameDate() is not { } today) return null;
-        var motives = backend.Session.ReadUnhappiness(player).Where(m => m.IsActive(today)).ToList();
-        if (motives.Count == 0) return null;
+        var session = backend.Session;
+        if (session.Profile.Unhappiness is null || session.ReadGameDate() is not { } today) return null;
+        var motives = session.ReadUnhappiness(player).Where(m => m.IsActive(today)).ToList();
+        var players = rows.OfType<PlayerRecord>().ToArray();
+        // A motive names its person by the game's person index (player + personIndex), not by the player id; the box
+        // shows and takes the player id, as the rest of the editor does.
+        PlayerRecord? ByIndex(int index) => index <= 0 ? null : players.FirstOrDefault(p => p.PersonIndex == index);
+        PlayerRecord? ById(int id) => id <= 0 ? null : players.FirstOrDefault(p => p.Id == id);
+        string PersonName(int id) => id <= 0 ? "" : ById(id)?.DisplayName ?? "";
+        var motiveCodes = UnhappinessMotives.All.OrderBy(m => m.Value.Name, StringComparer.OrdinalIgnoreCase).Select(m => m.Key).ToList();
 
-        TextBlock Label(string s, string color = "#94A3B8") => new() { Text = s, FontSize = 13, Foreground = Brush(color), VerticalAlignment = VerticalAlignment.Center };
-        void Remove(Func<PlayerUnhappiness, bool>? which, string done)
+        TextBlock Label(string text) => new() { Text = text, FontSize = 13, Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center, Width = 80 };
+        void Run(string what, Action action, string done)
         {
             try
             {
-                int n = 0;
-                backend.Edits.Execute("Player", player.DisplayName, "Page save", () => n = backend.Session.RemoveUnhappiness(player, which));
+                backend.Edits.Execute("Player", player.DisplayName, what, action);
                 RenderEditor();
-                status.Text = $"{done} ({n}). Continue in FM to see updates.";
+                status.Text = $"{done}. Continue in FM to see updates.";
             }
-            catch (Exception ex) { status.Text = ex.Message; }
+            catch (Exception ex) { status.Text = UserMessage.For(ex); }
         }
 
-        var list = new Grid { ColumnDefinitions = new ColumnDefinitions("*,110,90,90,Auto"), RowSpacing = 6, ColumnSpacing = 12, Margin = new Thickness(12, 10, 12, 8) };
+        // One motive block. Null motive/type = nothing chosen yet (a new block).
+        (StackPanel Block, Func<UnhappinessWriter.MotiveValues?> Read) Editor(short? motive, byte? type, DateOnly? start, DateOnly? end, int personIndex)
+        {
+            var known = ByIndex(personIndex);
+            int person = known?.Id ?? -1;
+            var codes = motive is { } m0 && !motiveCodes.Contains(m0) ? motiveCodes.Prepend(m0).ToList() : motiveCodes;
+            var motiveBox = new ComboBox { ItemsSource = codes.Select(UnhappinessLabels.Motive).ToList(), SelectedIndex = motive is { } m ? codes.IndexOf(m) : -1, MinWidth = 420, MaxDropDownHeight = 420 };
+            var typeCodes = UnhappinessLabels.TypeCodes.ToList();
+            if (type is { } t0 && !typeCodes.Contains(t0)) typeCodes.Add(t0);
+            var typeBox = new ComboBox { ItemsSource = typeCodes.Select(UnhappinessLabels.Type).ToList(), SelectedIndex = type is { } t ? typeCodes.IndexOf(t) : -1, MinWidth = 140 };
+            var startBox = new DateBox { Text = start is { } st ? D(st) : "", Width = 130 };
+            var endBox = new DateBox { Text = end is { } en ? D(en) : "", Width = 130 };
+            var personBox = new TextBox { Text = person > 0 ? person.ToString(CultureInfo.InvariantCulture) : "", Width = 110 };
+            var personName = new TextBlock { Text = known?.DisplayName ?? (personIndex > 0 ? $"person {personIndex}" : ""), FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            personBox.TextChanged += (_, _) => personName.Text = int.TryParse(personBox.Text, out int id) ? PersonName(id) : "";
+            var personRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Label("Person"), personBox, personName } };
+            void ShowPerson() => personRow.IsVisible = motiveBox.SelectedIndex >= 0 && UnhappinessLabels.NeedsPerson(codes[motiveBox.SelectedIndex]);
+            motiveBox.SelectionChanged += (_, _) => ShowPerson();
+            ShowPerson();
+            StackPanel Row(params Control[] c) { var r = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; foreach (var x in c) r.Children.Add(x); return r; }
+            var block = new StackPanel
+            {
+                Spacing = 6,
+                Children = { Row(Label("Motive"), motiveBox), Row(Label("Type"), typeBox), Row(Label("Start Date"), startBox, Label("End Date"), endBox), personRow },
+            };
+            UnhappinessWriter.MotiveValues? Values()
+            {
+                if (motiveBox.SelectedIndex < 0) { status.Text = "Choose a motive."; return null; }
+                if (typeBox.SelectedIndex < 0) { status.Text = "Choose a type."; return null; }
+                if (!DateSetting.TryParse(startBox.Text, out var s1)) { status.Text = $"Enter the start date as {DateSetting.Hint}."; return null; }
+                DateOnly? e1 = null;
+                if (!string.IsNullOrWhiteSpace(endBox.Text))
+                {
+                    if (!DateSetting.TryParse(endBox.Text, out var parsed)) { status.Text = $"Enter the end date as {DateSetting.Hint}, or leave it empty for none."; return null; }
+                    e1 = parsed;
+                }
+                int item1 = -1;
+                if (personRow.IsVisible && !string.IsNullOrWhiteSpace(personBox.Text))
+                {
+                    if (!int.TryParse(personBox.Text, out int personId)) { status.Text = "Enter the person's id as a number."; return null; }
+                    if (personId == person && known is null) item1 = personIndex;
+                    else if (ById(personId)?.PersonIndex is { } index) item1 = index;
+                    else { status.Text = "No player with that id in this list."; return null; }
+                }
+                else if (personRow.IsVisible && personBox.Text is null or "" && known is null && personIndex > 0) item1 = personIndex;
+                return new(codes[motiveBox.SelectedIndex], typeCodes[typeBox.SelectedIndex], s1, e1, personRow.IsVisible ? item1 : -1);
+            }
+            return (block, Values);
+        }
+
+        var list = new StackPanel { Spacing = 12, Margin = new Thickness(12, 10, 12, 8) };
         foreach (var m in motives)
         {
-            int row = list.RowDefinitions.Count; list.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            void Cell(Control control, int col) { control.HorizontalAlignment = HorizontalAlignment.Left; Grid.SetRow(control, row); Grid.SetColumn(control, col); list.Children.Add(control); }
-            Cell(Label(UnhappinessLabels.Motive(m.Motive), "#F1F5F9"), 0);
-            Cell(Label(UnhappinessLabels.Type(m.Type), "#CBD5E1"), 1);
-            Cell(Label(D(m.Start)), 2);
-            Cell(Label(m.End is { } e ? D(e) : ""), 3);
+            var (block, values) = Editor(m.Motive, m.Type, m.Start, m.End, m.Item1);
+            var row = m;
+            var save = new Button { Content = "Save" };
+            save.Click += (_, _) => { if (values() is { } v) Run("Unhappiness: edit", () => session.EditUnhappiness(player, row, v), "Unhappiness saved"); };
             var remove = new Button { Content = "Remove" };
             int index = m.Index;
-            remove.Click += (_, _) => Remove(x => x.Index == index, "Unhappiness removed");
-            Cell(remove, 4);
+            remove.Click += (_, _) => Run("Page save", () => session.RemoveUnhappiness(player, x => x.Index == index), "Unhappiness removed");
+            block.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, remove } } as Control);
+            list.Children.Add(block);
         }
-        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), MinHeight = 20, Height = 20, FontSize = 12 };
-        removeAll.Click += (_, _) => Remove(null, "Unhappiness removed");
-        return UiKit.Card("Unhappiness", list, rightHeader: removeAll);
+
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var addOpen = new Button { Content = "+", Padding = new Thickness(8, 1), MinHeight = 20, Height = 20, FontSize = 12 };
+        ToolTip.SetTip(addOpen, "Add a motive");
+        addOpen.Click += (_, _) =>
+        {
+            addOpen.IsEnabled = false;
+            var (block, values) = Editor(null, null, null, null, -1);
+            var add = new Button { Content = "Add" };
+            var cancel = new Button { Content = "Cancel" };
+            var holder = new StackPanel { Spacing = 6 };
+            add.Click += (_, _) => { if (values() is { } v) Run("Unhappiness: add", () => session.AddUnhappiness(player, v), "Unhappiness added"); };
+            cancel.Click += (_, _) => { list.Children.Remove(holder); addOpen.IsEnabled = true; };
+            holder.Children.Add(block);
+            holder.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { add, cancel } });
+            list.Children.Add(holder);
+        };
+        var removeAll = new Button { Content = "Remove All", Padding = new Thickness(8, 1), MinHeight = 20, Height = 20, FontSize = 12, IsVisible = motives.Count > 0 };
+        removeAll.Click += (_, _) => Run("Page save", () => session.RemoveUnhappiness(player, null), "Unhappiness removed");
+        header.Children.Add(removeAll);
+        header.Children.Add(addOpen);
+        return UiKit.Card("Unhappiness", list, rightHeader: header);
     }
+
+    static readonly string[] TransferNames = ["None", "Listed", "By request", "Not for Sale"];
+    static readonly string[] LoanNames = ["None", "Listed", "Not for Loan"];
 
     static string ClauseKey(TransferClause c, string part) => $"xfer {c.Address:X} {part}";
 
@@ -375,11 +494,25 @@ public sealed partial class MainWindow
             int Range(string x, int min, int max) { int n = Number(x); return n >= min && n <= max ? n : throw new ArgumentOutOfRangeException(nameof(x), $"Expected {min}-{max}"); }
             T EnumValue<T>(string x) where T : struct, Enum { if (!Enum.TryParse<T>(x, true, out var v) || !Enum.IsDefined(v)) throw new FormatException($"Invalid {typeof(T).Name}: {x}"); return v; }
             // Parse everything first, so a typo stops the save before anything is written.
-            Add("Wage", x => Range(x, 0, 10_000_000), x => c.SetWage(p, x)); Add("Expires", Date, x => c.SetExpiry(p, d, x));
+            Add("Wage", x => Range(x, 0, 3_500_000), x => c.SetWage(p, x));   // in-game editor: £0 to £3.5M Add("Expires", Date, x => c.SetExpiry(p, d, x));
             Add("Started", Date, x => c.SetStarted(p, d, x)); Add("Signed", Date, x => c.SetSigned(p, d, x)); Add("Joined Club", Date, x => c.SetJoinedClub(p, d, x));
             Add("Type", EnumValue<ContractType>, x => c.SetType(p, d, x));
             Add("Loyalty Bonus", x => Range(x, 0, 10_000_000), x => c.SetLoyaltyBonus(p, d, x)); Add("Number", x => string.IsNullOrWhiteSpace(x) ? -1 : Range(x, 0, 99), x => c.SetSquadNumber(p, d, x));
             Add("Playing Time", EnumValue<PlayingTime>, x => c.SetPlayingTime(p, d, x));
+            Add("Previous Playing Time", EnumValue<PlayingTime>, x => c.SetPreviousPlayingTime(p, d, x));
+            // Both statuses live in one byte: write them as one change from the byte read, so neither undoes the other.
+            if (draft.Changes.ContainsKey("Transfer Status") || draft.Changes.ContainsKey("Loan Status"))
+            {
+                var transfer = draft.Changes.TryGetValue("Transfer Status", out var tv) ? (TransferListing)Array.IndexOf(TransferNames, tv) : d.Transfer!.Value;
+                var loan = draft.Changes.TryGetValue("Loan Status", out var lv) ? (LoanListing)Array.IndexOf(LoanNames, lv) : d.Loan!.Value;
+                if ((int)transfer < 0 || (int)loan < 0) throw new FormatException("Invalid transfer or loan status");
+                actions.Add((["Transfer Status", "Loan Status"], () =>
+                {
+                    c.SetTransferListing(p, d, transfer);
+                    c.SetLoanListing(p, d with { StatusFlags = ContractStatusFlags.WithTransfer(d.StatusFlags!.Value, transfer) }, loan);
+                }));
+            }
+            Add("On Rolling Contract", x => x == "true", x => c.SetRollingContract(p, d, x));
             Add("Happiness", x => Range(x, -100, 100), x => c.SetHappiness(p, d, x)); Add("Playing Time Happiness", x => Range(x, -100, 100), x => c.SetPlayingTimeHappiness(p, d, x));
             if (draft.Changes.ContainsKey("Future Playing Time") || draft.Changes.ContainsKey("Future Year"))
             {
@@ -432,18 +565,11 @@ public sealed partial class MainWindow
             VerticalAlignment = VerticalAlignment.Center,
         });
 
-        var searchClub = new TextBox { Watermark = "Search destination club or ID…", HorizontalAlignment = HorizontalAlignment.Stretch };
-        var clubs = new ListBox
-        {
-            Height = 200,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Background = UiKit.SurfaceInput,
-            BorderBrush = UiKit.BorderControl,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3)
-        };
-        var teams = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        var fee = new NumericUpDown { Minimum = 0, Maximum = int.MaxValue, Value = 0, Increment = 100_000, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
+        ClubOption? chosenClub = null;
+        // One field for the whole destination: click it, choose the club in the search window, then its team.
+        var target = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose club and team…" };
+        TeamOption? chosenTeam = null;
+        var fee = new NumericUpDown { Minimum = 0, Maximum = 1_000_000_000, Value = 0, Increment = 100_000, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
         // Sell-on owed by the buyer to the seller on the next sale; 0 = none.
         var preview = new Grid { ColumnDefinitions = new ColumnDefinitions("114,*,*"), RowSpacing = 6, ColumnSpacing = 12 };
         var warning = new TextBlock { Foreground = Brush("#F59E0B"), FontSize = 13, TextWrapping = TextWrapping.Wrap, IsVisible = false };
@@ -463,14 +589,14 @@ public sealed partial class MainWindow
         var gameDate = backend.Session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
         var futureDate = new DateBox { Text = DateSetting.Format(gameDate.AddMonths(6)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
         FutureTransferCreator.Plan? futurePlan = null;
-        NumericUpDown Money(decimal increment) => new() { Minimum = 0, Maximum = int.MaxValue, Value = 0, Increment = increment, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var loanWage = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 100, Increment = 5, FormatString = "0'%'", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
+        NumericUpDown Money(decimal increment) => new() { Minimum = 0, Maximum = 1_000_000_000, Value = 0, Increment = increment, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var loanWage = new NumericUpDown { Minimum = 0, Maximum = 200, Value = 100, Increment = 5, FormatString = "0'%'", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
         var loanStart = new DateBox { Text = DateSetting.Format(gameDate), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
         var loanEnd = new DateBox { Text = DateSetting.Format(gameDate.AddYears(1)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
         var loanPrice = Money(100_000);
         var loanBuyBack = Money(100_000);
-        var loanMonthly = Money(1_000);
-        var loanAfter = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Increment = 1, FormatString = "0", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
+        var loanMonthly = Money(1_000); loanMonthly.Maximum = 10_000_000;   // in-game editor: £1-£10M
+        var loanAfter = new NumericUpDown { Minimum = 0, Maximum = 27, Value = 0, Increment = 1, FormatString = "0", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
         bool IsLoan() => type.SelectedIndex == 1;
         bool IsFuture() => canFuture && type.SelectedIndex == 0 && moveNow.IsChecked == false;
 
@@ -556,7 +682,7 @@ public sealed partial class MainWindow
         {
             try
             {
-                if (teams.SelectedItem is not TeamOption team) return;
+                if (chosenTeam is not { } team) return;
                 if (!DateBox.TryParse(loanStart.Text, out var start) || !DateBox.TryParse(loanEnd.Text, out var end))
                 { warning.Text = $"Enter the start and end dates as {DateSetting.Hint}"; warning.IsVisible = true; return; }
                 int contractWage = backend.Session.Contracts.Read(player)?.Wage ?? throw new InvalidOperationException("The player's contract can't be read");
@@ -581,7 +707,7 @@ public sealed partial class MainWindow
         {
             try
             {
-                if (teams.SelectedItem is not TeamOption team) return;
+                if (chosenTeam is not { } team) return;
                 if (!DateBox.TryParse(futureDate.Text, out var date))
                 { warning.Text = $"Enter the transfer date as {DateSetting.Hint}"; warning.IsVisible = true; return; }
                 var terms = ReadTerms();
@@ -606,7 +732,7 @@ public sealed partial class MainWindow
                 warning.IsVisible = true;
                 return;
             }
-            if (clubs.SelectedItem is not ClubOption chosen) return;
+            if (chosenClub is not { } chosen) return;
             if (IsLoan()) { PreviewLoan(chosen); return; }
             if (IsFuture()) { PreviewFuture(chosen); return; }
             try
@@ -614,7 +740,7 @@ public sealed partial class MainWindow
                 var now = ReadTerms();
                 if (now.Instalments + now.LeagueApps + now.InternationalApps + now.PerLeagueApp + now.LeagueGoals + now.BuyBackFee + now.WageContribution > 0 || now.Friendly || now.SellOnProfit)
                 { warning.Text = "Move now supports only the Sell-on percentage. Untick Move now to use the other terms."; warning.IsVisible = true; return; }
-                plan = backend.Session.Transfers.Plan(player, all, chosen.Club, (int)(fee.Value ?? 0), (teams.SelectedItem as TeamOption)?.Team);
+                plan = backend.Session.Transfers.Plan(player, all, chosen.Club, (int)(fee.Value ?? 0), chosenTeam?.Team);
                 int head = Row();
                 Cell(plan.Seller.DisplayName, head, 1, true); Cell(plan.Buyer.DisplayName, head, 2, true);
                 string Money(byte[] b) => BitConverter.ToInt32(b).ToString("N0", Inv);
@@ -651,32 +777,37 @@ public sealed partial class MainWindow
         }
         void FilterClubs()
         {
-            var q = searchClub.Text?.Trim() ?? "";
-            var compare = CultureInfo.InvariantCulture.CompareInfo;
             if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women)
             {
-                clubs.ItemsSource = Array.Empty<ClubOption>();
-                Invalidate();
+                chosenClub = null;
                 warning.Text = "Only male players and men's clubs are supported.";
                 warning.IsVisible = true;
-                return;
             }
-            clubs.ItemsSource = (q.Length == 0 ? all : all.Where(c => compare.IndexOf(c.DisplayName, q, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0
-                                                                  || compare.IndexOf(c.Name ?? "", q, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0
-                                                                  || c.Id?.ToString(Inv) == q))
-                .Where(c => c.FirstTeam is not null && c.Address != player.Club?.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women)
-                .OrderBy(c => c.DisplayName).Take(200).Select(c => new ClubOption(c)).ToArray();
             Invalidate();
         }
-        searchClub.TextChanged += (_, _) => FilterClubs();
-        clubs.SelectionChanged += (_, _) =>
+        void SelectTarget(ClubOption club, TeamOption? team)
         {
-            var club = (clubs.SelectedItem as ClubOption)?.Club;
-            var options = club?.Teams.OrderByDescending(t => t.IsFirstTeam).Select((t, i) => new TeamOption(t, i)).ToArray();
-            teams.ItemsSource = options; teams.SelectedIndex = options is { Length: > 0 } ? 0 : -1;
+            chosenClub = club;
+            chosenTeam = team;
+            target.Content = team is null ? club.Club.DisplayName : $"{club.Club.DisplayName} — {team.TeamName}";
             Preview();
+        }
+        target.Click += async (_, _) =>
+        {
+            if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women) return;
+            var clubs = all.Where(c => c.FirstTeam is not null && c.Address != player.Club?.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women)
+                .OrderBy(c => c.DisplayName).Select(c => new ClubOption(c)).ToList();
+            var chosen = await PickerDialog.Show<ClubOption>(this, "Choose destination club", q => clubs.Where(o => PickerSearch.Hit(q, o.Club.DisplayName, o.Club.ShortName, o.Club.Id)).Select(o => (o.Club.DisplayName, o)).ToList());
+            if (chosen is null) return;
+            var options = chosen.Club.Teams.OrderByDescending(t => t.IsFirstTeam).Select((t, i) => new TeamOption(t, i)).ToList();
+            TeamOption? team = options.FirstOrDefault();
+            if (options.Count > 1)
+            {
+                team = await PickerDialog.Show<TeamOption>(this, "Choose team", q => options.Where(o => PickerSearch.Hit(q, o.TeamName)).Select(o => (o.TeamName, o)).ToList());
+                if (team is null) return;
+            }
+            SelectTarget(chosen, team);
         };
-        teams.SelectionChanged += (_, _) => Preview();
         fee.ValueChanged += (_, _) => Preview();
         loanWage.ValueChanged += (_, _) => Preview();
         loanPrice.ValueChanged += (_, _) => Preview();
@@ -712,8 +843,19 @@ public sealed partial class MainWindow
         }
         moveNow.IsCheckedChanged += (_, _) => { ShowRows(); Preview(); };
         type.SelectionChanged += (_, _) => { ShowRows(); Preview(); };
-        apply.Click += (_, _) =>
+        apply.Click += async (_, _) =>
         {
+            // Tell the player what is missing in plain words before anything is written.
+            if (chosenClub is null)
+            {
+                await NoticeDialog.Show(this, "Where should the player go?", "Choose the club and team the player should join, then select the confirm button again.");
+                return;
+            }
+            if (chosenTeam is null)
+            {
+                await NoticeDialog.Show(this, "Which team?", "This club has more than one team. Choose the team the player should join, then try again.");
+                return;
+            }
             if (loanPlan is { } loan)
             {
                 try
@@ -724,7 +866,7 @@ public sealed partial class MainWindow
                 clubCache = null; contractDrafts.Remove(player.Address);
                 selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
                 RenderEditor();
-                status.Text = $"Loaned to {(clubs.SelectedItem as ClubOption)?.Club.DisplayName}. Continue in FM to see it.";
+                status.Text = $"Loaned to {chosenClub?.Club.DisplayName}. Continue in FM to see it.";
                 return;
             }
             if (futurePlan is { } future)
@@ -737,7 +879,7 @@ public sealed partial class MainWindow
                 clubCache = null; contractDrafts.Remove(player.Address);
                 selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
                 pendingSection = "Contract"; RenderEditor();
-                status.Text = $"Future transfer to {(clubs.SelectedItem as ClubOption)?.Club.DisplayName} on {DateSetting.Format(future.Date)} created. Continue in FM to see it.";
+                status.Text = $"Future transfer to {chosenClub?.Club.DisplayName} on {DateSetting.Format(future.Date)} created. Continue in FM to see it.";
                 return;
             }
             if (plan is null) return;
@@ -778,9 +920,7 @@ public sealed partial class MainWindow
 
         var formStack = new StackPanel { Spacing = 8, Margin = new Thickness(12, 10) };
         formStack.Children.Add(from);
-        formStack.Children.Add(searchClub);
-        formStack.Children.Add(clubs);
-        formStack.Children.Add(Labeled("Team", teams));
+        formStack.Children.Add(Labeled("Team", target));
         formStack.Children.Add(Labeled("Type", type));
         formStack.Children.Add(moveNowRow);
         formStack.Children.Add(feeRow);
@@ -813,5 +953,5 @@ public sealed partial class MainWindow
     sealed record EnumOption<T>(T Value, string Label) { public override string ToString() => Label; }
     sealed record TermOption(short Type, string Label) { public override string ToString() => Label; }
     sealed record ClubOption(ClubEntry Club) { public override string ToString() => $"{Club.DisplayName}   {Club.Id}"; }
-    sealed record TeamOption(TeamEntry Team, int Index) { public override string ToString() => $"{(Team.IsFirstTeam ? "First team" : $"Team {Index + 1}")}   {Team.SquadCount}/{Team.SquadCapacity}"; }
+    sealed record TeamOption(TeamEntry Team, int Index) { public string TeamName => Team.IsFirstTeam ? "First team" : $"Team {Index + 1}"; public override string ToString() => $"{TeamName}   {Team.SquadCount}/{Team.SquadCapacity}"; }
 }

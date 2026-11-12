@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
@@ -165,8 +165,7 @@ internal sealed class CityScreen(IScreenHost host)
         string title = link switch { CityLink.Region => "Change Local Region", CityLink.Language => "Change Language", _ => "Change Weather" };
         var target = await PickerDialog.Show(Host.Window, title, q =>
         {
-            string folded = Fold(q);
-            return catalogue.Where(t => Fold(t.Name).Contains(folded, StringComparison.Ordinal)).Take(200).Select(t => (t.Name, t)).ToList();
+            return catalogue.Where(t => PickerSearch.Hit(q, t.Name)).Take(200).Select(t => (t.Name, t)).ToList();
         });
         return target?.Address;
     }

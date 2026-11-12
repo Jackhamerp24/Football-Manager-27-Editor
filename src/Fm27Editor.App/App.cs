@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
@@ -18,6 +18,8 @@ public sealed class App : Application
     {
         AppTheme.Load();
         Fm27Editor.Core.Settings.DateSetting.Load();
+        Fm27Editor.Core.Settings.CurrencySetting.Load();
+        Fm27Editor.Core.Settings.GameCurrency.TryApply();
         RequestedThemeVariant = AppTheme.Variant;
         Styles.Add(new FluentTheme());
         Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://Avalonia.Controls.DataGrid")) { Source = new Uri("avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml") });
@@ -33,6 +35,14 @@ public sealed class App : Application
             if (control.Watermark?.StartsWith("Search", StringComparison.OrdinalIgnoreCase) == true) return;
             TopLevel.GetTopLevel(control)?.FocusManager?.ClearFocus();
             e.Handled = true;
+        }, RoutingStrategies.Bubble);
+        // Every window except the editor itself is a dialog: Escape closes it. Bubble, so a combo box or
+        // menu inside the dialog closes its own popup first.
+        InputElement.KeyDownEvent.AddClassHandler<Window>((window, e) =>
+        {
+            if (e.Handled || e.Key != Key.Escape || e.KeyModifiers != KeyModifiers.None || window is MainWindow) return;
+            e.Handled = true;
+            window.Close();
         }, RoutingStrategies.Bubble);
         TemplatedControl.TemplateAppliedEvent.AddClassHandler<DataGridColumnHeader>((header, _) =>
         {

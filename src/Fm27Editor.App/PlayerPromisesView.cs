@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -83,8 +83,7 @@ public sealed partial class MainWindow
 
         Task<(string Name, int Id)?> ChooseCompetition() => PickerDialog.Show(this, "Search Competitions", q =>
         {
-            string folded = Fold(q);
-            return Competitions().Where(c => c.Name is not null && Fold(c.Name).Contains(folded, StringComparison.Ordinal)).Take(200)
+            return Competitions().Where(c => c.Name is not null && PickerSearch.Hit(q, c.Name)).Take(200)
                 .Select(c => (c.Name!, (object)c.Index)).ToList();
         }).ContinueWith(t => t.Result is int index ? ((string, int)?)(CompetitionName(index), index) : null);
 
@@ -92,7 +91,7 @@ public sealed partial class MainWindow
         {
             string folded = Fold(q);
             var found = new List<(string, object)>();
-            foreach (var (index, name) in PersonNames()) if (Fold(name).Contains(folded, StringComparison.Ordinal)) { found.Add((name, (int)index)); if (found.Count >= 200) break; }
+            foreach (var (index, name) in PersonNames()) if (PickerSearch.Hit(q, name)) { found.Add((name, (int)index)); if (found.Count >= 200) break; }
             return found;
         }).ContinueWith(t => t.Result is int index ? ((string, int)?)(PersonName(index), index) : null);
 
@@ -208,7 +207,7 @@ public sealed partial class MainWindow
 
     static Control PlayingTimeBox(PromiseEditor e, Action refresh)
     {
-        var values = Enum.GetValues<PlayingTime>().Where(v => v != PlayingTime.Unset).ToArray();
+        var values = Enum.GetValues<PlayingTime>().Where(v => v != PlayingTime.Unset && v <= PlayingTime.BTeamRegular).ToArray();
         var box = new ComboBox { ItemsSource = values.Select(ContractLabels.Of).ToArray(), MinWidth = 220 };
         box.SelectedIndex = Array.IndexOf(values, (PlayingTime)Math.Clamp(e.Parameter0, 0, 255));
         box.SelectionChanged += (_, _) => { if (box.SelectedIndex >= 0) { e.Parameter0 = (int)values[box.SelectedIndex]; refresh(); } };

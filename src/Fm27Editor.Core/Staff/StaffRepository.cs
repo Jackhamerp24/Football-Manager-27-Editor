@@ -38,6 +38,13 @@ public sealed record StaffRecord
     public byte[]? ManagerAttributes { get; init; }
 
     public int Attribute(StaffAttribute a) => Attributes[(int)a];
+    /// <summary>Null when this build or staff kind has no measured offset.</summary>
+    public short? Caps { get; init; }
+    public short? Goals { get; init; }
+    public StaffLicense? License { get; init; }
+    /// <summary>Address of the 15 role ratings and their values, in <see cref="StaffRole"/> order; null when unknown.</summary>
+    public ulong RolesAddress { get; init; }
+    public byte[]? Roles { get; init; }
 }
 
 public sealed class StaffRepository(IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
@@ -113,6 +120,18 @@ public sealed class StaffRepository(IProcessMemory memory, OffsetProfile profile
             }
         }
         int day = BitConverter.ToUInt16(p, s.DateOfBirth) & 0x1FF, year = BitConverter.ToInt16(p, s.DateOfBirth + 2);
+        var details = s.PersonDetails is { } d && moduleBase + d.PersonVtableRva == vt ? d : null;
+        // Caps, goals, licence and the roles pointer sit past the main person read; read them only for the measured kind.
+        int extraEnd = details is null ? 0 : new[] { details.Caps + 2, details.Goals + 2, details.License + 1, details.Roles + 8 }.Max();
+        var extra = new byte[extraEnd];
+        if (details is not null && !memory.TryRead(person, extra)) details = null;
+        ulong rolesAddress = details is null ? 0 : BitConverter.ToUInt64(extra, details.Roles);
+        byte[]? roles = null;
+        if (rolesAddress != 0)
+        {
+            var r = new byte[Enum.GetValues<StaffRole>().Length];
+            if (memory.TryRead(rolesAddress, r) && r.All(b => b is >= 1 and <= 20)) roles = r; else rolesAddress = 0;
+        }
         return new StaffRecord
         {
             Address = person,
@@ -138,6 +157,11 @@ public sealed class StaffRepository(IProcessMemory memory, OffsetProfile profile
             Personality = p[s.Personality..(s.Personality + 8)],
             Kind = kind,
             ManagerAttributes = manager,
+            Caps = details is null ? null : BitConverter.ToInt16(extra, details.Caps),
+            Goals = details is null ? null : BitConverter.ToInt16(extra, details.Goals),
+            License = details is null ? null : (StaffLicense)(sbyte)extra[details.License],
+            RolesAddress = rolesAddress,
+            Roles = roles,
         };
     }
 
@@ -238,6 +262,63 @@ public sealed class StaffWriter(IProcessMemory memory, OffsetProfile profile, ul
             throw new InvalidOperationException($"{staff.DisplayName} is not a human manager");
         if (value is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(value), "Manager attributes are 1–100");
         Write(staff, staff.StaffAddress + (ulong)off, [current[(int)attribute]], [(byte)value]);
+    }
+
+    StaffPersonDetails Details(StaffRecord staff) =>
+        S.PersonDetails is { } d && staff.Caps is not null ? d : throw new InvalidOperationException("Caps, goals and licence are not measured for this staff kind on this build");
+
+    public void SetCaps(StaffRecord staff, int value)
+    {
+        if (value is < 0 or > short.MaxValue) throw new ArgumentOutOfRangeException(nameof(value));
+        Write(staff, staff.Address + (ulong)Details(staff).Caps, BitConverter.GetBytes(staff.Caps!.Value), BitConverter.GetBytes((short)value));
+    }
+
+    public void SetGoals(StaffRecord staff, int value)
+    {
+        if (value is < 0 or > short.MaxValue) throw new ArgumentOutOfRangeException(nameof(value));
+        Write(staff, staff.Address + (ulong)Details(staff).Goals, BitConverter.GetBytes(staff.Goals!.Value), BitConverter.GetBytes((short)value));
+    }
+
+    public void SetLicense(StaffRecord staff, StaffLicense value)
+    {
+        if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+        Write(staff, staff.Address + (ulong)Details(staff).License, [(byte)(sbyte)staff.License!.Value], [(byte)(sbyte)value]);
+    }
+
+    public void SetRole(StaffRecord staff, StaffRole role, int value)
+    {
+        if (value is < 1 or > 20) throw new ArgumentOutOfRangeException(nameof(value));
+        if (staff.Roles is not { } roles || staff.RolesAddress == 0) throw new InvalidOperationException("Role ratings are not readable for this staff member");
+        Details(staff);
+        if (memory.ReadUInt64(staff.Address + (ulong)S.PersonDetails!.Roles) != staff.RolesAddress)
+            throw new StaleObjectException("Role ratings moved since they were read");
+        Write(staff, staff.RolesAddress + (ulong)(int)role, [roles[(int)role]], [(byte)value]);
+    }
+
+    /// <summary>Date of birth, day of year in the low 9 bits (the bits above are kept) and the year after it.</summary>
+    public void SetDateOfBirth(StaffRecord staff, DateOnly date)
+    {
+        if (date.Year is <= 1900 or >= 2300) throw new ArgumentOutOfRangeException(nameof(date));
+        ulong at = staff.Address + (ulong)S.DateOfBirth;
+        var before = memory.Read(at, 4);
+        ushort word = (ushort)((BitConverter.ToUInt16(before) & ~0x1FF) | date.DayOfYear);
+        byte[] after = [.. BitConverter.GetBytes(word), .. BitConverter.GetBytes((short)date.Year)];
+        if (staff.DateOfBirth is not { } known || (BitConverter.ToUInt16(before) & 0x1FF) != known.DayOfYear || BitConverter.ToInt16(before, 2) != known.Year)
+            throw new StaleObjectException("Date of birth changed since it was read");
+        Write(staff, at, before, after);
+    }
+
+    /// <summary>Points the staff member at another nation object (the same pointer the editor reads the nationality from).</summary>
+    public void SetNationality(StaffRecord staff, ulong nation)
+    {
+        if (nation == 0) throw new ArgumentOutOfRangeException(nameof(nation));
+        var nationOffsets = profile.Nation ?? throw new InvalidOperationException("Profile has no nation offsets");
+        if (memory.ReadUInt64(nation) != moduleBase + nationOffsets.VtableRva) throw new StaleObjectException("The nation object changed since it was read");
+        ulong at = staff.Address + (ulong)S.Nation;
+        var before = memory.Read(at, 8);
+        if (staff.Nationality is { } n && BitConverter.ToUInt64(before) != n.Address)
+            throw new StaleObjectException("Nationality changed since it was read");
+        Write(staff, at, before, BitConverter.GetBytes(nation));
     }
 
     void Write(StaffRecord staff, ulong address, byte[] expected, byte[] value)

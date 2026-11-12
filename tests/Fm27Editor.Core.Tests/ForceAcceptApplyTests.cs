@@ -74,6 +74,33 @@ public class ForceAcceptApplyTests
     }
 
     [Fact]
+    public void Restore_writes_the_original_bytes_back()
+    {
+        var memory = BoardMemory();
+        var planner = new ForceAcceptPlanner(ProfileWith(AllRvas), memory, Base);
+        var plan = planner.Plan(ForceAcceptPreset.BoardRequests);
+        planner.Apply(plan, gamePaused: true);
+
+        int restored = planner.Restore(planner.Plan(ForceAcceptPreset.BoardRequests), gamePaused: true);
+
+        Assert.Equal(2, restored);
+        Assert.Equal(Gate1Original, memory.Read(Base + GeneralRequestsRva, Gate1Original.Length));
+        Assert.Equal(Gate2Original, memory.Read(Base + ClubVisionRva, Gate2Original.Length));
+        Assert.Equal(ForceAcceptPlanState.Appliable, planner.Plan(ForceAcceptPreset.BoardRequests).State);
+    }
+
+    [Fact]
+    public void Restore_refuses_a_plan_that_is_not_active()
+    {
+        var memory = BoardMemory();
+        var planner = new ForceAcceptPlanner(ProfileWith(AllRvas), memory, Base);
+        var plan = planner.Plan(ForceAcceptPreset.BoardRequests);
+
+        Assert.Throws<InvalidOperationException>(() => planner.Restore(plan, gamePaused: true));
+        Assert.Equal(0, memory.Writes);
+    }
+
+    [Fact]
     public void Apply_refuses_a_blocked_plan_and_writes_nothing()
     {
         var memory = new FakeMemory();

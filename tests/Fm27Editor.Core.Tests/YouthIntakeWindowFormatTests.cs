@@ -1,0 +1,95 @@
+using Fm27Editor.Core.Clubs;
+
+namespace Fm27Editor.Core.Tests;
+
+/// <summary>The usual intake window recurs every season, so it is shown as day and month only, for every nation in the table.</summary>
+public class YouthIntakeWindowFormatTests
+{
+    [Fact]
+    public void England_is_shown_without_a_year()
+    {
+        Assert.Equal("14 Mar – 31 Mar", YouthIntakeWindows.FormatUsual(YouthIntakeWindows.UsualFor("England")!));
+    }
+
+    [Theory]
+    [InlineData("Austria")]
+    [InlineData("Albania")]
+    [InlineData("Andorra")]
+    [InlineData("Azerbaijan")]
+    [InlineData("Belarus")]
+    [InlineData("Belgium")]
+    [InlineData("Bosnia & Herzegovina")]
+    [InlineData("Bulgaria")]
+    [InlineData("Croatia")]
+    [InlineData("Czech Rep.")]
+    [InlineData("Cyprus")]
+    [InlineData("Denmark")]
+    [InlineData("England")]
+    [InlineData("Finland")]
+    [InlineData("Faroe Islands")]
+    [InlineData("France")]
+    [InlineData("Germany")]
+    [InlineData("Greece")]
+    [InlineData("Gibraltar")]
+    [InlineData("Holland")]
+    [InlineData("Hungary")]
+    [InlineData("Iceland")]
+    [InlineData("Ireland")]
+    [InlineData("Israel")]
+    [InlineData("Italy")]
+    [InlineData("Kosovo")]
+    [InlineData("Latvia")]
+    [InlineData("Lithuania")]
+    [InlineData("Luxembourg")]
+    [InlineData("Malta")]
+    [InlineData("Montenegro")]
+    [InlineData("N. Ireland")]
+    [InlineData("North Macedonia")]
+    [InlineData("Norway")]
+    [InlineData("Poland")]
+    [InlineData("Portugal")]
+    [InlineData("Romania")]
+    [InlineData("Russia")]
+    [InlineData("San Marino")]
+    [InlineData("Scotland")]
+    [InlineData("Serbia")]
+    [InlineData("Slovakia")]
+    [InlineData("Slovenia")]
+    [InlineData("Spain")]
+    [InlineData("Sweden")]
+    [InlineData("Switzerland")]
+    [InlineData("Türkiye")]
+    [InlineData("Ukraine")]
+    [InlineData("Wales")]
+    [InlineData("Argentina")]
+    [InlineData("Bolivia")]
+    [InlineData("Brazil")]
+    [InlineData("Chile")]
+    [InlineData("Colombia")]
+    [InlineData("Ecuador")]
+    [InlineData("Paraguay")]
+    [InlineData("Peru")]
+    [InlineData("Uruguay")]
+    [InlineData("Venezuela")]
+    [InlineData("Canada")]
+    [InlineData("Costa Rica")]
+    [InlineData("Mexico")]
+    [InlineData("U.S.A")]
+    [InlineData("South Africa")]
+    [InlineData("Australia")]
+    [InlineData("India")]
+    [InlineData("Indonesia")]
+    [InlineData("Japan")]
+    [InlineData("South Korea")]
+    [InlineData("Northern Ireland")]
+    [InlineData("Czech Republic")]
+    [InlineData("Czechia")]
+    [InlineData("USA")]
+    [InlineData("United States")]
+    [InlineData("Turkey")]
+    public void No_nation_shows_a_year(string nation)
+    {
+        string text = YouthIntakeWindows.FormatUsual(YouthIntakeWindows.UsualFor(nation)!);
+        Assert.DoesNotMatch(@"\d{4}", text);
+    }
+}

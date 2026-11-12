@@ -7,6 +7,7 @@ using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Players;
 using Fm27Editor.Core.Staff;
+using Fm27Editor.Core.Stadiums;
 
 namespace Fm27Editor.App;
 
@@ -20,9 +21,9 @@ internal sealed partial class MassEditWindow : Window
 
     enum Kind
     {
-        PlayerAttribute, PlayerQuality, PlayerPersonality, PlayerPosition, PlayerWage, PlayerField, PlayerScalar,
-        StaffField, StaffAttribute, StaffPersonality, StaffWage,
-        ClubField, NationField,
+        PlayerAttribute, PlayerQuality, PlayerPersonality, PlayerPosition, PlayerWage, PlayerField, PlayerScalar, PlayerDetail,
+        StaffField, StaffAttribute, StaffPersonality, StaffWage, StaffDetail,
+        ClubField, NationField, StadiumField,
     }
 
     sealed record InjuryChoice(InjuryType? Type) { public override string ToString() => Type?.Name ?? "Don't change"; }
@@ -30,7 +31,8 @@ internal sealed partial class MassEditWindow : Window
     /// <summary>A field row's values copied on the window thread, so a plan can be built in the background without touching controls.</summary>
     sealed record FieldInput(Kind Kind, int Index, string Label, long Min, long Max, int ModeIndex, long Number);
 
-    sealed class FieldRow(Kind kind, int index, string group, string label, long min, long max, ComboBox mode, NumericUpDown value, IReadOnlyList<int>? codes = null)
+    sealed class FieldRow(Kind kind, int index, string group, string label, long min, long max, ComboBox mode, Control valueControl,
+        Func<long> readValue, Action resetValue)
     {
         public Kind Kind { get; } = kind;
         public int Index { get; } = index;
@@ -39,11 +41,10 @@ internal sealed partial class MassEditWindow : Window
         public long Min { get; } = min;
         public long Max { get; } = max;
         public ComboBox Mode { get; } = mode;
-        public NumericUpDown Value { get; } = value;
-        /// <summary>For a field with named values (Hair Colour, Yes / No): the dropdown lists "Don't change" then the names, and picking one sets that code.</summary>
-        public int ModeIndex => codes is null ? Mode.SelectedIndex : Mode.SelectedIndex <= 0 ? ModeNone : ModeSet;
-        public long Number => codes is null ? (long)(Value.Value ?? 0) : Mode.SelectedIndex > 0 ? codes[Mode.SelectedIndex - 1] : 0;
-        public void Reset() { Mode.SelectedIndex = ModeNone; Value.Value = Min; }
+        public Control ValueControl { get; } = valueControl;
+        public int ModeIndex => Mode.SelectedIndex;
+        public long Number => readValue();
+        public void Reset() { Mode.SelectedIndex = ModeNone; resetValue(); }
     }
 
     readonly MainWindow host;
@@ -87,6 +88,9 @@ internal sealed partial class MassEditWindow : Window
         BuildScopes();
         Content = BuildLayout();
         ShowScope("Player");
+        // Advanced Search needs every player, nation and club; read them once in the background so "Choose who to
+        // edit" opens at once instead of re-reading the whole save on every click.
+        if (backend.State.Status == ConnectionStatus.Connected) searchData = Task.Run(LoadSearchData);
         Clear();
         Closed += (_, _) => host.MassEditClosed(this);
         UpdateTarget();
@@ -97,7 +101,13 @@ internal sealed partial class MassEditWindow : Window
         var top = new DockPanel { LastChildFill = true, Margin = new Thickness(12, 10, 12, 6) };
         var label = new TextBlock { Text = "Apply to", Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
         ToolTip.SetTip(choose, "Pick targets with Advanced Search; the result becomes the batch for the current scope.");
-        choose.Click += (_, _) => _ = ChooseTargetsAsync();
+        choose.Click += async (_, _) =>
+        {
+            if (choosingTargets) return;           // one picker at a time, even while its list is still loading
+            choosingTargets = true;
+            try { await ChooseTargetsAsync(); }
+            finally { choosingTargets = false; }
+        };
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { label, target, choose } };
         top.Children.Add(row);
 
@@ -163,16 +173,20 @@ internal sealed partial class MassEditWindow : Window
 
     static Control ScopePanel(IReadOnlyList<(string Section, Control Panel)> sections)
     {
-        var list = new ListBox { Width = 150, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(6, 8) };
+        var list = new ListBox { Width = 170, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(6, 8) };
         list.ItemsSource = sections.Select(s => s.Section).ToArray();
-        var scroll = new ScrollViewer { Content = sections[0].Panel, Padding = new Thickness(14, 8, 14, 8), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        var panel = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
+        // Padding sits on the content, not on the ScrollViewer: Avalonia leaves ScrollViewer padding out of the scroll
+        // extent, which cut the last rows off every long section.
+        static Control Padded(Control content) => new Border { Padding = new Thickness(14, 8, 26, 24), Child = content };
+        var wrapped = sections.Select(x => Padded(x.Panel)).ToArray();
+        var scroll = new ScrollViewer { Content = wrapped[0], HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var panel = new Grid { ColumnDefinitions = new ColumnDefinitions("170,*") };
         Grid.SetColumn(scroll, 1);
         panel.Children.Add(list); panel.Children.Add(scroll);
         list.Tag = sections;
         list.SelectionChanged += (_, _) =>
         {
-            if (list.SelectedIndex >= 0 && list.SelectedIndex < sections.Count) scroll.Content = sections[list.SelectedIndex].Panel;
+            if (list.SelectedIndex >= 0 && list.SelectedIndex < sections.Count) { scroll.Content = wrapped[list.SelectedIndex]; scroll.Offset = default; }
         };
         list.SelectedIndex = 0;
         return panel;
@@ -181,50 +195,47 @@ internal sealed partial class MassEditWindow : Window
     IReadOnlyList<(string, Control)> BuildPlayerSections()
     {
         var sections = new List<(string, Control)>();
+        // FMRTE's order: Personal Details, Reputation, Ability.
         var general = Panel();
-        AddHeader(general, "Ability");
-        Add(general, Kind.PlayerQuality, (int)PlayerQuality.CurrentAbility, "Ability", "Current Ability", 1, 200);
-        Add(general, Kind.PlayerQuality, (int)PlayerQuality.PotentialAbility, "Ability", "Potential Ability", 1, 200);
-        AddCheck(general, "Match CA to PA", out _);
-        AddHeader(general, "Reputation");
-        Add(general, Kind.PlayerQuality, (int)PlayerQuality.HomeReputation, "Reputation", "Home", 0, 10000);
-        Add(general, Kind.PlayerQuality, (int)PlayerQuality.CurrentReputation, "Reputation", "Current", 0, 10000);
-        Add(general, Kind.PlayerQuality, (int)PlayerQuality.WorldReputation, "Reputation", "World", 0, 10000);
         AddHeader(general, "Personal Details");
-        Add(general, Kind.PlayerQuality, (int)PlayerQuality.Height, "Personal Details", "Height (cm)", 100, 250);
+        Add(general, Kind.PlayerDetail, DetailAge, "Personal Details", "Age", 14, 100);
+        AddNationSelect(general, Kind.PlayerDetail);
         AddChoice(general, Kind.PlayerField, (int)PlayerField.HairColour, "Personal Details", "Hair Colour", InformationLabels.HairColours);
         AddChoice(general, Kind.PlayerField, (int)PlayerField.HairLength, "Personal Details", "Hair Length", InformationLabels.HairLengths);
         AddChoice(general, Kind.PlayerField, (int)PlayerField.SkinColour, "Personal Details", "Skin Colour", InformationLabels.SkinColours);
         AddChoice(general, Kind.PlayerField, (int)PlayerField.Ethnicity, "Personal Details", "Ethnicity", InformationLabels.Ethnicities);
         Add(general, Kind.PlayerField, (int)PlayerField.Caps, "Personal Details", "Caps", 0, 10000);
         Add(general, Kind.PlayerField, (int)PlayerField.InternationalGoals, "Personal Details", "Goals", 0, 10000);
+        Add(general, Kind.PlayerQuality, (int)PlayerQuality.Height, "Personal Details", "Height (cm)", 100, 250);
         AddChoice(general, Kind.PlayerField, (int)PlayerField.TreatedAsNonEuInItaly, "Personal Details", "Treated As Non-EU In Italy", [(1, "Yes"), (0, "No")]);
+        AddHeader(general, "Reputation");
+        Add(general, Kind.PlayerQuality, (int)PlayerQuality.HomeReputation, "Reputation", "Home", 0, 10000);
+        Add(general, Kind.PlayerQuality, (int)PlayerQuality.CurrentReputation, "Reputation", "Current", 0, 10000);
+        Add(general, Kind.PlayerQuality, (int)PlayerQuality.WorldReputation, "Reputation", "World", 0, 10000);
+        AddHeader(general, "Ability");
+        Add(general, Kind.PlayerQuality, (int)PlayerQuality.CurrentAbility, "Ability", "Current Ability", 1, 200);
+        Add(general, Kind.PlayerQuality, (int)PlayerQuality.PotentialAbility, "Ability", "Potential Ability", 1, 200);
+        AddCheck(general, "Match CA to PA", out _);
         sections.Add(("General", general));
 
         var contract = Panel();
         AddHeader(contract, "Contract Details");
-        contractStatus = new ComboBox { ItemsSource = new[] { "Unset", "Expired", "Expiring in 6 Months", "Expiring in 1 Year" }, SelectedIndex = 0, Width = 200, FontSize = 12.5 };
-        contractStatus.SelectionChanged += (_, _) => MarkDirty();
-        contract.Children.Add(Labeled("Contract", contractStatus));
-        contractType = new ComboBox { ItemsSource = new[] { "Unset", "Part-Time", "Full-Time", "Amateur", "Youth", "Non-Contract" }, SelectedIndex = 0, Width = 200, FontSize = 12.5 };
+        contractType = new ComboBox { ItemsSource = new[] { "Unset", "Part-Time", "Full-Time", "Amateur", "Youth", "Non-Contract" }, SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
         contractType.SelectionChanged += (_, _) => MarkDirty();
         contract.Children.Add(Labeled("Type", contractType));
-        Add(contract, Kind.PlayerField, (int)PlayerField.AskingPrice, "Contract", "Asking Price", 0, 2_000_000_000);
-        Add(contract, Kind.PlayerWage, 0, "Contract", "Wages", 0, 10_000_000);
+        contractStatus = new ComboBox { ItemsSource = new[] { "Unset", "Expired", "Expiring in 6 Months", "Expiring in 1 Year" }, SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        contractStatus.SelectionChanged += (_, _) => MarkDirty();
+        contract.Children.Add(Labeled("Contract", contractStatus));
+        Add(contract, Kind.PlayerField, (int)PlayerField.AskingPrice, "Contract", "Asking Price", 0, int.MaxValue);   // FMRTE shows £2,147,483,647
+        Add(contract, Kind.PlayerWage, 0, "Contract", "Wages", 0, 3_500_000);
 
         AddHeader(contract, "Release clause");
-        clauseType = new ComboBox { ItemsSource = new[] { "Don't change" }.Concat(ReleaseClauses.Select(c => ContractLabels.Term(c))).ToArray(), SelectedIndex = 0, Width = 260, FontSize = 12.5 };
+        clauseType = new ComboBox { ItemsSource = new[] { "Don't change" }.Concat(ReleaseClauses.Select(c => ContractLabels.Term(c))).ToArray(), SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
         clauseType.SelectionChanged += (_, _) => MarkDirty();
-        clauseFee = new NumericUpDown { Minimum = 0, Maximum = 2_000_000_000, Increment = 1, Value = 0, Width = 150, FontSize = 12.5, FormatString = "0" };
+        clauseFee = new NumericUpDown { Minimum = 0, Maximum = 2_000_000_000, Increment = 1, Value = 0, FontSize = 12.5, FormatString = "0", HorizontalAlignment = HorizontalAlignment.Stretch };
         clauseFee.ValueChanged += (_, _) => MarkDirty();
-        var clauseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(4, 2) };
-        clauseRow.Children.Add(new TextBlock { Text = "Release clause", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
-        clauseRow.Children.Add(clauseType);
-        contract.Children.Add(clauseRow);
-        var feeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(4, 2) };
-        feeRow.Children.Add(new TextBlock { Text = "Release clause fee", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
-        feeRow.Children.Add(clauseFee);
-        contract.Children.Add(feeRow);
+        contract.Children.Add(Labeled("Release clause", clauseType));
+        contract.Children.Add(Labeled("Release clause fee", clauseFee));
         removeClause = new CheckBox { Content = "Remove release clause", FontSize = 12.5, Margin = new Thickness(4, 4, 0, 2) };
         removeClause.IsCheckedChanged += (_, _) => MarkDirty();
         contract.Children.Add(removeClause);
@@ -234,7 +245,7 @@ internal sealed partial class MassEditWindow : Window
         Add(fitness, Kind.PlayerScalar, (int)PlayerField.Condition, "Fitness", "Condition", 5000, 10000);
         Add(fitness, Kind.PlayerScalar, (int)PlayerField.MatchSharpness, "Fitness", "Match Sharpness", 5000, 10000);
         Add(fitness, Kind.PlayerScalar, (int)PlayerField.Jadedness, "Fitness", "Jadedness", -500, 1000);
-        Add(fitness, Kind.PlayerScalar, (int)PlayerField.Morale, "Fitness", "Morale", 1, 20);
+        Add(fitness, Kind.PlayerScalar, (int)PlayerField.Morale, "Fitness", "Morale", 0, 20);   // FMRTE docs: 0-20
         sections.Add(("Fitness", fitness));
 
         var injury = Panel();
@@ -316,18 +327,7 @@ internal sealed partial class MassEditWindow : Window
     IReadOnlyList<(string, Control)> BuildCoachSections()
     {
         var sections = new List<(string, Control)>();
-        var general = Panel();
-        AddHeader(general, "Reputation");
-        Add(general, Kind.StaffField, (int)StaffMassField.HomeReputation, "Reputation", "Home", 0, 10000);
-        Add(general, Kind.StaffField, (int)StaffMassField.CurrentReputation, "Reputation", "Current", 0, 10000);
-        Add(general, Kind.StaffField, (int)StaffMassField.WorldReputation, "Reputation", "World", 0, 10000);
-        AddHeader(general, "Ability");
-        Add(general, Kind.StaffField, (int)StaffMassField.CurrentAbility, "Ability", "CA", 1, 200);
-        Add(general, Kind.StaffField, (int)StaffMassField.PotentialAbility, "Ability", "PA", 1, 200);
-        AddCheck(general, "Match CA to PA", out _);
-        AddHeader(general, "Contract");
-        Add(general, Kind.StaffWage, 0, "Contract", "Wages", 0, 10_000_000);
-        sections.Add(("General", general));
+        sections.Add(("General", CoachGeneral()));
 
         var coaching = Panel();
         AddGroup(coaching, Kind.StaffAttribute, "Coaching Attributes", [StaffAttribute.CoachingAttacking, StaffAttribute.CoachingDefending, StaffAttribute.CoachingFitness, StaffAttribute.CoachingGoalkeeping, StaffAttribute.CoachingPossession, StaffAttribute.CoachingPlayer, StaffAttribute.CoachingTactical, StaffAttribute.CoachingTechnical, StaffAttribute.PeopleManagement, StaffAttribute.WorkingWithYoungsters, StaffAttribute.DirtinessAllowance, StaffAttribute.Versatility, StaffAttribute.SetPieces]);
@@ -343,6 +343,8 @@ internal sealed partial class MassEditWindow : Window
         var others = Panel();
         AddGroup(others, Kind.StaffPersonality, "Personality", Enum.GetValues<StaffPersonality>());
         AddGroup(others, Kind.StaffAttribute, "Chairman Attributes", [StaffAttribute.Business, StaffAttribute.Interference, StaffAttribute.Patience, StaffAttribute.Resources]);
+        AddHeader(others, "Roles Attributes");
+        foreach (var role in RoleOrder) Add(others, Kind.StaffDetail, DetailRole + (int)role, "Roles Attributes", StaffDetailsMassEdit.RoleLabel(role), 1, 20);
         sections.Add(("Others", others));
 
         var presets = Panel();
@@ -351,19 +353,34 @@ internal sealed partial class MassEditWindow : Window
         return sections;
     }
 
-    /// <summary>FMRTE's Club General groups in FMRTE's order (Overview, Finances, Stadium); fields FMRTE does not have but the editor does stay at the end of their group or in their own group.</summary>
+    /// <summary>FMRTE's Club General groups in FMRTE's order (Overview, Stadium, Finances); fields FMRTE does not have but the editor does stay at the end of their group or in their own group.</summary>
     static readonly (string Group, ClubField[] Fields)[] ClubLayout =
     [
-        ("Overview", [ClubField.YearFounded, ClubField.Status, ClubField.ChairmanStatus, ClubField.Training, ClubField.YouthCoaching, ClubField.YouthFacilities, ClubField.YouthRecruitment,
-            ClubField.YouthImportance, ClubField.CorporateFacilities, ClubField.Morale, ClubField.SeasonTicketHolders, ClubField.SocialMediaFollowers, ClubField.OwnershipType, ClubField.ChairpersonTitle]),
-        ("Finances", [ClubField.Balance, ClubField.TransferBudgetSeason, ClubField.TransferBudgetRemaining, ClubField.TransferRevenuePercent, ClubField.WageBudget, ClubField.WageUsed,
-            ClubField.MaxWage, ClubField.RichBenefactor, ClubField.AverageTicketPrice, ClubField.StadiumRentalPerYear]),
+        ("Overview", [ClubField.Status, ClubField.TeamReputation, ClubField.Training, ClubField.YouthCoaching, ClubField.YouthFacilities,
+            ClubField.YouthRecruitment, ClubField.YouthImportance, ClubField.CorporateFacilities, ClubField.Morale, ClubField.SeasonTicketHolders,
+            ClubField.SocialMediaFollowers, ClubField.OwnershipType, ClubField.ChairpersonTitle, ClubField.YearFounded, ClubField.ChairmanStatus]),
         ("Stadium", [ClubField.AverageAttendance, ClubField.MinimumAttendance, ClubField.MaximumAttendance]),
+        ("Finances", [ClubField.Balance, ClubField.TransferBudgetSeason, ClubField.TransferBudgetRemaining, ClubField.WageBudget,
+            ClubField.RichBenefactor, ClubField.AverageTicketPrice, ClubField.StadiumRentalPerYear,
+            ClubField.TransferRevenuePercent, ClubField.WageUsed, ClubField.MaxWage]),
         ("Transfer Embargo", [ClubField.EmbargoAgeRestriction]),
         ("Distribution", [ClubField.SupportersHardcore, ClubField.SupportersCore, ClubField.SupportersFamily, ClubField.SupportersFairWeather, ClubField.SupportersCorporate, ClubField.SupportersCasual]),
         ("Profile", [ClubField.SupporterLoyalty, ClubField.SupporterPassion, ClubField.SupporterPatience, ClubField.SupporterAffluence, ClubField.SupporterTemperament]),
     ];
 
+    /// <summary>FMRTE's Club &gt; Stadium ground fields (capacity, pitch size in metres). Only the ones the profile maps are shown.</summary>
+    static readonly (StadiumField Field, string Label, long Min, long Max)[] StadiumMassRows =
+    [
+        (StadiumField.Capacity, "Capacity", 0, 1_000_000),
+        (StadiumField.PitchLength, "Pitch Length (m)", 50, 200),
+        (StadiumField.PitchWidth, "Pitch Width (m)", 30, 150),
+        (StadiumField.InternationalPitchLength, "International Pitch Length (m)", 0, 200),
+        (StadiumField.InternationalPitchWidth, "International Pitch Width (m)", 0, 200),
+        (StadiumField.MinPitchLength, "Minimum Pitch Length (m)", 50, 200),
+        (StadiumField.MinPitchWidth, "Minimum Pitch Width (m)", 30, 150),
+        (StadiumField.MaxPitchLength, "Maximum Pitch Length (m)", 50, 200),
+        (StadiumField.MaxPitchWidth, "Maximum Pitch Width (m)", 30, 150),
+    ];
     IReadOnlyList<(string, Control)> BuildClubSections()
     {
         var panel = Panel();
@@ -374,18 +391,24 @@ internal sealed partial class MassEditWindow : Window
         }
         var profile = backend.Session.Profile;
         var metas = ClubFieldInfo.All.Where(m => ClubMassEdit.IsSupported(profile, m.Field)).GroupBy(m => m.Field).ToDictionary(g => g.Key, g => g.First());
+        // FMRTE's Club tab is one list of groups: Overview, Stadium, Finances, then the editor's extra groups.
         foreach (var (group, layout) in ClubLayout)
         {
             var present = layout.Where(metas.ContainsKey).Select(f => metas[f]).Where(m => m.Options is not null || m.DisplayKind is ClubDisplayKind.PlainInt or ClubDisplayKind.FormattedInt or ClubDisplayKind.Money
                 or ClubDisplayKind.Rating20 or ClubDisplayKind.Percent or ClubDisplayKind.Rating100).ToArray();
-            if (present.Length == 0) continue;
+            if (present.Length == 0 && group != "Stadium") continue;
             AddHeader(panel, group);
             foreach (var meta in present)
             {
                 if (meta.Options is { Count: > 0 } options)
                     AddChoice(panel, Kind.ClubField, (int)meta.Field, group, meta.Label, options.OrderBy(o => o.Key).Select(o => ((int)o.Key, o.Value)).ToArray());
+                else if (meta.DisplayKind == ClubDisplayKind.Money) AddMoney(panel, Kind.ClubField, (int)meta.Field, group, meta.Label, meta.Min, meta.Max);
                 else Add(panel, Kind.ClubField, (int)meta.Field, group, meta.Label, meta.Min, meta.Max);
             }
+            if (group == "Stadium")
+                foreach (var (field, label, min, max) in StadiumMassRows)
+                    if (StadiumMassEdit.IsSupported(profile, field))
+                        Add(panel, Kind.StadiumField, (int)field, group, label, min, max);
         }
         return [("General", panel)];
     }
@@ -407,19 +430,31 @@ internal sealed partial class MassEditWindow : Window
 
     static StackPanel Panel() => new() { Spacing = 2 };
 
+    /// <summary>A row whose control is a single dropdown or box (no action combo): aligned with the field rows' value column.</summary>
     static Control Labeled(string label, Control control)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(4, 2) };
-        row.Children.Add(new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
-        row.Children.Add(control);
-        return row;
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,150,230"), ColumnSpacing = 10, Margin = new Thickness(4, 1) };
+        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
+        Grid.SetColumn(control, 2);
+        grid.Children.Add(text);
+        grid.Children.Add(control);
+        return grid;
     }
 
     static Control Scroll(Control content) => new ScrollViewer { Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
 
-    static void AddHeader(StackPanel panel, string text)
+    static void AddHeader(StackPanel panel, string text, string? info = null)
     {
-        panel.Children.Add(new TextBlock { Text = text.ToUpperInvariant(), FontSize = 11.5, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#A78BFA"), Margin = new Thickness(0, 12, 0, 4) });
+        var rule = new Border
+        {
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            BorderBrush = UiKit.Brush("#2A2440"),
+            Padding = new Thickness(0, 0, 0, 3),
+            Margin = new Thickness(0, 14, 0, 6),
+            Child = info is null ? new TextBlock { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#C4B5FD") }
+                : UiKit.TitleWithInfo(new TextBlock { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#C4B5FD"), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center }, info),
+        };
+        panel.Children.Add(rule);
     }
 
     static string Spaced(string text)
@@ -434,35 +469,70 @@ internal sealed partial class MassEditWindow : Window
         return sb.ToString().Replace("Freekicks", "Free Kicks").Replace("Longthrows", "Long Throws").Replace("Fifa", "FIFA").Replace("Fa ", "FA ");
     }
 
+    /// <summary>One field row, the way FMRTE draws it: label, action, value — the value disabled until the action is set.</summary>
+    string rowColumns = "*,150,230";
+
+    Control Row(string label, Control mode, Control value)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(rowColumns), ColumnSpacing = 10, Margin = new Thickness(4, 1) };
+        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
+        Grid.SetColumn(mode, 1);
+        Grid.SetColumn(value, 2);
+        grid.Children.Add(text);
+        grid.Children.Add(mode);
+        grid.Children.Add(value);
+        return grid;
+    }
+
     FieldRow Add(StackPanel panel, Kind kind, int index, string group, string label, long min, long max)
     {
-        var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to", "Change by" }, SelectedIndex = ModeNone, Width = 128, FontSize = 12.5 };
-        var value = new NumericUpDown { Minimum = min, Maximum = max, Increment = 1, Value = min, Width = 118, FontSize = 12.5, FormatString = "0", IsEnabled = false };
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,128,118"), ColumnSpacing = 10, Margin = new Thickness(4, 2) };
-        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
-        Grid.SetColumn(mode, 1); Grid.SetColumn(value, 2);
-        grid.Children.Add(text); grid.Children.Add(mode); grid.Children.Add(value);
-        panel.Children.Add(grid);
-        var row = new FieldRow(kind, index, group, label, min, max, mode, value);
+        var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to", "Change by" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var initial = Math.Clamp(0L, min, max);
+        var value = new NumericUpDown { Minimum = min, Maximum = max, Increment = 1, Value = initial, FontSize = 12.5, FormatString = "0", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+        if (rowColumns != "*,150,230") { value.ShowButtonSpinner = false; value.HorizontalContentAlignment = HorizontalAlignment.Right; }
+        panel.Children.Add(Row(label, mode, value));
+        var row = new FieldRow(kind, index, group, label, min, max, mode, value, () => (long)(value.Value ?? 0), () => value.Value = initial);
         fields.Add(row);
         mode.SelectionChanged += (_, _) => { value.IsEnabled = mode.SelectedIndex != ModeNone; MarkDirty(); };
         value.ValueChanged += (_, _) => MarkDirty();
         return row;
     }
 
-    /// <summary>A field whose values have names (FMRTE shows a dropdown, not a number): "Don't change" first, then each name.</summary>
+    /// <summary>
+    /// A club money field, typed in the display currency like the club screen: the box's limits are the pound limits
+    /// converted, and the number (a "Set to" amount or a "Change by" step) goes back to pounds before planning.
+    /// </summary>
+    FieldRow AddMoney(StackPanel panel, Kind kind, int index, string group, string label, long min, long max)
+    {
+        var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to", "Change by" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var value = new NumericUpDown
+        {
+            Minimum = Fm27Editor.Core.Settings.CurrencySetting.ToDisplay(min), Maximum = Fm27Editor.Core.Settings.CurrencySetting.ToDisplay(max),
+            Increment = 1, Value = 0, FontSize = 12.5, FormatString = "N0", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextConverter = MoneyTextConverter.Instance,
+        };
+        if (rowColumns != "*,150,230") { value.ShowButtonSpinner = false; value.HorizontalContentAlignment = HorizontalAlignment.Right; }
+        panel.Children.Add(Row($"{label} ({Fm27Editor.Core.Settings.CurrencySetting.Current.Symbol})", mode, value));
+        var row = new FieldRow(kind, index, group, label, min, max, mode, value,
+            () => Fm27Editor.Core.Settings.CurrencySetting.FromDisplay(value.Value ?? 0), () => value.Value = 0);
+        fields.Add(row);
+        mode.SelectionChanged += (_, _) => { value.IsEnabled = mode.SelectedIndex != ModeNone; MarkDirty(); };
+        value.ValueChanged += (_, _) => MarkDirty();
+        return row;
+    }
+
+    /// <summary>A field whose values have names (Hair Colour, Yes / No): action combo plus a value dropdown, no free number.</summary>
     FieldRow AddChoice(StackPanel panel, Kind kind, int index, string group, string label, IReadOnlyList<(int Code, string Name)> options)
     {
-        var mode = new ComboBox { ItemsSource = new[] { "Don't change" }.Concat(options.Select(o => o.Name)).ToArray(), SelectedIndex = ModeNone, Width = 250, FontSize = 12.5 };
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,250"), ColumnSpacing = 10, Margin = new Thickness(4, 2) };
-        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
-        Grid.SetColumn(mode, 1);
-        grid.Children.Add(text); grid.Children.Add(mode);
-        panel.Children.Add(grid);
+        var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var choice = new ComboBox { ItemsSource = options.Select(o => o.Name).ToArray(), SelectedIndex = 0, FontSize = 12.5, IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+        panel.Children.Add(Row(label, mode, choice));
         var codes = options.Select(o => o.Code).ToArray();
-        var row = new FieldRow(kind, index, group, label, codes.Min(), codes.Max(), mode, new NumericUpDown(), codes);
+        var row = new FieldRow(kind, index, group, label, codes.Min(), codes.Max(), mode, choice,
+            () => choice.SelectedIndex >= 0 ? codes[choice.SelectedIndex] : codes[0], () => choice.SelectedIndex = 0);
         fields.Add(row);
-        mode.SelectionChanged += (_, _) => MarkDirty();
+        mode.SelectionChanged += (_, _) => { choice.IsEnabled = mode.SelectedIndex != ModeNone; MarkDirty(); };
+        choice.SelectionChanged += (_, _) => MarkDirty();
         return row;
     }
 
@@ -551,6 +621,16 @@ internal sealed partial class MassEditWindow : Window
             : [];
     }
 
+    bool choosingTargets;
+    Task<(IReadOnlyList<PlayerRecord> Source, IReadOnlyList<NationRecord> Nations, IReadOnlyList<ClubEntry> Clubs)>? searchData;
+
+    (IReadOnlyList<PlayerRecord> Source, IReadOnlyList<NationRecord> Nations, IReadOnlyList<ClubEntry> Clubs) LoadSearchData()
+    {
+        // Advanced Search scans the whole catalogue, not the list that happens to be on screen.
+        var source = backend.Session.Players.LoadAll().ToArray();
+        return (source, backend.Session.Nations.LoadAll(), backend.Session.LoadClubs(source));
+    }
+
     async Task ChooseTargetsAsync()
     {
         if (backend.State.Status != ConnectionStatus.Connected) return;
@@ -558,11 +638,8 @@ internal sealed partial class MassEditWindow : Window
         (IReadOnlyList<PlayerRecord> Source, IReadOnlyList<NationRecord> Nations, IReadOnlyList<ClubEntry> Clubs) targets;
         try
         {
-            targets = await Task.Run(() =>
-            {
-                var source = PlayerTargets();
-                return (source, backend.Session.Nations.LoadAll(), backend.Session.LoadClubs(source));
-            });
+            if (searchData is null || searchData.IsFaulted || searchData.IsCanceled) searchData = Task.Run(LoadSearchData);
+            targets = await searchData;
         }
         finally { ClearPlanSnapshot(); }
         var dialog = new AttributeFilterDialog(
@@ -703,6 +780,7 @@ internal sealed partial class MassEditWindow : Window
         // background and only the newest scope's count is shown.
         int version = ++targetVersion;
         string loadingScope = Scope;
+        target.Text = "Counting…";
         snapShownPlayers = host.MassEditPlayers; snapShownStaff = host.MassEditStaff;
         snapShownClubs = host.MassEditClubs; snapShownNations = host.MassEditNations;
         _ = Task.Run(TargetCount).ContinueWith(task =>

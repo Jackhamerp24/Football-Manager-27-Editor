@@ -7,6 +7,8 @@ public sealed class PlayerRecord
     public required uint VtableRva { get; init; }
 
     public int? Id { get; init; }
+    /// <summary>Index other records use to name this person (unhappiness Person); null when the profile has no offset.</summary>
+    public int? PersonIndex { get; init; }
     public string? FirstName { get; init; }
     public string? LastName { get; init; }
     public string? CommonName { get; init; }

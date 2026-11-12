@@ -118,6 +118,7 @@
     "lastName": "0x2E0",
     "commonName": "0x2E8",
     "id": "0x294",
+    "personIndex": "0x290",
     "fields": {
       "Condition": {
         "path": "0x25C",
@@ -328,7 +329,10 @@
       "transferVtable": "0x4C26C48",
       "loanVtable": "0x4B29D68",
       "trialVtable": "0x49DE488",
-      "bClubMoveVtable": "0x49D6928"
+      "bClubMoveVtable": "0x49D6928",
+      "managerRva": "0x53A4D68",
+      "managerVtable": "0x49D5AD8",
+      "offerVector": "0x20"
     },
     "futureTransfers": {
       "playerOffers": "0x328",
@@ -367,6 +371,11 @@
     "joinedDate": "0x4C",
     "teamClub": "0x30",
     "playingTime": "0x54",
+    "previousPlayingTime": "0x55",
+    "loanStatusOffset": "0x57",
+    "loanStatusMask": "0x2",
+    "rollingContractOffset": "0x2B",
+    "rollingContractMask": "0x8",
     "type": "0xC3",
     "started": "0x44",
     "loyaltyBonus": "0x38",
@@ -385,7 +394,8 @@
       "item1": "0x8",
       "item2": "0xC",
       "motive": "0x16",
-      "type": "0x18"
+      "type": "0x18",
+      "visible": "0x1B"
     }
   },
   "team": {
@@ -428,9 +438,16 @@
       "visionStatus": "0x38",
       "visionSource": "0x30",
       "visionHolderVtable": "0x4ADFF28",
-      "visionHolderVtables": ["0x4ADFF28", "0x4ADFFA8", "0x4ADFC38"],
+      "visionHolderVtables": [
+        "0x4ADFF28",
+        "0x4ADFFA8",
+        "0x4ADFC38"
+      ],
       "cultureVtable": "0x4AEBB88",
-      "cultureVtables": ["0x4AEBB88", "0x48670B8"],
+      "cultureVtables": [
+        "0x4AEBB88",
+        "0x48670B8"
+      ],
       "cultureSize": "0x50",
       "visionType": "0x2C",
       "importance": "0x2D",
@@ -698,6 +715,11 @@
         "objectVtables": [
           "0x4A2F9E8"
         ]
+      },
+      "Status": {
+        "root": "club",
+        "path": "0x16A",
+        "type": "byte"
       },
       "TeamReputation": {
         "root": "team",
@@ -1074,6 +1096,13 @@
     "winnerWorldReputation": "0x96"
   },
   "staff": {
+    "personDetails": {
+      "personVtable": "0x4AB4DD8",
+      "caps": "0x134",
+      "goals": "0x136",
+      "license": "0x13C",
+      "roles": "0xD0"
+    },
     "knowledgeHolder": "0xB0",
     "knowledgeValue": "0x24",
     "tendenciesHolder": "0xA8",
@@ -1321,5 +1350,26 @@
         "type": "byte"
       }
     }
+  },
+  "youthCandidates": {
+    "managerRootRva": "0x53A9370",
+    "managerVtable": "0x4BC89F8",
+    "candidateMap": "0x118",
+    "nodeVector": "0x28",
+    "recordSize": "0x110",
+    "playingDataBase": "0x148",
+    "currentAbility": "0xFE",
+    "potentialAbility": "0x100",
+    "height": "0xF4",
+    "birthDate": "0xF0",
+    "basedNation": "0x68",
+    "team": "0x70",
+    "club": "0x78",
+    "otherClub": "0x80",
+    "nationality": "0xB0",
+    "cityOfBirth": "0xC0",
+    "firstName": "0xC8",
+    "lastName": "0xD0",
+    "futureId": "0xF8"
   }
 }

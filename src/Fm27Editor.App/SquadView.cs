@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -18,6 +18,16 @@ public sealed partial class MainWindow
 {
     int selectedSquadTeamIndex;
     SquadPlayerRow? selectedSquadRow;
+
+    /// <summary>The name a squad tab uses for the i-th of a club's ordered teams: First team, Reserves, U21, U18 or Team n.</summary>
+    static string SquadTeamLabel(IReadOnlyList<TeamEntry> orderedTeams, int i)
+    {
+        var t = orderedTeams[i];
+        if (t.IsFirstTeam) return "First team";
+        if (orderedTeams.Count == 2) return "Reserves";
+        if (orderedTeams.Count == 3) return i == 1 ? "U21" : "U18";
+        return $"Team {i + 1}";
+    }
 
     bool HookClubSquadsView(ClubEntry club, IReadOnlyList<TeamEntry> orderedTeams, TeamEntry? activeTeam, ulong teamAddr)
     {
@@ -39,48 +49,17 @@ public sealed partial class MainWindow
         if (selectedSquadTeamIndex >= orderedTeams.Count)
             selectedSquadTeamIndex = 0;
 
-        var teamBar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Margin = new Thickness(0, 0, 0, 10),
-        };
-
+        // Team options use the app's own tab strip (same language as the module row), not bespoke pills.
+        var teamPages = new List<(string Title, Control Content)>();
         for (int i = 0; i < orderedTeams.Count; i++)
+            teamPages.Add(($"{SquadTeamLabel(orderedTeams, i)} ({orderedTeams[i].SquadCount})", new Panel()));
+        var teamBar = UiKit.OptionTabs(teamPages, selectedSquadTeamIndex, index =>
         {
-            int teamIdx = i;
-            var t = orderedTeams[i];
-            string teamName = t.IsFirstTeam ? "First team" : $"Team {i + 1}";
-            if (orderedTeams.Count == 2 && !t.IsFirstTeam) teamName = "Reserves";
-            else if (orderedTeams.Count == 3)
-            {
-                if (i == 1) teamName = "U21";
-                else if (i == 2) teamName = "U18";
-            }
-
-            bool isSelected = teamIdx == selectedSquadTeamIndex;
-            var tBtn = new Button
-            {
-                Content = $"{teamName} ({t.SquadCount})",
-                Height = 26,
-                Padding = new Thickness(10, 0),
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Background = Brush(isSelected ? "#2E2452" : "#141724"),
-                Foreground = Brush(isSelected ? "#C4B5FD" : "#94A3B8"),
-                BorderBrush = Brush(isSelected ? "#7C3AED" : "#24293D"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                FontWeight = isSelected ? FontWeight.SemiBold : FontWeight.Normal,
-            };
-            tBtn.Click += (_, _) =>
-            {
-                selectedSquadTeamIndex = teamIdx;
-                selectedSquadRow = null;
-                RenderClubEditor();
-            };
-            teamBar.Children.Add(tBtn);
-        }
-
+            selectedSquadTeamIndex = index;
+            selectedSquadRow = null;
+            RenderClubEditor();
+        });
+        teamBar.Margin = new Thickness(0, 0, 0, 10);
         clubEditorPanel.Children.Add(teamBar);
 
         var curTeam = orderedTeams[selectedSquadTeamIndex];
@@ -95,7 +74,7 @@ public sealed partial class MainWindow
             ? () => orderedTeams.Skip(1).SelectMany(t => SquadAdapter.ReadSquad(backend.Session, t.Address, allLoadedPlayers)).DistinctBy(p => p.Address).ToList()
             : null;
         var layoutGrid = BuildSquadGridAndActions(getSquad, isNation: false, out refreshSquad, youthPlayers, club.Address);
-        clubEditorPanel.Children.Add(layoutGrid);
+        clubEditorPanel.Children.Add(new StackPanel { Margin = new Thickness(12, 0, 0, 0), Children = { layoutGrid } });
         return true;
     }
 

@@ -32,12 +32,27 @@ public static class Modules
 public sealed record AttributeThreshold(PlayerAttribute Attribute, int MinValue, int? MaxValue = null);
 public sealed record NumericRange(long? Min, long? Max);
 
+/// <summary>Contract states as FMRTE's Contract Status filter offers them.</summary>
+public enum ContractStatusFilter
+{
+    FreePlayer,
+    Expired,
+    Expiring6Months,
+    ExpiringYear,
+}
+
 public sealed record PlayerFilter
 {
     public string? NameQuery { get; init; }
     public string? Club { get; init; }
     public string? Nationality { get; init; }
     public string? Division { get; init; }
+    public ulong? TeamClubAddress { get; init; }
+    public string? TeamClubName { get; init; }
+    public ContractStatusFilter? ContractStatus { get; init; }
+    public ContractType? ContractType { get; init; }
+    public PlayingTime? AgreedPlayingTime { get; init; }
+    public IReadOnlyList<ContractClauseCriterion> Clauses { get; init; } = [];
     public int? MinAge { get; init; }
     public int? MaxAge { get; init; }
     public int? MinCa { get; init; }
@@ -88,6 +103,12 @@ public sealed record FilterPreset(
     public string? Division { get; init; }
     public string? Club { get; init; }
     public string? Nationality { get; init; }
+    public ulong? TeamClubAddress { get; init; }
+    public string? TeamClubName { get; init; }
+    public ContractStatusFilter? ContractStatus { get; init; }
+    public ContractType? ContractType { get; init; }
+    public PlayingTime? AgreedPlayingTime { get; init; }
+    public IReadOnlyList<ContractClauseCriterion>? Clauses { get; init; }
     public override string ToString() => Name;
 }
 
@@ -239,6 +260,7 @@ public sealed class PlayersModule : IEditorModule
             var gameDate = backend.GameDate;
             var all = backend.Players.LoadAll();
             foreach (var p in all) p.GameDate = gameDate;
+            RegenIds.Current = RegenIds.FirstCreatedId(all.Where(p => p.Id is not null).Select(p => p.Id!.Value));
             return all.OrderByDescending(p => p.CurrentAbility).Cast<object>().ToArray();
         }, ct);
 
@@ -249,6 +271,24 @@ public sealed class PlayersModule : IEditorModule
         return ContainsText(p.DisplayName, trimmed)
             || ContainsText(p.FullName ?? "", trimmed)
             || (trimmed.Length > 0 && p.Id?.ToString(CultureInfo.InvariantCulture).Contains(trimmed, StringComparison.Ordinal) == true);
+    }
+
+    /// <summary>
+    /// FMRTE's Contract Status on snapshot data: Free player means no contract at all; the dated states need
+    /// both the expiry and the game date, and "expiring" excludes the already expired.
+    /// </summary>
+    public static bool MatchesContractStatus(PlayerRecord p, ContractStatusFilter status)
+    {
+        if (status == ContractStatusFilter.FreePlayer)
+            return p.Contract is null;
+        if (p.Contract?.Expires is not { } expiry || p.GameDate is not { } today)
+            return false;
+        return status switch
+        {
+            ContractStatusFilter.Expired => expiry < today,
+            ContractStatusFilter.Expiring6Months => expiry >= today && expiry <= today.AddMonths(6),
+            _ => expiry >= today && expiry <= today.AddMonths(12),
+        };
     }
 
     public bool MatchesFilter(PlayerRecord p, PlayerFilter filter)
@@ -277,6 +317,10 @@ public sealed class PlayersModule : IEditorModule
             if (!ContainsText(p.DivisionName, d) && !ContainsText(p.Division?.Name ?? "", d))
                 return false;
         }
+        if (filter.TeamClubAddress is { } teamClub && (p.Club is null || p.Club.Address != teamClub))
+            return false;
+        if (filter.ContractStatus is { } status && !MatchesContractStatus(p, status))
+            return false;
         if (filter.MinAge is { } minAge && (p.Age is not { } age1 || age1 < minAge))
             return false;
         if (filter.MaxAge is { } maxAge && (p.Age is not { } age2 || age2 > maxAge))
@@ -298,6 +342,7 @@ public sealed class PlayersModule : IEditorModule
                 "World Reputation" => p.WorldReputation, "CA/PA Difference" => p.PotentialAbility - p.CurrentAbility,
                 "Asking Price" => p.DisplayAskingPrice, "Wages" => p.Contract?.Wage,
                 "Ethnicity" => p.Ethnicity, "Treated As Non-EU In Italy" => p.TreatedAsNonEuInItaly,
+                "Regen" => RegenIds.IsRegen(p) is { } regen ? (regen ? 1 : 0) : null,
                 _ when key.StartsWith("Personality:", StringComparison.Ordinal) && Enum.TryParse<PersonalityAttribute>(key[12..], out var personality) => p.PersonalityValue(personality),
                 _ => null
             };

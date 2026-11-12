@@ -233,8 +233,25 @@ public sealed partial class MainWindow
         {
             var b = new Button
             {
-                Content = new Avalonia.Controls.Shapes.Path { Data = Geometry.Parse(iconData), Fill = Brush("#DCE2EE"), Stretch = Stretch.Uniform, Width = 16, Height = 16 },
+                // Every icon is drawn in its Material 24x24 frame, then scaled down whole. Stretching the geometry
+                // itself (Uniform) anchors it to the top-left, which left wide glyphs such as the link icon high
+                // in the button.
+                Content = new Viewbox
+                {
+                    Width = 16,
+                    Height = 16,
+                    Child = new Canvas
+                    {
+                        Width = 24,
+                        Height = 24,
+                        Children =
+                        {
+                            new Avalonia.Controls.Shapes.Path { Data = Geometry.Parse(iconData), Fill = Brush("#DCE2EE"), Stretch = Stretch.None },
+                        },
+                    },
+                },
                 HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
                 Padding = new Thickness(0),
                 MinWidth = 34,
                 Width = 34,
@@ -259,6 +276,7 @@ public sealed partial class MainWindow
         left.Children.Add(Divider());
         left.Children.Add(ToolBtn("M15.5,14L20.5,19L19,20.5L14,15.5V14.71L13.73,14.43C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.43,13.73L14.71,14H15.5M9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14M12,10H10V12H9V10H7V9H9V7H10V9H12V10Z", "Advanced Search", () => _ = OpenAttributeFilterDialogAsync()));
         left.Children.Add(ToolBtn("M20.79,13.95L18.46,14.57L16.46,13.44V10.56L18.46,9.43L20.79,10.05L21.31,8.12L19.54,7.65L20,5.88L18.07,5.36L17.45,7.69L15.45,8.82L13,7.38V5.12L14.71,3.41L13.29,2L12,3.29L10.71,2L9.29,3.41L11,5.12V7.38L8.55,8.82L6.55,7.69L5.93,5.36L4,5.88L4.46,7.65L2.69,8.12L3.21,10.05L5.54,9.43L7.54,10.56V13.44L5.54,14.57L3.21,13.95L2.69,15.88L4.46,16.35L4,18.12L5.93,18.64L6.55,16.31L8.55,15.18L11,16.62V18.88L9.29,20.59L10.71,22L12,20.71L13.29,22L14.71,20.59L13,18.88V16.62L15.45,15.18L17.45,16.31L18.07,18.64L20,18.12L19.54,16.35L21.31,15.88L20.79,13.95Z", "Freezer Manager", OpenCurrentFreezer));
+        left.Children.Add(ToolBtn("M3.9,12C3.9,10.29 5.29,8.9 7,8.9H11V7H7A5,5 0 0,0 2,12A5,5 0 0,0 7,17H11V15.1H7C5.29,15.1 3.9,13.71 3.9,12M8,13H16V11H8V13M17,7H13V8.9H17C18.71,8.9 20.1,10.29 20.1,12C20.1,13.71 18.71,15.1 17,15.1H13V17H17A5,5 0 0,0 22,12A5,5 0 0,0 17,7Z", "Hook Manager", OpenHookManager));
         left.Children.Add(ToolBtn("M8.5,13.5L11,16.5L14.5,12L19,18H5M21,19V5C21,3.89 20.1,3 19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19Z", "Choose graphics folder", () => _ = ChooseGraphicsAsync()));
         left.Children.Add(favouritesFilter);
         left.Children.Add(ToolBtn("M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z", "Mass Edit (Ctrl+M)", OpenMassEdit));
@@ -439,6 +457,8 @@ public sealed partial class MainWindow
     sealed class PlayerTab
     {
         public PlayerRecord Player = null!;
+        public string Title = null!;
+        public bool Dirty;
         public StackPanel Panel = null!;
         public Control Root = null!;
         public ContentControl Sticky = null!;
@@ -522,11 +542,17 @@ public sealed partial class MainWindow
         entityScrollButtons.IsVisible = entityScroll.Extent.Width > entityScroll.Viewport.Width + 2;
     }
 
+    /// <summary>Set by link navigation just before the entity screen opens its tab.</summary>
+    bool openLinkedEntityInNewTab;
+
     sealed class KindTab
     {
         public Control Body = null!;
         public Border Button = null!;
         public Action Restore = null!;
+        public string Key = null!;
+        public string Title = null!;
+        public bool Dirty;
     }
 
     void UpdateEntityRow()
@@ -541,11 +567,14 @@ public sealed partial class MainWindow
     {
         if (address == 0) return;
         string key = $"{kind}:{address:X}";
-        if (kindTabs.TryGetValue(key, out var existing))
+        // A link inside a screen opens its own tab, so two tabs can show the same club; the module list still reuses one.
+        bool forceNew = openLinkedEntityInNewTab;
+        openLinkedEntityInNewTab = false;
+        if (!forceNew && kindTabs.TryGetValue(key, out var existing))
         {
             if (!ReferenceEquals(existing.Body, body)) existing.Body = body;
             existing.Restore = restore;
-            SetEntityTitle(existing.Button, title);
+            SetEntityTitle(existing.Button, title, existing.Dirty);
             activeEntityButton = existing.Button;
             bodyHost.Content = existing.Body;
             HighlightEntityTab();
@@ -554,7 +583,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        var tab = new KindTab { Body = body, Restore = restore };
+        var tab = new KindTab { Body = body, Restore = restore, Title = title, Key = key };
         tab.Button = MakeEntityButton(title, () => ActivateKindTab(tab), () => CloseKindTab(tab));
         kindTabs[key] = tab;
         entityStrip.Children.Add(tab.Button);
@@ -566,6 +595,82 @@ public sealed partial class MainWindow
         Dispatcher.UIThread.Post(() => tab.Button.BringIntoView(), DispatcherPriority.Loaded);
     }
 
+    bool IsActiveTabDirty()
+    {
+        if (playerTabs.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } player) return player.Dirty;
+        if (kindTabs.Values.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } kind) return kind.Dirty;
+        return false;
+    }
+
+    /// <summary>FMRTE's leave check: a tab with unsaved changes asks Save / Discard / Cancel before the shell switches away.</summary>
+    async Task<bool> ConfirmLeaveAsync()
+    {
+        if (!IsActiveTabDirty()) return true;
+        switch (await UnsavedDialog.Ask(this))
+        {
+            case 0: SaveCurrentEntity(); break;
+            case 1:
+                DropActiveTab();
+                return true;
+            default: return false;
+        }
+        SetActiveTabDirty(false);
+        return true;
+    }
+
+    /// <summary>Discard: throw away the active page's drafts and its tab, without saving anything.</summary>
+    void DropActiveTab()
+    {
+        if (playerTabs.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } player)
+        {
+            drafts.Remove(player.Player.Address);
+            playerScalarDrafts.Remove(player.Player.Address);
+            player.Dirty = false;
+            playerTabs.Remove(player);
+            entityStrip.Children.Remove(player.Button);
+            activeEntityButton = null;
+            UpdateEntityRow();
+            return;
+        }
+        if (kindTabs.Values.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } kind)
+        {
+            if (kind.Key.StartsWith("club:", StringComparison.OrdinalIgnoreCase)) clubDrafts.Clear();
+            kind.Dirty = false;
+            kindTabs.Remove(kind.Key);
+            entityStrip.Children.Remove(kind.Button);
+            activeEntityButton = null;
+            UpdateEntityRow();
+            ShowModule(activeModule ?? "Players");
+        }
+    }
+    async Task<bool> ConfirmCloseAsync(PlayerTab? player, KindTab? kind)
+    {
+        bool dirty = player?.Dirty == true || kind?.Dirty == true;
+        if (!dirty) return true;
+        bool active = ReferenceEquals(player?.Button ?? kind?.Button, activeEntityButton);
+        int choice = await UnsavedDialog.Ask(this, active);
+        if (choice == 2) return false;
+        if (choice == 0) SaveCurrentEntity();
+        DropTabDrafts(player, kind);
+        return true;
+    }
+
+    void DropTabDrafts(PlayerTab? player, KindTab? kind)
+    {
+        if (player is not null)
+        {
+            drafts.Remove(player.Player.Address);
+            playerScalarDrafts.Remove(player.Player.Address);
+            playerDirtySections.Remove(player.Player.Address);
+            playerPageSections.Remove(player.Player.Address);
+            player.Dirty = false;
+        }
+        if (kind is not null)
+        {
+            if (kind.Key.StartsWith("club:", StringComparison.OrdinalIgnoreCase)) clubDrafts.Clear();
+            kind.Dirty = false;
+        }
+    }
     void ActivateKindTab(KindTab tab)
     {
         tab.Restore();
@@ -576,8 +681,9 @@ public sealed partial class MainWindow
         Dispatcher.UIThread.Post(() => tab.Button.BringIntoView(), DispatcherPriority.Loaded);
     }
 
-    void CloseKindTab(KindTab tab)
+    async void CloseKindTab(KindTab tab)
     {
+        if (!await ConfirmCloseAsync(null, tab)) return;
         foreach (var (kind, entry) in kindTabs.ToArray())
             if (ReferenceEquals(entry, tab)) kindTabs.Remove(kind);
         entityStrip.Children.Remove(tab.Button);
@@ -586,10 +692,27 @@ public sealed partial class MainWindow
         ShowModule(activeModule ?? "Players");
     }
 
-    static void SetEntityTitle(Border button, string title)
+    static void SetEntityTitle(Border button, string title, bool dirty = false)
     {
-        ToolTip.SetTip(button, title);
-        if (button.Child is StackPanel { Children: [TextBlock text, _] }) text.Text = title;
+        string shown = dirty ? title + " *" : title;
+        ToolTip.SetTip(button, shown);
+        if (button.Child is StackPanel { Children: [TextBlock text, _] }) text.Text = shown;
+    }
+
+    /// <summary>The page reports whether it has unsaved changes so its tab (and the entity tab above it) can carry a star.</summary>
+    void SetActiveTabDirty(bool dirty)
+    {
+        if (playerTabs.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } player)
+        {
+            player.Dirty = dirty;
+            SetEntityTitle(player.Button, player.Title, dirty);
+            return;
+        }
+        if (kindTabs.Values.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } kind)
+        {
+            kind.Dirty = dirty;
+            SetEntityTitle(kind.Button, kind.Title, dirty);
+        }
     }
 
     /// <summary>Registers one list screen; the module row is the app's navigation, entity tabs stay in their own strip.</summary>
@@ -647,6 +770,19 @@ public sealed partial class MainWindow
     void ShowDetailTab(PlayerRecord? player)
     {
         if (player is null) { CloseDetailTab(); return; }
+        // The record handed in may come from a list read at Load Game (Players table, a club's squad); the game has moved on
+        // since, so the page starts from a fresh read of this one player (staged edits stay in the rebased draft).
+        try
+        {
+            if (backend.State.Status == ConnectionStatus.Connected && backend.Players.Reload(player.Address) is { } fresh && fresh.Id == player.Id)
+            {
+                fresh.GameDate = backend.GameDate;
+                ReplaceRow(fresh);
+                if (drafts.TryGetValue(fresh.Address, out var staged)) drafts[fresh.Address] = staged.Rebase(fresh);
+                player = fresh;
+            }
+        }
+        catch (Exception) { /* keep the record as handed in; the page still opens */ }
         var existing = playerTabs.FirstOrDefault(tab => tab.Player.Address == player.Address);
         if (existing is not null)
         {
@@ -672,7 +808,7 @@ public sealed partial class MainWindow
         body.Children.Add(rail);
         Grid.SetColumn(scroll, 1); body.Children.Add(scroll);
         var root = new DockPanel { Background = UiKit.WindowBg, Children = { header, sticky, body } };
-        var tab = new PlayerTab { Player = player, Panel = panel, Root = root, Sticky = sticky, Header = header, Rail = rail };
+        var tab = new PlayerTab { Player = player, Title = player.DisplayName, Panel = panel, Root = root, Sticky = sticky, Header = header, Rail = rail };
         tab.Button = MakeEntityButton(player.DisplayName, () => ActivatePlayerTab(tab), () => ClosePlayerTab(tab));
         playerTabs.Add(tab);
         entityStrip.Children.Add(tab.Button);
@@ -687,6 +823,38 @@ public sealed partial class MainWindow
         Dispatcher.UIThread.Post(() => tab.Button.BringIntoView(), DispatcherPriority.Loaded);
     }
 
+    /// <summary>
+    /// After a (re)load, open player tabs still hold the objects of the previous read: addresses change with every loaded
+    /// save, so each tab is matched again by player ID. A player who is in the new save gets his tab back with fresh data
+    /// (its unsaved edits belonged to the old save and are dropped); a player who is not there loses his tab.
+    /// </summary>
+    void RebindPlayerTabs()
+    {
+        playerScalarDrafts.Clear();
+        playerDirtySections.Clear();
+        playerPageSections.Clear();
+        var byId = rows.OfType<PlayerRecord>().Where(p => p.Id is not null).GroupBy(p => p.Id!.Value).ToDictionary(g => g.Key, g => g.First());
+        foreach (var tab in playerTabs.ToArray())
+        {
+            if (tab.Player.Id is { } id && byId.TryGetValue(id, out var fresh))
+            {
+                tab.Player = fresh;
+                tab.Dirty = false;
+                SetEntityTitle(tab.Button, tab.Title, false);
+                tab.Panel.Children.Clear();
+                continue;
+            }
+            playerTabs.Remove(tab);
+            entityStrip.Children.Remove(tab.Button);
+            if (activeEntityButton == tab.Button) activeEntityButton = null;
+        }
+        UpdateEntityRow();
+        if (playerTabs.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } active)
+        {
+            ActivatePlayerTab(active);
+        }
+    }
+
     void ActivatePlayerTab(PlayerTab tab)
     {
         selected = tab.Player;
@@ -695,11 +863,14 @@ public sealed partial class MainWindow
         activeEntityButton = tab.Button;
         HighlightEntityTab();
         UpdateModuleBarStyles();
+        // A tab emptied by RebindPlayerTabs (new save) is drawn again the first time it is shown.
+        if (tab.Panel.Children.Count == 0) RenderEditor();
         Dispatcher.UIThread.Post(() => tab.Button.BringIntoView(), DispatcherPriority.Loaded);
     }
 
-    void ClosePlayerTab(PlayerTab tab)
+    async void ClosePlayerTab(PlayerTab tab)
     {
+        if (!await ConfirmCloseAsync(tab, null)) return;
         playerTabs.Remove(tab);
         entityStrip.Children.Remove(tab.Button);
         if (activeEntityButton == tab.Button) activeEntityButton = null;
@@ -710,6 +881,18 @@ public sealed partial class MainWindow
             return;
         }
         ShowModule(activeModule ?? "Players");
+    }
+
+    /// <summary>Ctrl+W: closes the entity tab that is showing, whichever section of it is open.</summary>
+    void CloseActiveTab()
+    {
+        if (activeEntityButton is null) return;
+        if (playerTabs.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } player)
+        {
+            ClosePlayerTab(player);
+            return;
+        }
+        if (kindTabs.Values.FirstOrDefault(t => ReferenceEquals(t.Button, activeEntityButton)) is { } kind) CloseKindTab(kind);
     }
 
     void CloseDetailTab()
@@ -828,7 +1011,7 @@ public sealed partial class MainWindow
         return timer;
     }
 
-    void EnsureUnifiedCache()
+    void EnsureUnifiedCache(Action<string>? progress = null)
     {
         if (unifiedCacheLoaded || backend.State.Status != ConnectionStatus.Connected) return;
         lock (unifiedCacheLock)
@@ -840,10 +1023,15 @@ public sealed partial class MainWindow
             {
                 try { players = session.Players.LoadAll().ToArray(); } catch { }
             }
-            try { unifiedClubs = session.LoadClubs(players); } catch { }
-            try { unifiedNations = session.Nations.LoadAll(); } catch { }
+            // The club and nation catalogues are warmed first by Load Game; reuse them instead of reading the same
+            // objects twice (the nation catalogue costs over a second).
+            progress?.Invoke("Reading clubs…");
+            try { unifiedClubs = clubCache ?? session.LoadClubs(players); } catch { }
+            progress?.Invoke("Reading nations…");
+            try { unifiedNations = nationCatalogue ?? session.Nations.LoadAll(); } catch { }
             if (session.Profile.Competition is not null)
             {
+                progress?.Invoke("Reading competitions…");
                 try
                 {
                     unifiedCompetitions = session.Competitions.LoadAll();
@@ -864,17 +1052,22 @@ public sealed partial class MainWindow
             }
             if (session.Profile.Staff is not null)
             {
+                progress?.Invoke("Reading staff…");
                 try { unifiedStaff = session.Staff.LoadAll(); } catch { }
             }
             if (session.Profile.Stadium is not null)
             {
+                progress?.Invoke("Reading stadiums…");
                 try { unifiedStadiums = session.Stadiums.LoadAll(); } catch { }
             }
             if (session.Profile.Award is not null)
             {
+                progress?.Invoke("Reading awards…");
                 try { unifiedAwards = session.Awards.LoadAll(); } catch { }
             }
+            progress?.Invoke("Reading referees…");
             try { unifiedReferees = session.ReadReferees(); } catch { }
+            progress?.Invoke("Reading cities…");
             try { unifiedCities = session.Cities.LoadAll(); } catch { }
             unifiedNationNames = unifiedNations.Where(nat => nat.Address != 0).GroupBy(nat => nat.Address).ToDictionary(g => g.Key, g => g.First().DisplayName);
             unifiedCacheLoaded = true;
@@ -882,10 +1075,11 @@ public sealed partial class MainWindow
     }
 
     /// <summary>Loads the search lists in the background (once), so a keystroke never pays for them.</summary>
-    async Task EnsureUnifiedCacheAsync()
+    async Task EnsureUnifiedCacheAsync(Action<string>? progress = null)
     {
         if (unifiedCacheLoaded) return;
-        var task = unifiedCacheTask ??= Task.Run(EnsureUnifiedCache);
+        var task = unifiedCacheTask;
+        if (task is null || task.IsCompleted) unifiedCacheTask = task = Task.Run(() => EnsureUnifiedCache(progress));
         await task;
         if (!unifiedCacheLoaded) unifiedCacheTask = null;
     }

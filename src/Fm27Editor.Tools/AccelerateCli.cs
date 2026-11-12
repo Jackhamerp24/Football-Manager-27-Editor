@@ -26,7 +26,7 @@ static class AccelerateCli
                 return 0;
             case "set":
                 {
-                    int multiplier = int.Parse(rest[^1]);
+                    double multiplier = double.Parse(rest[^1], System.Globalization.CultureInfo.InvariantCulture);
                     string who = string.Join(' ', rest[1..^1]);
                     var all = session.Players.LoadAll();
                     var matches = int.TryParse(who, out int id)

@@ -55,6 +55,8 @@ internal sealed partial class MassEditWindow
         catch (OperationCanceledException) { /* what was written stays in the history group; the caller reports it */ }
         progress?.Report((done, total));
         foreach (var plan in plans) await host.MassEditReloadAsync(plan.Scope);
+        // The search catalogue now holds old values; read it again in the background for the next "Choose who to edit".
+        if (written > 0 && backend.State.Status == ConnectionStatus.Connected) searchData = Task.Run(LoadSearchData);
         return written;
     }
 }

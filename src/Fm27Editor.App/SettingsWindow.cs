@@ -50,11 +50,43 @@ public sealed partial class MainWindow
         var label = new TextBlock { Text = "Date format", VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
         Grid.SetColumn(combo, 1);
         row.Children.Add(label); row.Children.Add(combo);
+
+        // First entry follows the game's own currency (re-read at every Load Game); any other entry is the player's
+        // choice and stays. Money is always stored in pounds; this only changes what is shown and how typed amounts convert.
+        var detected = Fm27Editor.Core.Settings.GameCurrency.Detected();
+        string autoLabel = detected is { } d ? $"Same as the game ({d.Code})" : "Same as the game (not recognised, £)";
+        var currencyChoices = new[] { new CurrencyChoice(null, autoLabel) }
+            .Concat(Fm27Editor.Core.Settings.CurrencySetting.Available.Select(c => new CurrencyChoice(c, $"{c.Code} - {c.Name} - {c.Symbol}"))).ToArray();
+        var currencyCombo = new ComboBox
+        {
+            ItemsSource = currencyChoices,
+            SelectedItem = Fm27Editor.Core.Settings.CurrencySetting.FollowGame
+                ? currencyChoices[0]
+                : currencyChoices.First(c => c.Info?.Code == Fm27Editor.Core.Settings.CurrencySetting.Current.Code),
+            Width = 260,
+        };
+        currencyCombo.SelectionChanged += (_, _) =>
+        {
+            if (currencyCombo.SelectedItem is not CurrencyChoice chosen) return;
+            if (chosen.Info is null)
+            {
+                Fm27Editor.Core.Settings.CurrencySetting.SetFollowGame();
+                Fm27Editor.Core.Settings.GameCurrency.TryApply();
+            }
+            else Fm27Editor.Core.Settings.CurrencySetting.Set(chosen.Info);
+            ReloadCurrentScreen();
+            var now = Fm27Editor.Core.Settings.CurrencySetting.Current;
+            status.Text = $"Currency {now.Code} - {now.Name}";
+        };
+        var currencyRow = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*"), ColumnSpacing = 12 };
+        var currencyLabel = new TextBlock { Text = "Currency", VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+        Grid.SetColumn(currencyCombo, 1);
+        currencyRow.Children.Add(currencyLabel); currencyRow.Children.Add(currencyCombo);
         var window = new Window
         {
             Title = "Settings", Width = 420, SizeToContent = SizeToContent.Height, CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = UiKit.WindowBg,
-            Content = new StackPanel { Margin = new Thickness(20), Spacing = 14, Children = { row } },
+            Content = new StackPanel { Margin = new Thickness(20), Spacing = 14, Children = { row, currencyRow } },
         };
         settingsWindow = window;
         window.Closed += (_, _) => settingsWindow = null;
@@ -62,4 +94,5 @@ public sealed partial class MainWindow
     }
 
     sealed record DateChoice(DateLayout Layout, string Text) { public override string ToString() => Text; }
+    sealed record CurrencyChoice(Fm27Editor.Core.Settings.CurrencyInfo? Info, string Text) { public override string ToString() => Text; }
 }

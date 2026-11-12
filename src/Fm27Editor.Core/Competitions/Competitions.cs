@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Fm27Editor.Core.Memory;
 using Fm27Editor.Core.Offsets;
 using Fm27Editor.Core.Players;
@@ -176,6 +176,33 @@ public sealed class CompetitionWriter(IProcessMemory memory, OffsetProfile profi
         if (!memory.TryWrite(at, after) || !memory.Read(at, 1).AsSpan().SequenceEqual(after))
             throw new MemoryAccessException($"Could not write substitution rules at 0x{at:X}");
     }
+
+    /// <summary>
+    /// Writes one of the single-byte detail flags (Uses Extra Officials / Seated Stadiums Only), guarded: the byte must
+    /// still equal the snapshot and the write is read back.
+    /// </summary>
+    public void SetDetailByte(CompetitionRecord competition, int offset, byte? expected, byte value, string name)
+    {
+        var c = profile.Competition ?? throw new InvalidOperationException("Profile has no competition offsets");
+        if (expected is not { } before) throw new InvalidOperationException($"The {name} value was not read");
+        RequireSameObject(competition, c);
+        ulong at = competition.Address + (ulong)offset;
+        if (!memory.Read(at, 1).AsSpan().SequenceEqual(new[] { before })) throw new StaleObjectException($"The {name} value changed since it was read");
+        if (!memory.TryWrite(at, new[] { value }) || !memory.Read(at, 1).AsSpan().SequenceEqual(new[] { value }))
+            throw new MemoryAccessException($"Could not write the {name} value");
+    }
+
+    public void SetUsesExtraOfficials(CompetitionRecord competition, CompetitionDetails snapshot, byte value) =>
+        SetDetailByte(competition,
+            (profile.Competition ?? throw new InvalidOperationException("Profile has no competition offsets")).UsesExtraOfficials
+                ?? throw new InvalidOperationException("Profile has no uses-extra-officials offset"),
+            snapshot.UsesExtraOfficials, value, "uses extra officials");
+
+    public void SetSeatedStadiumsOnly(CompetitionRecord competition, CompetitionDetails snapshot, byte value) =>
+        SetDetailByte(competition,
+            (profile.Competition ?? throw new InvalidOperationException("Profile has no competition offsets")).SeatedStadiumsOnly
+                ?? throw new InvalidOperationException("Profile has no seated-stadiums-only offset"),
+            snapshot.SeatedStadiumsOnly, value, "seated stadiums only");
 
     /// <summary>Writes one of the four colours FMRTE shows; the object holds B, G, R, A.</summary>
     public void SetColour(CompetitionRecord competition, CompetitionColour colour, uint argb)

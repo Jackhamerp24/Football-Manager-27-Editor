@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.3.0
+
+### Game builds
+- Supports the Steam hotfix `27.0.1+2503222`. Xbox / Game Pass stays on `27.0.1+2494687`; both run every reader and write, and pass
+  the same calibration checks.
+
+### Staff
+- **Training Rating** tab: the eleven ratings as sliders (0–5 stars); saving sets the attributes behind a rating.
+- Information shows and edits **Caps**, **Goals**, **License** and the fifteen **Roles** ratings.
+
+### Players
+- **Make Captain** / **Make Vice Captain** work in one click.
+- Each child tab (Relationships, Contract, Languages…) shows a * while it holds unsaved edits.
+
+### Clubs
+- **Status** (Professional, Semi Professional, Amateur) and the full Ownership Type, Chairperson Title and Rich Benefactor lists.
+- International pitch size reads as empty when the box is unticked.
+
+### Mass Edit
+- Rebuilt like FMRTE: coach General page (Age, Nationality, Caps, Goals, License, Training Rating), player Age and Nationality,
+  club Status, Reputation, ticket price, Capacity and pitch sizes.
+- No rows cut off at the bottom; opens without a pause.
+- Fixed: a field set in one scope was also planned for another scope with the same field number (a club's Balance was
+  offered as a nation's Women FIFA Ranking Points). Each scope now plans only its own fields. If you used Apply all with
+  fields set in several scopes on 1.1.0–1.2.0, check the clubs and nations involved.
+- Money boxes accept 1.000.000.000, 1,000,000,000 or plain digits; the review closes after Apply; Choose who to edit
+  opens at once.
+
+### Other
+- Wonderkid Academy is marked Experimental and has a How to use guide. Force Accept Transfer is withdrawn until it is redone
+  safely (shown as Coming Soon).
+- Money on the club screen and in club Mass Edit is shown and typed in GBP, EUR, USD or VND: the game's own currency
+  (detected) or one you pick in Settings. The game keeps pounds; limits follow the chosen currency.
+- Open player tabs follow you to a newly loaded save (matched by player ID) instead of showing an empty page.
+- Clearer tooltips; Freezer Manager layout fixed.
+
 ## 1.2.0
 
 ### Game builds

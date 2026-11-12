@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -33,7 +33,88 @@ static class UiKit
     public static readonly IBrush TextSecondary = Brush("#CBD5E1");
     public static readonly IBrush TextMuted = Brush("#94A3B8");
 
+
+    /// <summary>
+    /// A local option group (Home/Away kits, contract kinds and the like) in the app's own language: the same text buttons and
+    /// 2px accent underline as the module row on the main screen, never the system TabControl.
+    /// </summary>
+    public static Control OptionTabs(IReadOnlyList<(string Title, Control Content)> pages, int selectedIndex = 0, Action<int>? onSelected = null)
+    {
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(0, 0, 0, 8) };
+        var host = new ContentControl { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Top };
+        var buttons = new List<Button>();
+        void Apply(int index)
+        {
+            index = Math.Clamp(index, 0, Math.Max(0, pages.Count - 1));
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                bool active = i == index;
+                buttons[i].Foreground = active ? TextPrimary : TextMuted;
+                buttons[i].FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
+                buttons[i].Background = active ? Brush("#201B38") : Brushes.Transparent;
+                buttons[i].BorderBrush = active ? Accent : Brushes.Transparent;
+            }
+            host.Content = pages.Count == 0 ? null : pages[index].Content;
+        }
+        for (int i = 0; i < pages.Count; i++)
+        {
+            int index = i;
+            var button = new Button
+            {
+                Content = pages[i].Title,
+                FontSize = 13,
+                Padding = new Thickness(11, 3),
+                MinHeight = 25,
+                Height = 25,
+                CornerRadius = new CornerRadius(3),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0, 0, 0, 2),
+                BorderBrush = Brushes.Transparent,
+                Foreground = TextMuted,
+            };
+            button.Click += (_, _) => { Apply(index); onSelected?.Invoke(index); };
+            buttons.Add(button);
+            bar.Children.Add(button);
+        }
+        Apply(selectedIndex);
+        return new StackPanel { Children = { bar, host } };
+    }
+
     public static IBrush Brush(string hex) => AppTheme.Brush(hex);
+
+    /// <summary>
+    /// The small "i" next to a title whose effect is not obvious (Force Accept, Wonderkid Academy …): resting the mouse on
+    /// it shows <paramref name="explanation"/>. Use it for behaviour a player could not guess, not for every field.
+    /// </summary>
+    public static Border InfoBadge(string explanation)
+    {
+        var badge = new Border
+        {
+            Width = 18, Height = 18, CornerRadius = new CornerRadius(9),
+            Background = SurfaceInput, BorderBrush = BorderSubtle, BorderThickness = new Thickness(1),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
+            Child = new TextBlock
+            {
+                Text = "i", FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = TextSecondary,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        ToolTip.SetTip(badge, new TextBlock { Text = explanation, TextWrapping = TextWrapping.Wrap, MaxWidth = 380 });
+        ToolTip.SetShowDelay(badge, 150);
+        return badge;
+    }
+
+    /// <summary>A title followed by its <see cref="InfoBadge"/>.</summary>
+    public static StackPanel TitleWithInfo(TextBlock title, string explanation)
+    {
+        // The title's own margin moves to the row, so the badge centres on the text.
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = title.Margin };
+        title.Margin = default;
+        title.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(title);
+        row.Children.Add(InfoBadge(explanation));
+        return row;
+    }
 
     public static Border Card(string title, Control body, Control? customTitle = null, Control? rightHeader = null)
     {
@@ -421,8 +502,8 @@ static class UiKit
             Grid.SetColumn(name, colIndex == 0 ? 0 : 3);
             grid.Children.Add(name);
 
-            if (!double.IsNaN(control.Width) && control.Width > 0)
-                control.MaxWidth = control.Width;
+            // Fill the value column so both columns line up; a content-sized box used to centre itself in the column and
+            // made the rows look ragged.
             control.Width = double.NaN;
             control.HorizontalAlignment = HorizontalAlignment.Stretch;
             Control value = control;

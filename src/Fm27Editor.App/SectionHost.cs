@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Styling;
 
@@ -24,20 +25,92 @@ static class SectionHost
         public Control Body => _body ??= (Factory?.Invoke() ?? new Panel());
     }
 
-    sealed class Entry(Section section)
+    sealed class Entry(Section section) : System.ComponentModel.INotifyPropertyChanged
     {
         public Section Section { get; } = section;
-        public override string ToString() => Section.Title;
+        bool dirty;
+        public bool Dirty { get => dirty; set { if (dirty == value) return; dirty = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Label))); } }
+        public string Label => Dirty ? Section.Title + " *" : Section.Title;
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        public override string ToString() => Label;
+    }
+    /// <summary>Rail lists by entity, so the shell can put a star on the section that holds unsaved edits.</summary>
+    static readonly Dictionary<string, (ListBox List, List<Entry> Items)> Rails = [];
+    static readonly Dictionary<string, HashSet<string>> DirtyKeys = [];
+
+    /// <summary>
+    /// Sections whose own (hidden) Save button is enabled: every child tab with its own pending edits (Relationships,
+    /// Contract, Languages, Injury …) keeps a hidden "Save changes"-style button that the shell's one Save presses. Its
+    /// IsEnabled is the tab's "has unsaved edits", so the star follows it without each tab reporting anything.
+    /// </summary>
+    static readonly Dictionary<string, HashSet<string>> WatchedKeys = [];
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, Tuple<string, string>> Bodies = new();
+
+    /// <summary>Raised when a section's own pending edits appear (true) or are all gone (false).</summary>
+    public static event Action<string, bool>? SectionEdited;
+
+    static readonly string[] SaveLabels = ["Save changes", "Save contract", "Save loan", "Save"];
+    static bool IsPendingSave(Button b) => !b.IsVisible && b.IsEnabled && b.Content is string label && SaveLabels.Contains(label);
+
+    static SectionHost()
+    {
+        InputElement.IsEnabledProperty.Changed.AddClassHandler<Button>((button, _) => OnSaveButtonChanged(button));
+    }
+
+    static void OnSaveButtonChanged(Button button)
+    {
+        if (button.IsVisible || button.Content is not string label || !SaveLabels.Contains(label)) return;
+        foreach (var ancestor in button.GetLogicalAncestors().OfType<Control>())
+        {
+            if (!Bodies.TryGetValue(ancestor, out var owner)) continue;
+            var (entity, key) = (owner.Item1, owner.Item2);
+            bool dirty = ancestor.GetLogicalDescendants().OfType<Button>().Any(IsPendingSave);
+            var set = WatchedKeys.TryGetValue(entity, out var existing) ? existing : (WatchedKeys[entity] = []);
+            bool changed = dirty ? set.Add(key) : set.Remove(key);
+            if (!changed) return;
+            Apply(entity);
+            SectionEdited?.Invoke(entity, dirty);
+            return;
+        }
     }
 
     static readonly Dictionary<string, string> SelectedKey = [];
     const string DragFormat = "fm27-section";
 
+    /// <summary>Key of the section currently open in the rail, or null when that entity's rail is not built.</summary>
+    public static string? Selected(string entity) => Rails.TryGetValue(entity, out var rail) ? (rail.List.SelectedItem as Entry)?.Section.Key : null;
+
+    /// <summary>Stars every section in that rail whose key is in <paramref name="keys"/> (FMRTE marks each child tab that holds unsaved edits).</summary>
+    public static void MarkDirty(string entity, IReadOnlyCollection<string> keys)
+    {
+        var set = DirtyKeys.TryGetValue(entity, out var existing) ? existing : (DirtyKeys[entity] = []);
+        set.Clear();
+        set.UnionWith(keys);
+        Apply(entity);
+    }
+
+    static void Apply(string entity)
+    {
+        if (!Rails.TryGetValue(entity, out var rail)) return;
+        var keys = new HashSet<string>(DirtyKeys.TryGetValue(entity, out var set) ? set : []);
+        if (WatchedKeys.TryGetValue(entity, out var watched)) keys.UnionWith(watched);
+        bool changed = false;
+        foreach (var item in rail.Items)
+        {
+            bool dirty = keys.Contains(item.Section.Key);
+            if (item.Dirty == dirty) continue;
+            item.Dirty = dirty;
+            changed = true;
+        }
+        _ = changed;
+    }
     public static Control Build(string entity, IReadOnlyList<Section> sections, string? selectKey = null, Action<string>? onSelected = null, ContentControl? railHost = null)
     {
         if (sections.Count == 0) return new Panel();
 
         if (selectKey is not null) SelectedKey[entity] = selectKey;
+        // New bodies: the old ones' pending edits went with them.
+        WatchedKeys.Remove(entity);
 
         var byKey = sections.ToDictionary(s => s.Key, StringComparer.Ordinal);
         var order = UiOrderStore.Order(entity, [.. sections.Select(s => s.Key)]);
@@ -52,12 +125,12 @@ static class SectionHost
         };
 
         var list = CreateRailListBox(stretchVertically: entity != "player");
-        list.ItemTemplate = new FuncDataTemplate<Entry>((entry, _) => new TextBlock
+        list.ItemTemplate = new FuncDataTemplate<Entry>((entry, _) =>
         {
-            Text = entry.Section.Title,
-            FontSize = 13,
-            VerticalAlignment = VerticalAlignment.Center,
-        }, true);
+            var label = new TextBlock { FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            label.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(nameof(Entry.Label)));
+            return label;
+        }, false);
 
         void Select(int index)
         {
@@ -69,11 +142,14 @@ static class SectionHost
         {
             if (list.SelectedItem is not Entry entry) return;
             content.Content = entry.Section.Body;
+            Bodies.AddOrUpdate(entry.Section.Body, Tuple.Create(entity, entry.Section.Key));
             SelectedKey[entity] = entry.Section.Key;
             onSelected?.Invoke(entry.Section.Key);
         };
 
         list.ItemsSource = items;
+        // Registered at once (it used to be only after a drag), so MarkDirty and Selected find this rail.
+        Rails[entity] = (list, items);
         int start = SelectedKey.TryGetValue(entity, out var key) ? items.FindIndex(i => i.Section.Key == key) : 0;
         Select(start);
 
@@ -126,10 +202,12 @@ static class SectionHost
             items.Insert(to, moved);
             list.ItemsSource = null;
             list.ItemsSource = items;
+            Rails[entity] = (list, items);
             list.SelectedItem = moved;
             UiOrderStore.Save(entity, [.. items.Select(i => i.Section.Key)]);
         });
 
+        Apply(entity);
         if (railHost is not null)
         {
             railHost.Content = list;

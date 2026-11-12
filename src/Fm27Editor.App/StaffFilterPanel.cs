@@ -68,6 +68,14 @@ internal sealed class StaffFilterPanel : UserControl
         foreach (var box in new[] { nameBox, clubBox, minAge, maxAge, minCa, maxCa, minPa, maxPa, minHome, maxHome, minCurrent, maxCurrent, minWorld, maxWorld })
             box.TextChanged += (_, _) => Raise();
 
+        foreach (var c in Enum.GetValues<TrainingCategory>())
+        {
+            var (lo, hi) = (Num("0"), Num("5"));
+            lo.Width = hi.Width = 52;
+            lo.TextChanged += (_, _) => Raise();
+            hi.TextChanged += (_, _) => Raise();
+            trainingInputs.Add((c, lo, hi));
+        }
         pages["General"] = GeneralPage();
         pages["Coaching/Mental"] = AttributePage([StaffLabels.Groups[0], StaffLabels.Groups[3]]);
         pages["Tactical/Non Tactical"] = AttributePage([StaffLabels.Groups[1], StaffLabels.Groups[2]]);
@@ -129,6 +137,7 @@ internal sealed class StaffFilterPanel : UserControl
             {
                 UiKit.Card("Ability", ability),
                 UiKit.Card("Reputation", reputation),
+                UiKit.Card("Training Rating", TrainingRows()),
             }
         };
 
@@ -141,6 +150,34 @@ internal sealed class StaffFilterPanel : UserControl
         grid.Children.Add(leftCard);
         grid.Children.Add(right);
         return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = grid };
+    }
+
+    readonly List<(TrainingCategory Category, TextBox Min, TextBox Max)> trainingInputs = [];
+
+    /// <summary>FMRTE's Training Rating ranges: 0-5 stars in half steps; empty boxes mean no limit.</summary>
+    Control TrainingRows()
+    {
+        var rows = new StackPanel { Spacing = 4, Margin = new Thickness(10, 8) };
+        foreach (var (category, min, max) in trainingInputs)
+        {
+            var row = new DockPanel { LastChildFill = true, MinHeight = 28 };
+            DockPanel.SetDock(max, Dock.Right); row.Children.Add(max);
+            var dash = new TextBlock { Text = "-", Margin = new Thickness(6, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextMuted };
+            DockPanel.SetDock(dash, Dock.Right); row.Children.Add(dash);
+            DockPanel.SetDock(min, Dock.Right); row.Children.Add(min);
+            row.Children.Add(new TextBlock { Text = TrainingRatings.Label(category), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            rows.Children.Add(row);
+        }
+        return rows;
+    }
+
+    static bool TryStars(string? text, out double? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (!double.TryParse(text.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v) || v < 0 || v > 5) return false;
+        value = v;
+        return true;
     }
 
     Control AttributePage(IEnumerable<(string Title, (StaffAttribute Attribute, string Label)[] Items)> groups)
@@ -279,6 +316,14 @@ internal sealed class StaffFilterPanel : UserControl
             if (lo > hi) return null;
             ranges[attribute] = (lo, hi);
         }
+        var training = new Dictionary<TrainingCategory, (double, double)>();
+        foreach (var (category, minBox, maxBox) in trainingInputs)
+        {
+            if (!TryStars(minBox.Text, out double? lo) || !TryStars(maxBox.Text, out double? hi)) return null;
+            if (lo is null && hi is null) continue;
+            if ((lo ?? 0) > (hi ?? 5)) return null;
+            training[category] = (lo ?? 0, hi ?? 5);
+        }
         if (!TryRange(minAge.Text, maxAge.Text, 0, 120, out int? ageLo, out int? ageHi)) return null;
         if (!TryRange(minCa.Text, maxCa.Text, 1, 200, out int? caLo, out int? caHi)) return null;
         if (!TryRange(minPa.Text, maxPa.Text, 1, 200, out int? paLo, out int? paHi)) return null;
@@ -310,7 +355,7 @@ internal sealed class StaffFilterPanel : UserControl
             MinWorldReputation: worldLo,
             MaxWorldReputation: worldHi,
             Gender: selectedGender,
-            ExcludeWomenClubs: selectedGender == Fm27Editor.Core.Offsets.Gender.Men);
+            ExcludeWomenClubs: selectedGender == Fm27Editor.Core.Offsets.Gender.Men) { TrainingRanges = training };
     }
 
     public Fm27Editor.Core.Offsets.Gender? SelectedGender() => genderCombo.SelectedIndex switch
@@ -394,6 +439,7 @@ internal sealed class StaffFilterPanel : UserControl
         foreach (var box in new[] { minAge, maxAge, minCa, maxCa, minPa, maxPa, minHome, maxHome, minCurrent, maxCurrent, minWorld, maxWorld })
             box.Text = "";
         foreach (var (_, min, max) in attributeInputs) { min.Text = ""; max.Text = ""; }
+        foreach (var (_, min, max) in trainingInputs) { min.Text = ""; max.Text = ""; }
         relationRows.Clear();
         relationStack.Children.Clear();
     }

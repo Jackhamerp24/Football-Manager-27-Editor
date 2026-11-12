@@ -6,12 +6,18 @@ namespace Fm27Editor.Core.Clubs;
 
 public sealed record ClubMassChange(ClubEntry Club, ClubField Field, long Before, long After, IReadOnlyList<ulong> Owners);
 
-/// <summary>Plans reversible edits of integer fields whose stored value has no rounding or bit mask.</summary>
+/// <summary>Plans reversible edits of club fields: integers, whole-number floats (ticket price), and first-team fields (reputation).</summary>
+
 public static class ClubMassEdit
 {
     public static bool IsSupported(OffsetProfile profile, ClubField field) =>
-        profile.Club?.Fields?.TryGetValue(field, out var offset) == true && offset.Root == ClubFieldRoot.Club &&
-        offset.Scale == 1 && offset.Mask == 0 && offset.Type is ClubFieldType.Byte or ClubFieldType.SByte or ClubFieldType.Int16 or ClubFieldType.Int32;
+        profile.Club?.Fields?.TryGetValue(field, out var offset) == true &&
+        offset.Scale == 1 && offset.Mask == 0 && offset.Type is ClubFieldType.Byte or ClubFieldType.SByte or ClubFieldType.Int16 or ClubFieldType.Int32 or ClubFieldType.Float;
+
+    /// <summary>The object the field lives on: the club, or its first team for team fields (the team FMRTE edits).</summary>
+    static ulong RootOf(ClubEntry club, ClubFieldOffset offset) =>
+        offset.Root == ClubFieldRoot.Club ? club.Address
+        : club.FirstTeam?.Address ?? throw new StaleObjectException($"{club.DisplayName} has no first team");
 
     public static IReadOnlyList<ClubMassChange> Plan(IEnumerable<ClubEntry> clubs, ClubField field, MassEditMode mode,
         long value, long minimum, long maximum, IProcessMemory memory, OffsetProfile profile, ulong moduleBase)
@@ -25,9 +31,10 @@ public static class ClubMassEdit
         {
             if (club.Id is not > 0 || !ids.Add(club.Id.Value)) throw new ArgumentException("Clubs must have unique positive IDs");
             RequireClub(club, memory, profile, moduleBase);
-            var owners = ReadOwners(club.Address, offset, memory);
-            long before = access.Read(club.Address, field) ?? throw new StaleObjectException($"{club.DisplayName}: {field} is not readable");
-            if (!owners.SequenceEqual(ReadOwners(club.Address, offset, memory))) throw new StaleObjectException($"{field}: pointer path changed");
+            ulong root = RootOf(club, offset);
+            var owners = ReadOwners(root, offset, memory);
+            long before = access.Read(root, field) ?? throw new StaleObjectException($"{club.DisplayName}: {field} is not readable");
+            if (!owners.SequenceEqual(ReadOwners(root, offset, memory))) throw new StaleObjectException($"{field}: pointer path changed");
             long after = mode == MassEditMode.Set ? value : checked(before + value);
             if (after < minimum || after > maximum) throw new ArgumentOutOfRangeException(nameof(value), after, $"{field} must be between {minimum} and {maximum}");
             _ = ClubFieldAccess.Encode(after, offset);
@@ -45,9 +52,11 @@ public static class ClubMassEdit
     {
         if (!IsSupported(profile, change.Field)) throw new InvalidOperationException("This field cannot be edited as a batch");
         RequireClub(change.Club, memory, profile, moduleBase);
-        if (!change.Owners.SequenceEqual(ReadOwners(change.Club.Address, profile.Club!.Fields![change.Field], memory)))
+        var offset = profile.Club!.Fields![change.Field];
+        ulong root = RootOf(change.Club, offset);
+        if (!change.Owners.SequenceEqual(ReadOwners(root, offset, memory)))
             throw new StaleObjectException($"{change.Field}: pointer path changed");
-        new ClubFieldAccess(memory, profile, moduleBase).Set(change.Club.Address, change.Field, expected, value);
+        new ClubFieldAccess(memory, profile, moduleBase).Set(root, change.Field, expected, value);
         onWritten?.Invoke();
     }
 

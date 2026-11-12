@@ -41,6 +41,7 @@ public sealed class PlayerReader(IProcessMemory memory, OffsetProfile profile)
             Address = address,
             VtableRva = vtableRva,
             Id = f.Id is { } id ? BitConverter.ToInt32(obj[id..]) : null,
+            PersonIndex = f.PersonIndex is { } pix ? BitConverter.ToInt32(obj[pix..]) : null,
             FullName = StringAt(U64(obj, f.FullName)),
             FirstName = EntryString(U64(obj, f.FirstName)),
             LastName = EntryString(U64(obj, f.LastName)),

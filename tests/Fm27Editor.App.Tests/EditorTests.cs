@@ -362,6 +362,160 @@ public sealed class EditorTests
     }
 
     [Fact]
+    public void ContractStatusAndTeamFiltersMatchSnapshotData()
+    {
+        var gameDate = new DateOnly(2026, 7, 26);
+        var manUtdClub = new ClubInfo(0x200, "Man Utd", "Man Utd");
+        var manCityClub = new ClubInfo(0x300, "Man City", "Man City");
+        PlayerRecord MakeAt(ulong addr, string name, ClubInfo? club, DateOnly? expires, bool free = false, bool noDate = false)
+        {
+            return new PlayerRecord
+            {
+                Address = addr,
+                VtableRva = 0,
+                CommonName = name,
+                DateOfBirth = new DateOnly(2000, 1, 1),
+                GameDate = noDate ? null : gameDate,
+                CurrentAbility = 100,
+                PotentialAbility = 100,
+                HomeReputation = 0,
+                CurrentReputation = 0,
+                WorldReputation = 0,
+                Height = 180,
+                Contract = free || club is null ? null : new ContractInfo(addr + 0x100, 100000, expires, null, club),
+                RawAttributes = [],
+                AttributeScale = 5,
+                Positions = [],
+                Personality = [],
+            };
+        }
+
+        var free = MakeAt(1, "Free", null, null, free: true);
+        var expired = MakeAt(2, "Expired", manUtdClub, new DateOnly(2026, 1, 1));
+        var boundary = MakeAt(3, "Boundary", manUtdClub, gameDate);
+        var sixMonths = MakeAt(4, "SixMo", manCityClub, new DateOnly(2026, 10, 26));
+        var year = MakeAt(5, "Year", manCityClub, new DateOnly(2027, 6, 1));
+        var beyondYear = MakeAt(6, "Beyond", new ClubInfo(0x400, "Arsenal", "Arsenal"), new DateOnly(2028, 1, 1));
+        var noExpiry = MakeAt(7, "NoExpiry", new ClubInfo(0x400, "Arsenal", "Arsenal"), null);
+        var noDate = MakeAt(8, "NoDate", new ClubInfo(0x400, "Arsenal", "Arsenal"), new DateOnly(2026, 10, 26), noDate: true);
+        var module = new PlayersModule();
+
+        Assert.True(module.MatchesFilter(free, new PlayerFilter { ContractStatus = ContractStatusFilter.FreePlayer }));
+        Assert.False(module.MatchesFilter(expired, new PlayerFilter { ContractStatus = ContractStatusFilter.FreePlayer }));
+
+        var expiredFilter = new PlayerFilter { ContractStatus = ContractStatusFilter.Expired };
+        Assert.True(module.MatchesFilter(expired, expiredFilter));
+        Assert.False(module.MatchesFilter(free, expiredFilter));
+        Assert.False(module.MatchesFilter(boundary, expiredFilter));
+        Assert.False(module.MatchesFilter(noExpiry, expiredFilter));
+
+        var sixFilter = new PlayerFilter { ContractStatus = ContractStatusFilter.Expiring6Months };
+        Assert.True(module.MatchesFilter(boundary, sixFilter));
+        Assert.True(module.MatchesFilter(sixMonths, sixFilter));
+        Assert.False(module.MatchesFilter(year, sixFilter));
+        Assert.False(module.MatchesFilter(expired, sixFilter));
+        Assert.False(module.MatchesFilter(free, sixFilter));
+        Assert.False(module.MatchesFilter(noDate, sixFilter));
+
+        var yearFilter = new PlayerFilter { ContractStatus = ContractStatusFilter.ExpiringYear };
+        Assert.True(module.MatchesFilter(year, yearFilter));
+        Assert.True(module.MatchesFilter(sixMonths, yearFilter));
+        Assert.False(module.MatchesFilter(beyondYear, yearFilter));
+        Assert.False(module.MatchesFilter(expired, yearFilter));
+
+        var manUtd = expired.Contract!.Club!.Address;
+        Assert.True(module.MatchesFilter(expired, new PlayerFilter { TeamClubAddress = manUtd }));
+        Assert.True(module.MatchesFilter(boundary, new PlayerFilter { TeamClubAddress = manUtd }));
+        Assert.False(module.MatchesFilter(sixMonths, new PlayerFilter { TeamClubAddress = manUtd }));
+        Assert.False(module.MatchesFilter(free, new PlayerFilter { TeamClubAddress = manUtd }));
+    }
+
+    [Fact]
+    public void AdvancedSearchDialogExposesClausePresenceAndContractDropdowns()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var dialog = new AttributeFilterDialog(
+                new PlayerFilter
+                {
+                    TeamClubAddress = 0x200,
+                    TeamClubName = "Man Utd",
+                    ContractStatus = ContractStatusFilter.Expiring6Months,
+                    ContractType = ContractType.PartTime,
+                    AgreedPlayingTime = PlayingTime.RegularStarter,
+                    Clauses = [new ContractClauseCriterion(0, true, 1_000_000, null), new ContractClauseCriterion(4, false)],
+                },
+                [], null, []);
+
+            Assert.Equal(0x200ul, dialog.ResultTeamClubAddress);
+            Assert.Equal("Man Utd", dialog.ResultTeamClubName);
+            Assert.Equal(ContractStatusFilter.Expiring6Months, dialog.ResultContractStatus);
+            Assert.Equal(ContractType.PartTime, dialog.ResultContractType);
+            Assert.Equal(PlayingTime.RegularStarter, dialog.ResultPlayingTime);
+            var clauses = dialog.ResultClauses;
+            Assert.Equal(2, clauses.Count);
+            var fee = Assert.Single(clauses, c => c.Type == 0);
+            Assert.True(fee.HasClause);
+            Assert.Equal(1_000_000, fee.MinimumValue);
+            Assert.Null(fee.MaximumValue);
+            Assert.False(Assert.Single(clauses, c => c.Type == 4).HasClause);
+            Assert.Contains("Team: Man Utd", dialog.SummaryMessage, StringComparison.Ordinal);
+            Assert.Contains("Part Time Contract", dialog.SummaryMessage, StringComparison.Ordinal);
+            Assert.Contains("2 clause(s)", dialog.SummaryMessage, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void AdvancedSearchScopeStartsOnTheRequestedScope()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var player = new AttributeFilterDialog(new PlayerFilter(), [], null, [], initialScope: "Player");
+            Assert.Equal("Player", player.SelectedScope);
+
+            var coach = new AttributeFilterDialog(new PlayerFilter(), [], null, [], initialScope: "Coach");
+            Assert.Equal("Coach", coach.SelectedScope);
+
+            var club = new AttributeFilterDialog(new PlayerFilter(), [], null, [], initialScope: "Club");
+            Assert.Equal("Club", club.SelectedScope);
+        });
+    }
+
+    [Fact]
+    public void FilterPresetRoundTripsContractFilters()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"fm27-presets-{Guid.NewGuid():N}.json");
+        try
+        {
+            var preset = new FilterPreset("Contracted Youth", [])
+            {
+                TeamClubAddress = 0x1234,
+                TeamClubName = "Man Utd",
+                ContractStatus = ContractStatusFilter.ExpiringYear,
+                ContractType = ContractType.FullTime,
+                AgreedPlayingTime = PlayingTime.BreakthroughProspect,
+                Clauses = [new ContractClauseCriterion(0, true, 1_000_000, 5_000_000)],
+            };
+            FilterPresetStore.Save(FilterPresetStore.Upsert([], preset), tempFile);
+            var reloaded = Assert.Single(FilterPresetStore.LoadOrDefaults(tempFile));
+            Assert.Equal(0x1234ul, reloaded.TeamClubAddress);
+            Assert.Equal("Man Utd", reloaded.TeamClubName);
+            Assert.Equal(ContractStatusFilter.ExpiringYear, reloaded.ContractStatus);
+            Assert.Equal(ContractType.FullTime, reloaded.ContractType);
+            Assert.Equal(PlayingTime.BreakthroughProspect, reloaded.AgreedPlayingTime);
+            var clause = Assert.Single(reloaded.Clauses ?? []);
+            Assert.Equal((short)0, clause.Type);
+            Assert.True(clause.HasClause);
+            Assert.Equal(1_000_000, clause.MinimumValue);
+            Assert.Equal(5_000_000, clause.MaximumValue);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void FilterPresetStoreUpsertsRemovesAndRoundTripsJson()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"fm27-presets-{Guid.NewGuid():N}.json");

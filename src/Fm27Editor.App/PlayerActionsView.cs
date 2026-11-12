@@ -131,6 +131,43 @@ public sealed partial class MainWindow
 
         if (saveButton is not null) saveButton.IsEnabled = total > 0;
         status.Text = total > 0 ? $"{total} unsaved change(s)" : "";
+        if (total > 0) SetActiveTabDirty(true);
+        MarkEditedSection(player, total > 0);
+    }
+
+    /// <summary>
+    /// The page's own edits (Information fields, positions, scalars) star the child tab they were made in; when none are
+    /// left, those stars go. Child tabs with their own Save are starred by <see cref="SectionHost"/> itself.
+    /// </summary>
+    /// <summary>Child tabs starred by the page's own edits, per player (Information fields, positions, scalars).</summary>
+    readonly Dictionary<ulong, HashSet<string>> playerPageSections = [];
+
+    /// <summary>Stars <paramref name="key"/> while it holds edits saved by the shell's Save (the Contract tab).</summary>
+    void MarkSection(PlayerRecord player, string key, bool dirty)
+    {
+        if (!playerPageSections.TryGetValue(player.Address, out var page)) playerPageSections[player.Address] = page = [];
+        if (dirty) page.Add(key); else page.Remove(key);
+        PublishSections(player);
+    }
+
+    /// <summary>
+    /// The page's own edits star the child tab they were made in; when none are left those stars go (the Contract star
+    /// stays while its draft has changes). Child tabs with their own Save are starred by <see cref="SectionHost"/>.
+    /// </summary>
+    void MarkEditedSection(PlayerRecord player, bool any)
+    {
+        if (!playerPageSections.TryGetValue(player.Address, out var page)) playerPageSections[player.Address] = page = [];
+        if (!any) page.RemoveWhere(k => k != "Contract");
+        else if (SectionHost.Selected("player") is { } key && key != "Contract") page.Add(key);
+        PublishSections(player);
+    }
+
+    void PublishSections(PlayerRecord player)
+    {
+        if (!playerDirtySections.TryGetValue(player.Address, out var sections)) playerDirtySections[player.Address] = sections = [];
+        sections.Clear();
+        if (playerPageSections.TryGetValue(player.Address, out var page)) sections.UnionWith(page);
+        SectionHost.MarkDirty("player", sections);
     }
 
     void HookScalarDraftButtons(PlayerRecord player)
@@ -387,8 +424,8 @@ public sealed partial class MainWindow
             panel.Children.Add(Subhead("TEAM"));
             bool captain = backend.Session.Profile.Team?.Captain is not null;
             bool vice = backend.Session.Profile.Team?.ViceCaptain is not null;
-            panel.Children.Add(ActionBtn("Set captain", () => _ = ShowSetCaptainAsync(player, CaptainRole.Captain), enabled: captain));
-            panel.Children.Add(ActionBtn("Set vice captain", () => _ = ShowSetCaptainAsync(player, CaptainRole.ViceCaptain), enabled: vice));
+            panel.Children.Add(ActionBtn("Make Captain", () => _ = MakeCaptainAsync(player, CaptainRole.Captain), enabled: captain));
+            panel.Children.Add(ActionBtn("Make Vice Captain", () => _ = MakeCaptainAsync(player, CaptainRole.ViceCaptain), enabled: vice));
             if (captainUndo.Count > 0)
                 panel.Children.Add(ActionBtn("Undo captain change", () => _ = UndoCaptainAsync(), enabled: true));
         }
@@ -469,7 +506,6 @@ public sealed partial class MainWindow
                     ? $"Golden Generation: {done} youth and reserve player(s) updated. Continue in FM to see updates."
                     : $"Golden Generation: {done} updated, {failed.Count} failed ({string.Join(", ", failed.Take(2))}).");
             }));
-            panel.Children.Add(ActionBtn("Golden Batch", () => ShowGoldenBatch(getYouthPlayers, onStatus, onApplied)));
         }
         if (!isSquadMode && player is not null)
         {

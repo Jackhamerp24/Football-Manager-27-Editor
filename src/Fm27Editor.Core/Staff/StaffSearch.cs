@@ -22,13 +22,23 @@ public sealed record StaffSearchCriteria(
     int? MinWorldReputation = null,
     int? MaxWorldReputation = null,
     Gender? Gender = null,
-    bool ExcludeWomenClubs = false);
+    bool ExcludeWomenClubs = false)
+{
+    /// <summary>Training star ranges (0-5) by category; see <see cref="TrainingRatings"/>.</summary>
+    public IReadOnlyDictionary<TrainingCategory, (double Min, double Max)>? TrainingRanges { get; init; }
+}
 
 public static class StaffSearch
 {
     public static bool Matches(StaffRecord staff, StaffSearchCriteria criteria, DateOnly today)
     {
         if (criteria.Gender is { } gender && staff.Gender != gender) return false;
+        if (criteria.TrainingRanges is { Count: > 0 } training)
+            foreach (var (category, (lo, hi)) in training)
+            {
+                double stars = TrainingRatings.Stars(staff, category);
+                if (stars < lo || stars > hi) return false;
+            }
         if (criteria.ExcludeWomenClubs && staff.Club?.Gender == Gender.Women) return false;
         if (!string.IsNullOrWhiteSpace(criteria.NameContains) &&
             !staff.DisplayName.Contains(criteria.NameContains.Trim(), StringComparison.OrdinalIgnoreCase)) return false;

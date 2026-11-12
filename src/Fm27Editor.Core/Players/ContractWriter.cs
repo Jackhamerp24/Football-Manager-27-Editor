@@ -8,6 +8,8 @@ public enum PlayingTime : byte
 {
     Unset, Star, ImportantPlayer, RegularStarter, SquadPlayer, ImpactSub, SquadPlayer2, FringePlayer, FringePlayer2,
     EmergencyBackup, BreakthroughProspect, FutureProspect, HotProspect, Youngster, BTeamRegular,
+    // Goalkeeper roles, codes 15-19 in FMRTE 27's dropdown order (FMRTE shows "Cup Goalkeeper" for both 16 and 19).
+    FirstChoiceGoalkeeper, CupGoalkeeper, DomesticCupGoalkeeper, ContinentalCupGoalkeeper, CupGoalkeeper2,
 }
 
 public enum ContractType : short { PartTime = 0, FullTime = 1, Amateur = 2, Youth = 3, NonContract = 6 }
@@ -22,8 +24,17 @@ public sealed record ContractTerm(int Index, int Value, short Parameter, short T
 /// <summary>Snapshot of every contract field the profile knows; null where the profile has no offset.</summary>
 public sealed record ContractDetails(
     ulong Address, int Wage, DateOnly? Expires, DateOnly? Signed, DateOnly? Started, DateOnly? JoinedClub,
-    ContractType? Type, int? LoyaltyBonus, int? SquadNumber, PlayingTime? PlayingTime, PlayingTime? FuturePlayingTime,
-    int? FuturePlayingTimeYear, int? Happiness, int? PlayingTimeHappiness, IReadOnlyList<ContractTerm> Terms);
+    ContractType? Type, int? LoyaltyBonus, int? SquadNumber, PlayingTime? PlayingTime, PlayingTime? PreviousPlayingTime,
+    PlayingTime? FuturePlayingTime,
+    int? FuturePlayingTimeYear, int? Happiness, int? PlayingTimeHappiness, bool? LoanListed, IReadOnlyList<ContractTerm> Terms)
+{
+    /// <summary>The whole status byte (transfer and loan listing); null when the profile has no offset.</summary>
+    public byte? StatusFlags { get; init; }
+    public TransferListing? Transfer => StatusFlags is { } f ? ContractStatusFlags.Transfer(f) : null;
+    public LoanListing? Loan => StatusFlags is { } f ? ContractStatusFlags.Loan(f) : null;
+    /// <summary>On Rolling Contract; null when the profile has no offset.</summary>
+    public bool? OnRollingContract { get; init; }
+}
 
 /// <summary>
 /// Reads and writes the player's current contract. Same guards as <see cref="PlayerWriter"/>: the contract
@@ -55,12 +66,18 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
             c.LoyaltyBonus is { } l ? I32(l) : null,
             c.SquadNumber is { } n ? (sbyte)U8(n) : null,
             c.PlayingTime is { } p ? (PlayingTime)U8(p) : null,
+            c.PreviousPlayingTime is { } pp ? (PlayingTime)U8(pp) : null,
             c.FuturePlayingTime is { } fp ? (PlayingTime)U8(fp) : null,
             c.FuturePlayingTimeYear is { } fy ? I16(fy) : null,
             // Signed bytes: FMRTE shows Bruno Fernandes -20 / 33 (raw 0xEC / 0x21), Mauro Icardi playing time -35.
             c.Happiness is { } h ? (sbyte)U8(h) : null,
             c.PlayingTimeHappiness is { } ph ? (sbyte)U8(ph) : null,
-            ReadTerms(a));
+            c.LoanStatusOffset is { } lo && c.LoanStatusMask is { } mask ? (U8(lo) & mask) != 0 : null,
+            ReadTerms(a))
+        {
+            StatusFlags = c.LoanStatusOffset is { } so ? U8(so) : null,
+            OnRollingContract = c.RollingContractOffset is { } ro && c.RollingContractMask is { } rm ? (U8(ro) & rm) != 0 : null,
+        };
     }
 
     IReadOnlyList<ContractTerm> ReadTerms(ulong contract)
@@ -186,6 +203,51 @@ public sealed class ContractWriter(IProcessMemory memory, OffsetProfile profile,
 
     public void SetPlayingTime(PlayerRecord player, ContractDetails s, PlayingTime value) =>
         Write(At(player, s, C.PlayingTime), [(byte)Need(s.PlayingTime, "playing time")], [(byte)value]);
+
+    public void SetPreviousPlayingTime(PlayerRecord player, ContractDetails s, PlayingTime value) =>
+        Write(At(player, s, C.PreviousPlayingTime), [(byte)Need(s.PreviousPlayingTime, "previous playing time")], [(byte)value]);
+
+    /// <summary>Sets or clears the loan-listed flag, preserving the other bits in its byte.</summary>
+    public void SetLoanListed(PlayerRecord player, ContractDetails s, bool listed)
+    {
+        if (C.LoanStatusOffset is not { } offset || C.LoanStatusMask is not { } mask)
+            throw new InvalidOperationException("Profile has no loan status offset");
+        if (s.LoanListed is null) throw new InvalidOperationException("Profile has no loan status offset");
+        ulong address = At(player, s, offset);
+        byte current = memory.Read(address, 1)[0];
+        if (((current & mask) != 0) != s.LoanListed.Value)
+            throw new StaleObjectException($"Value at 0x{address:X} changed since it was read");
+        byte wanted = (byte)(listed ? current | mask : current & ~mask);
+        if (wanted != current) Write(address, [current], [wanted]);
+    }
+
+    /// <summary>Sets Transfer Status, keeping every other bit of the status byte. Refuses when the byte changed since it was read.</summary>
+    public void SetTransferListing(PlayerRecord player, ContractDetails s, TransferListing value) =>
+        SetStatusByte(player, s, f => ContractStatusFlags.WithTransfer(f, value));
+
+    /// <summary>Sets Loan Status, keeping every other bit of the status byte.</summary>
+    public void SetLoanListing(PlayerRecord player, ContractDetails s, LoanListing value) =>
+        SetStatusByte(player, s, f => ContractStatusFlags.WithLoan(f, value));
+
+    void SetStatusByte(PlayerRecord player, ContractDetails s, Func<byte, byte> change)
+    {
+        if (C.LoanStatusOffset is not { } offset || s.StatusFlags is not { } read)
+            throw new InvalidOperationException("Profile has no contract status offset");
+        byte wanted = change(read);
+        if (wanted != read) Write(At(player, s, offset), [read], [wanted]);
+    }
+
+    /// <summary>Ticks or clears On Rolling Contract, keeping the other bits of its byte.</summary>
+    public void SetRollingContract(PlayerRecord player, ContractDetails s, bool rolling)
+    {
+        if (C.RollingContractOffset is not { } offset || C.RollingContractMask is not { } mask || s.OnRollingContract is not { } was)
+            throw new InvalidOperationException("Profile has no rolling contract offset");
+        ulong address = At(player, s, offset);
+        byte current = memory.Read(address, 1)[0];
+        if (((current & mask) != 0) != was) throw new StaleObjectException($"Value at 0x{address:X} changed since it was read");
+        byte wanted = (byte)(rolling ? current | mask : current & ~mask);
+        if (wanted != current) Write(address, [current], [wanted]);
+    }
 
     public void SetFuturePlayingTime(PlayerRecord player, ContractDetails s, PlayingTime value, int year)
     {

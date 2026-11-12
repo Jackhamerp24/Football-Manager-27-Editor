@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -36,18 +36,18 @@ public sealed partial class MainWindow
             });
             DockPanel.SetDock(remove, Dock.Right);
         }
-        // Type two letters of a name or club, pick from the list, press Add.
-        var pick = new AutoCompleteBox
+        var pick = new Button { Width = 340, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose player…" };
+        pick.Click += async (_, _) =>
         {
-            Width = 340, MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300,
-            ItemsSource = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address)
+            var choices = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address)
                 && p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women)
-                .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToList(),
-            ItemFilter = (q, o) => o is RelationTarget t && Matches(t.Label, q ?? ""),
+                .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToList();
+            var chosen = await PickerDialog.Show<RelationTarget>(this, "Choose player to clone into", q => choices.Where(t => PickerSearch.Hit(q, t.Label)).Select(t => (t.Label, t)).ToList());
+            if (chosen is null) return;
+            targets.Add(chosen.Address);
+            RenderEditor();
         };
-        var add = new Button { Content = "Add" };
-        add.Click += (_, _) => { if (pick.SelectedItem is RelationTarget t) { targets.Add(t.Address); RenderEditor(); } };
-        list.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { pick, add } });
+        list.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { pick } });
 
         var what = new StackPanel { Spacing = 2 };
         foreach (var (part, name) in CloneGroups)

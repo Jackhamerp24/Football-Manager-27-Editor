@@ -37,11 +37,31 @@ public sealed class NationalCallUpReader(IProcessMemory memory, OffsetProfile pr
 {
     const int MaxTeams = 200_000, MaxSquad = 100;
 
+    IReadOnlyDictionary<ulong, NationalCallUp>? _all;
+    readonly object _allLock = new();
+
     /// <summary>The national squad the player is in, or null.</summary>
     public NationalCallUp? Find(PlayerRecord player) => All().GetValueOrDefault(player.Address);
 
     /// <summary>Every called-up player, by player address.</summary>
     public IReadOnlyDictionary<ulong, NationalCallUp> All()
+    {
+        if (_all is { } cached) return cached;
+        lock (_allLock)
+        {
+            if (_all is { } again) return again;
+            var built = ReadAll();
+            return _all = built;
+        }
+    }
+
+    /// <summary>Drops the cached squads; the next read walks the teams again.</summary>
+    public void Invalidate()
+    {
+        lock (_allLock) _all = null;
+    }
+
+    IReadOnlyDictionary<ulong, NationalCallUp> ReadAll()
     {
         var map = new Dictionary<ulong, NationalCallUp>();
         if (profile.CallUps is not { } o) return map;

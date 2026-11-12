@@ -18,7 +18,8 @@ internal sealed class MassEditReviewWindow : Window
     sealed class Page
     {
         public required MassPlan Plan;
-        public required TabItem Tab;
+        public required Button Tab;
+        public required Control Body;
         public required TextBlock Summary;
         public required CheckBox Confirm;
         public required Button Apply;
@@ -26,7 +27,11 @@ internal sealed class MassEditReviewWindow : Window
     }
 
     readonly List<Page> pages = [];
-    readonly TabControl tabs = new();
+    // The app's own tab look (text buttons with the 2px accent underline, as Mass Edit's Player / Coach / Club / Nation),
+    // never the system TabControl.
+    readonly StackPanel tabBar = new() { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(12, 8, 12, 0) };
+    readonly ContentControl tabBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+    Page? selected;
     readonly Button applyAll = new() { Content = "Apply all", Classes = { "accent" }, MinWidth = 100 };
     readonly TextBlock status = new() { Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center, FontSize = 12.5 };
     readonly Func<IReadOnlyList<MassPlan>, IProgress<(int Done, int Total)>?, CancellationToken, Task<int>> write;
@@ -43,8 +48,8 @@ internal sealed class MassEditReviewWindow : Window
         Background = UiKit.WindowBg;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         foreach (var plan in plans) pages.Add(BuildPage(plan));
-        foreach (var page in pages) tabs.Items.Add(page.Tab);
-        tabs.SelectionChanged += (_, _) => { Visit(); Refresh(); };
+        foreach (var page in pages) tabBar.Children.Add(page.Tab);
+        Select(pages.FirstOrDefault());
         applyAll.Click += async (_, _) => await ApplyAsync(pages.ToList());
         var close = new Button { Content = "Close", MinWidth = 80 };
         close.Click += (_, _) => Close();
@@ -54,7 +59,8 @@ internal sealed class MassEditReviewWindow : Window
         var bottom = new DockPanel { Margin = new Thickness(12, 6, 12, 10), Children = { buttons, status } };
         var root = new DockPanel();
         DockPanel.SetDock(bottom, Dock.Bottom);
-        root.Children.Add(bottom); root.Children.Add(tabs);
+        DockPanel.SetDock(tabBar, Dock.Top);
+        root.Children.Add(bottom); root.Children.Add(tabBar); root.Children.Add(tabBody);
         Content = root;
         Opened += (_, _) => { Visit(); Refresh(); };
     }
@@ -77,7 +83,13 @@ internal sealed class MassEditReviewWindow : Window
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 6), Children = { discard, apply } };
         DockPanel.SetDock(top, Dock.Top); DockPanel.SetDock(actions, Dock.Bottom);
         var body = new DockPanel { Children = { top, actions, grid } };
-        var page = new Page { Plan = plan, Summary = summary, Confirm = confirm, Apply = apply, Tab = new TabItem { Header = $"{plan.Scope} ({plan.Rows.Count:N0})", Content = body } };
+        var page = new Page { Plan = plan, Summary = summary, Confirm = confirm, Apply = apply, Body = body, Tab = new Button
+        {
+            Content = $"{plan.Scope} ({plan.Rows.Count:N0})", FontSize = 13, Padding = new Thickness(11, 3), MinHeight = 25, Height = 25,
+            CornerRadius = new CornerRadius(3), Background = Brushes.Transparent, BorderThickness = new Thickness(0, 0, 0, 2),
+            BorderBrush = Brushes.Transparent, Foreground = UiKit.TextMuted,
+        } };
+        page.Tab.Click += (_, _) => Select(page);
         grid.CellEditEnded += (_, _) => Refresh();
         confirm.IsCheckedChanged += (_, _) => Refresh();
         apply.Click += async (_, _) => await ApplyAsync([page]);
@@ -85,7 +97,23 @@ internal sealed class MassEditReviewWindow : Window
         return page;
     }
 
-    Page? Current => pages.FirstOrDefault(p => ReferenceEquals(p.Tab, tabs.SelectedItem));
+    Page? Current => selected;
+
+    void Select(Page? page)
+    {
+        selected = page;
+        tabBody.Content = page?.Body;
+        foreach (var p in pages)
+        {
+            bool active = ReferenceEquals(p, page);
+            p.Tab.Foreground = active ? UiKit.TextPrimary : UiKit.TextMuted;
+            p.Tab.FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
+            p.Tab.Background = active ? UiKit.Brush("#201B38") : Brushes.Transparent;
+            p.Tab.BorderBrush = active ? UiKit.Accent : Brushes.Transparent;
+        }
+        Visit();
+        Refresh();
+    }
 
     void Visit() { if (Current is { } page) page.Visited = true; }
 
@@ -107,7 +135,8 @@ internal sealed class MassEditReviewWindow : Window
     void Remove(Page page)
     {
         pages.Remove(page);
-        tabs.Items.Remove(page.Tab);
+        tabBar.Children.Remove(page.Tab);
+        if (ReferenceEquals(selected, page)) Select(pages.FirstOrDefault());
         Refresh();
     }
 
@@ -131,8 +160,10 @@ internal sealed class MassEditReviewWindow : Window
             status.Text = applyCts.IsCancellationRequested
                 ? $"Cancelled: {written:N0} value(s) written. Continue in FM to see updates."
                 : $"{written:N0} value(s) written. Continue in FM to see updates.";
-            foreach (var page in chosen) { pages.Remove(page); tabs.Items.Remove(page.Tab); }
-            if (pages.Count == 0) { await Task.Delay(1200); Close(); return; }
+            foreach (var page in chosen) { pages.Remove(page); tabBar.Children.Remove(page.Tab); }
+            if (selected is null || !pages.Contains(selected)) Select(pages.FirstOrDefault());
+            // Done when nothing applicable is left (tables holding only refused lines do not keep the window open).
+            if (!applyCts.IsCancellationRequested && pages.All(p => p.Plan.Selected == 0)) { await Task.Delay(800); Close(); return; }
             Visit();
             Refresh();
         }

@@ -80,7 +80,9 @@ public sealed partial class MainWindow
             Content = "Players",
             FontWeight = FontWeight.SemiBold,
             FontSize = 13.5,
-            Padding = new Thickness(14, 5),
+            Padding = new Thickness(14, 0),
+            Height = 28, MinHeight = 28,
+            VerticalContentAlignment = VerticalAlignment.Center,
             CornerRadius = new CornerRadius(4),
             Background = Brush("#2563EB"),
             Foreground = Brush("#FFFFFF"),
@@ -90,7 +92,9 @@ public sealed partial class MainWindow
             Content = "Staff",
             FontWeight = FontWeight.SemiBold,
             FontSize = 13.5,
-            Padding = new Thickness(14, 5),
+            Padding = new Thickness(14, 0),
+            Height = 28, MinHeight = 28,
+            VerticalContentAlignment = VerticalAlignment.Center,
             CornerRadius = new CornerRadius(4),
             Background = Brush("#181C29"),
             Foreground = Brush("#94A3B8"),
@@ -409,7 +413,7 @@ public sealed partial class MainWindow
 
         var unfreezeSelected = new Button
         {
-            Content = "UnFreeze Selected",
+            Content = "Unfreeze Selected",
             FontSize = 13,
             Padding = new Thickness(12, 0),
             Height = 27,
@@ -597,23 +601,13 @@ public sealed partial class MainWindow
             Children = { selectedCountText, unfreezeSelected, freezeSelected },
         };
         DockPanel.SetDock(leftActions, Dock.Left);
-        DockPanel.SetDock(unfreezeAll, Dock.Right);
+        // One footer row: selection actions on the left, Unfreeze All and Close on the right.
+        var rightActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { unfreezeAll, closeBtn } };
+        DockPanel.SetDock(rightActions, Dock.Right);
         bottomActions.Children.Add(leftActions);
-        bottomActions.Children.Add(unfreezeAll);
-
-        var closeBar = new DockPanel
-        {
-            Margin = new Thickness(14, 0, 14, 10),
-            LastChildFill = false,
-        };
-        DockPanel.SetDock(closeBtn, Dock.Right);
-        closeBar.Children.Add(closeBtn);
-
-        var footerPanel = new StackPanel
-        {
-            Spacing = 6,
-            Children = { bottomActions, closeBar },
-        };
+        bottomActions.Children.Add(rightActions);
+        bottomActions.Margin = new Thickness(14, 8, 14, 12);
+        var footerPanel = bottomActions;
 
         var root = new DockPanel();
         DockPanel.SetDock(topBar, Dock.Top);

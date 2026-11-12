@@ -112,17 +112,28 @@ public sealed class CareerPlanReader(IProcessMemory memory, OffsetProfile profil
         return null;
     }
 
-    /// <summary>Plan targets for the picker: every nation's football object and its continent, plus the given clubs and competitions.</summary>
-    public IReadOnlyList<CareerItem> Catalogue(IEnumerable<ulong> clubs, IEnumerable<ulong> competitions)
+    /// <summary>
+    /// Plan targets for the picker: every nation's football object and its continent, plus the given clubs and
+    /// competitions with the names the caller already holds (so no per-item memory reads for 13,000 clubs/competitions).
+    /// </summary>
+    public IReadOnlyList<CareerItem> Catalogue(IEnumerable<(ulong Address, string Name)> clubs,
+        IEnumerable<(ulong Address, string Name)> competitions,
+        IReadOnlyList<Nations.NationRecord>? nations = null)
     {
         var items = new List<CareerItem>();
         var o = profile.CareerPlans ?? throw new InvalidOperationException("Profile has no career plan offsets");
-        foreach (var n in new Nations.NationRepository(memory, profile, moduleBase).LoadAll())
+        _nationsByTeam ??= [];
+        foreach (var n in nations ?? new Nations.NationRepository(memory, profile, moduleBase).LoadAll())
         {
-            if (profile.Nation?.Rivalries is { } r && Q(n.Address + (ulong)r.Team, out ulong team) && Item(team) is { } nation) items.Add(nation);
+            if (profile.Nation?.Rivalries is { } r && Q(n.Address + (ulong)r.Team, out ulong team) && team != 0 && n.DisplayName.Length > 0)
+            {
+                _nationsByTeam.TryAdd(team, n.DisplayName);
+                items.Add(new(team, CareerItemType.Nation, n.DisplayName));
+            }
             if (Q(n.Address + (ulong)o.NationContinent, out ulong continent) && Item(continent) is { } c) items.Add(c);
         }
-        items.AddRange(clubs.Concat(competitions).Select(Item).OfType<CareerItem>());
+        items.AddRange(clubs.Where(c => !string.IsNullOrWhiteSpace(c.Name)).Select(c => new CareerItem(c.Address, CareerItemType.Club, c.Name)));
+        items.AddRange(competitions.Where(c => !string.IsNullOrWhiteSpace(c.Name)).Select(c => new CareerItem(c.Address, CareerItemType.Competition, c.Name)));
         return items.DistinctBy(i => i.Address).OrderBy(i => i.Type).ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 

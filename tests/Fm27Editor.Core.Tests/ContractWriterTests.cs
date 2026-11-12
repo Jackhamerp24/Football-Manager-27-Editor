@@ -1,3 +1,4 @@
+using Fm27Editor.Core.Offsets;
 using Fm27Editor.Core.Players;
 
 namespace Fm27Editor.Core.Tests;
@@ -77,6 +78,47 @@ public class ContractWriterTests
         var invalid = search.Find([player], new(ClauseType: 3, HasClause: false));
         Assert.Empty(invalid.Matches);
         Assert.Equal(new[] { player.Address }, invalid.Unavailable.Select(p => p.Address));
+    }
+
+    OffsetProfile ExtendedProfile()
+    {
+        const string anchor = "\"playingTime\": \"0x54\"";
+        string json = _w.Profile.ToJson().Replace(anchor,
+            anchor + ", \"previousPlayingTime\": \"0x55\", \"loanStatusOffset\": \"0x57\", \"loanStatusMask\": \"0x2\"");
+        return OffsetProfile.Load(json);
+    }
+
+    [Fact]
+    public void PreviousPlayingTimeAndLoanListedRoundTripThroughMappedBytes()
+    {
+        // Yoro (Man Utd save, FMRTE Contract tab): Previous = Unset, Loan Status = Listed.
+        var profile = ExtendedProfile();
+        var writer = new ContractWriter(_w.Memory, profile, TestWorld.ModuleBase);
+        Assert.True(_w.Memory.TryWrite(Contract + 0x55, [(byte)PlayingTime.BreakthroughProspect]));
+        Assert.True(_w.Memory.TryWrite(Contract + 0x57, [0x42]));
+        var player = new PlayerRepository(_w.Memory, profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!;
+        var details = writer.Read(player)!;
+        Assert.Equal(PlayingTime.BreakthroughProspect, details.PreviousPlayingTime);
+        Assert.True(details.LoanListed);
+
+        writer.SetPreviousPlayingTime(player, details, PlayingTime.Star);
+        Assert.Equal((byte)PlayingTime.Star, _w.Bytes(Contract, 0x60)[0x55]);
+        var refreshed = writer.Read(new PlayerRepository(_w.Memory, profile, TestWorld.ModuleBase).Reload(TestWorld.Mainoo)!)!;
+        writer.SetLoanListed(player, refreshed, false);
+        Assert.Equal(0x40, _w.Bytes(Contract, 0x60)[0x57]); // only the loan bit cleared
+        var search = new ContractSearch(writer);
+        Assert.Empty(search.Find([player], new(LoanListed: true)).Matches);
+        Assert.Equal(new[] { player.Address }, search.Find([player], new(LoanListed: false)).Matches.Select(p => p.Address));
+    }
+
+    [Fact]
+    public void UnmappedBuildsReportNullAndRefuseWrites()
+    {
+        var details = Writer().Read(Player())!;
+        Assert.Null(details.PreviousPlayingTime);
+        Assert.Null(details.LoanListed);
+        Assert.Throws<InvalidOperationException>(() => Writer().SetPreviousPlayingTime(Player(), details, PlayingTime.Star));
+        Assert.Throws<InvalidOperationException>(() => Writer().SetLoanListed(Player(), details, true));
     }
 
     [Fact]

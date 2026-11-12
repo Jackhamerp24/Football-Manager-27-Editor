@@ -86,6 +86,12 @@ public sealed partial class MainWindow : Window
     int activePosMinRating = 15;
     int? activeMinAge, activeMaxAge, activeMinCa, activeMaxCa, activeMinPa, activeMaxPa;
     string? activeDivision, activeClub, activeNationality;
+    ulong? activeTeamClubAddress;
+    string? activeTeamClubName;
+    ContractStatusFilter? activeContractStatus;
+    ContractType? activeContractType;
+    PlayingTime? activePlayingTime;
+    IReadOnlyList<ContractClauseCriterion> activeClauses = [];
     IReadOnlyList<FilterPreset> savedPresets = [];
     string? activePresetName;
     bool sortDescending = true;
@@ -120,6 +126,7 @@ public sealed partial class MainWindow : Window
     string? pendingSection;
     PlayerPosition? selectedPosition;
     readonly Dictionary<ulong, PlayerDraft> drafts = [];
+    readonly Dictionary<ulong, HashSet<string>> playerDirtySections = [];
     Button? saveButton;
     Func<bool>? informationDirty;
     Func<bool>? saveInformation;
@@ -138,11 +145,18 @@ public sealed partial class MainWindow : Window
 
         unifiedReleaseTimer = CreateUnifiedReleaseTimer();
         StartSaveWatcher();
+        // A child tab's own pending edits star that tab (SectionHost) and the entity tab above it.
+        SectionHost.SectionEdited += (_, dirty) => { if (dirty) SetActiveTabDirty(true); };
         KeyDown += (_, e) =>
         {
             if (e.Key == Avalonia.Input.Key.M && (e.KeyModifiers & Avalonia.Input.KeyModifiers.Control) != 0)
             {
                 OpenMassEdit();
+                e.Handled = true;
+            }
+            else if (e.Key == Avalonia.Input.Key.W && e.KeyModifiers == Avalonia.Input.KeyModifiers.Control)
+            {
+                CloseActiveTab();
                 e.Handled = true;
             }
         };
@@ -204,6 +218,7 @@ public sealed partial class MainWindow : Window
         var bodyArea = new Grid();
         bodyArea.Children.Add(bodyHost);
         bodyArea.Children.Add(BuildStaleOverlay());
+        bodyArea.Children.Add(BuildLoadingOverlay());
         root.Children.Add(bodyArea);
         var shell = new Grid();
         shell.Children.Add(root);
@@ -405,9 +420,35 @@ public sealed partial class MainWindow : Window
         activePosMinRating = 15;
         activeAttrThresholds.Clear();
         activeRelationships.Clear();
+        activeTeamClubAddress = null;
+        activeTeamClubName = null;
+        activeContractStatus = null;
+        activeContractType = null;
+        activePlayingTime = null;
+        activeClauses = [];
     }
 
+    /// <summary>Opens at most one at a time: a second click while it is loading or open does nothing.</summary>
     async Task OpenAttributeFilterDialogAsync()
+    {
+        if (!openers.Add("OpenAttributeFilterDialogAsync")) return;
+        try { await OpenAttributeFilterDialogAsyncOnce(); }
+        finally { openers.Remove("OpenAttributeFilterDialogAsync"); }
+    }
+
+    readonly object catalogueLock = new();
+
+    /// <summary>Fills the nation and club catalogues for this save if they are empty; safe from any thread.</summary>
+    void WarmCatalogues(IReadOnlyList<PlayerRecord> players)
+    {
+        lock (catalogueLock)
+        {
+            nationCatalogue ??= backend.Session.Nations.LoadAll().Where(n => n.DisplayName.Length > 0).OrderBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+            clubCache ??= backend.Session.LoadClubs(players);
+        }
+    }
+
+    async Task OpenAttributeFilterDialogAsyncOnce()
     {
         var current = BuildCurrentFilter();
         var players = rows.OfType<PlayerRecord>().ToArray();
@@ -417,9 +458,11 @@ public sealed partial class MainWindow : Window
         IReadOnlyList<Fm27Editor.Core.Clubs.ClubEntry>? clubs = null;
         if (connected)
         {
-            var catalogues = await Task.Run(() => (Nations: backend.Session.Nations.LoadAll(), Clubs: backend.Session.LoadClubs(players)));
-            nations = catalogues.Nations;
-            clubs = catalogues.Clubs;
+            // Read once per save and kept (also warmed in the background after Load Game), so the window opens at once.
+            if (nationCatalogue is null || clubCache is null)
+                await Task.Run(() => WarmCatalogues(players));
+            nations = nationCatalogue;
+            clubs = clubCache;
         }
         var dialog = new AttributeFilterDialog(current, savedPresets, activePresetName, players,
             nations,
@@ -472,6 +515,12 @@ public sealed partial class MainWindow : Window
             activeAttrThresholds.AddRange(dialog.ResultThresholds);
             activeRelationships.Clear();
             activeRelationships.AddRange(dialog.ResultRelationships);
+            activeTeamClubAddress = dialog.ResultTeamClubAddress;
+            activeTeamClubName = dialog.ResultTeamClubName;
+            activeContractStatus = dialog.ResultContractStatus;
+            activeContractType = dialog.ResultContractType;
+            activePlayingTime = dialog.ResultPlayingTime;
+            activeClauses = dialog.ResultClauses;
             activePresetName = dialog.SelectedPresetName;
             SelectSortByFirstAttributeIfNeeded();
             RefreshQuickPresetCombo();
@@ -547,6 +596,28 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    static string ContractStatusChip(ContractStatusFilter status) => status switch
+    {
+        ContractStatusFilter.FreePlayer => "Free Player",
+        ContractStatusFilter.Expired => "Expired",
+        ContractStatusFilter.Expiring6Months => "Expiring in 6 Months",
+        _ => "Expiring in 1 Year",
+    };
+
+    static string ClauseChip(ContractClauseCriterion clause)
+    {
+        if (!clause.HasClause)
+            return $"{ContractLabels.Term(clause.Type)} No";
+        string range = (clause.MinimumValue, clause.MaximumValue) switch
+        {
+            ({ } min, { } max) => $"{min:N0}–{max:N0}",
+            ({ } min, null) => $">= {min:N0}",
+            (null, { } max) => $"<= {max:N0}",
+            _ => "",
+        };
+        return $"{ContractLabels.Term(clause.Type)} Yes{(range.Length > 0 ? " " + range : "")}";
+    }
+
     void RenderAttrChips()
     {
         attrChipsPanel.Children.Clear();
@@ -574,6 +645,16 @@ public sealed partial class MainWindow : Window
             AddChip($"League: {activeDivision}", () => { activeDivision = null; });
         if (!string.IsNullOrEmpty(activeClub))
             AddChip($"Club: {activeClub}", () => { activeClub = null; });
+        if (activeTeamClubAddress is not null && !string.IsNullOrEmpty(activeTeamClubName))
+            AddChip($"Team: {activeTeamClubName}", () => { activeTeamClubAddress = null; activeTeamClubName = null; });
+        if (activeContractStatus is { } status)
+            AddChip(ContractStatusChip(status), () => { activeContractStatus = null; });
+        if (activeContractType is { } contractType)
+            AddChip(ContractLabels.Of(contractType), () => { activeContractType = null; });
+        if (activePlayingTime is { } playingTime)
+            AddChip(ContractLabels.Of(playingTime), () => { activePlayingTime = null; });
+        foreach (var clause in activeClauses.ToArray())
+            AddChip(ClauseChip(clause), () => { activeClauses = activeClauses.Where(c => c.Type != clause.Type).ToArray(); });
         if (!string.IsNullOrEmpty(activeNationality))
             AddChip($"Nation: {activeNationality}", () => { activeNationality = null; });
 
@@ -722,10 +803,13 @@ public sealed partial class MainWindow : Window
     async Task ConnectAsync()
     {
         if (busy) return;
-        busy = true; connection.Text = "Connecting…"; connectionDot.Fill = Brush("#94A3B8");
+        busy = true;
+        ShowLoading("Connecting to the game…");
+        connection.Text = "Connecting…"; connectionDot.Fill = Brush("#94A3B8");
         try
         {
             await backend.ConnectAsync(CancellationToken.None);
+            Fm27Editor.Core.Settings.GameCurrency.TryApply();
             FlightRecorder.Current?.Log("game", $"connect result {backend.State.Status}: {backend.State.Message}");
             squadPresetUndo.Clear();
             releaseUndo.Clear();
@@ -736,15 +820,45 @@ public sealed partial class MainWindow : Window
             if (backend.State.Status == ConnectionStatus.Connected)
             {
                 backend.Edits.ContextProvider = EditContext;
+                ShowLoading("Reading players…");
                 await LoadAsync();
-                if (!SaveIsLoaded()) ShowNoSaveNotice(); else noSaveAtConnect = false;
-                // The work-permit table and the entity catalogues are read lazily by the tabs that need them:
-                // scanning the heap here competed with the player load and made attaching feel slow.
+                bool saveLoaded = SaveIsLoaded();
+                if (!saveLoaded) ShowNoSaveNotice(); else noSaveAtConnect = false;
+                if (saveLoaded)
+                {
+                    // Everything a screen or search would otherwise read on its first click is read now, one list at a
+                    // time, under the loading screen. The work-permit table stays lazy: that heap scan is the slow one and
+                    // only the tabs that need it should pay for it.
+                    var loadedPlayers = rows.OfType<PlayerRecord>().ToArray();
+                    ShowLoading("Reading clubs and nations…");
+                    await Task.Run(() => WarmCatalogues(loadedPlayers));
+                    ShowLoading("Reading search lists…");
+                    await EnsureUnifiedCacheAsync(SetLoadingDetail);
+                    ShowLoading("Reading career plans…");
+                    try { await Task.Run(() => WarmCareerCatalogue(loadedPlayers)); }
+                    catch (Exception ex) { FlightRecorder.Current?.Log("warm", $"career plans: {ex.Message}"); }
+                    ShowLoading("Reading…");
+                    await Task.Run(() =>
+                    {
+                        // Each step on its own, so one that fails on this build does not skip the others.
+                        void Warm(string what, Action step)
+                        {
+                            try { step(); }
+                            catch (Exception ex) { FlightRecorder.Current?.Log("warm", $"{what}: {ex.Message}"); }
+                        }
+                        Warm("wonderkid academy site", () => backend.Session.GoldenGenerationHook.FindSite());
+                        Warm("development speed site", () => backend.Session.AcceleratedDevelopment.FindSite());
+                    });
+                    // Profiles still on the clause heap scan (Game Pass until measured live) warm it in the
+                    // background; Steam reads the club vector and skips this.
+                    if (backend.Session.Profile.Club?.TransferClauses is { Scan: true })
+                        _ = Task.Run(() => backend.Session.EnsureTransferClausesLoaded());
+                }
             }
             else { gameDateBadge.IsVisible = false; status.Text = backend.State.Message; }
             if (backend.FreezeError is { } error) status.Text = $"Freezer unavailable: {error}";
         }
-        finally { busy = false; }
+        finally { HideLoading(); busy = false; }
     }
 
     async Task LoadAsync()
@@ -775,6 +889,7 @@ public sealed partial class MainWindow : Window
 
             PopulateFilterDropdowns();
             Filter();
+            RebindPlayerTabs();
             UpdateConnectionBadge();
             if (rows.Count == 0) status.Text = "0 players";
             FlightRecorder.Current?.Log("game", $"loaded {rows.Count} {module.Title} rows in {elapsed.ElapsedMilliseconds} ms");
@@ -818,6 +933,12 @@ public sealed partial class MainWindow : Window
         Club = activeClub,
         Nationality = activeNationality,
         Division = activeDivision,
+        TeamClubAddress = activeTeamClubAddress,
+        TeamClubName = activeTeamClubName,
+        ContractStatus = activeContractStatus,
+        ContractType = activeContractType,
+        AgreedPlayingTime = activePlayingTime,
+        Clauses = activeClauses,
         MinAge = activeMinAge,
             MaxAge = activeMaxAge,
             MinCa = activeMinCa,
@@ -835,6 +956,10 @@ public sealed partial class MainWindow : Window
             ExcludeWomenClubs = SelectedPlayerGender() == Fm27Editor.Core.Offsets.Gender.Men,
     };
 
+    /// <summary>Contract Type, Agreed Playing Time and clause filters need live contract reads; the rest is snapshot.</summary>
+    static bool NeedsContractDetailSearch(PlayerFilter filter) =>
+        filter.ContractType is not null || filter.AgreedPlayingTime is not null || filter.Clauses.Count > 0;
+
     IReadOnlyList<PlayerRecord> FilterByRelationships(IReadOnlyList<PlayerRecord> rows) =>
         RelationFilter.Find(rows, activeRelationships, new PlayerStatusReader(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase));
 
@@ -842,6 +967,8 @@ public sealed partial class MainWindow : Window
 
     bool HasExtraPlayerFilters() =>
         !string.IsNullOrWhiteSpace(search.Text) || activeDivision is not null || activeClub is not null || activeNationality is not null ||
+        activeTeamClubAddress is not null || activeContractStatus is not null || activeContractType is not null || activePlayingTime is not null ||
+        activeClauses.Count > 0 ||
         activeMinAge is not null || activeMaxAge is not null || activeMinCa is not null || activeMaxCa is not null ||
         activeMinPa is not null || activeMaxPa is not null || activePositions.Count > 0 || activePositionRanges.Count > 0 ||
         activeNumericRanges.Count > 0 || activePreferredMoves != 0 || activeAttrThresholds.Count > 0 || activeRelationships.Count > 0;
@@ -869,6 +996,18 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
             if (result is null || version != searchVersion || !ReferenceEquals(rows, currentRows) || !ReferenceEquals(module, currentModule)) return;
+            if (result is not null && NeedsContractDetailSearch(filter))
+            {
+                try
+                {
+                    var criteria = new ContractSearchCriteria(filter.ContractType, filter.AgreedPlayingTime) { Clauses = filter.Clauses };
+                    var snapshot = result.OfType<PlayerRecord>().ToArray();
+                    var found = await Task.Run(() => new ContractSearch(backend.Session.Contracts).Find(snapshot, criteria));
+                    if (version != searchVersion || !ReferenceEquals(rows, currentRows) || !ReferenceEquals(module, currentModule)) return;
+                    result = found.Matches.Cast<object>().ToArray();
+                }
+                catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
+            }
         }
         else
         {
@@ -1068,6 +1207,16 @@ public sealed partial class MainWindow : Window
         else editor.Children.Add(identityHeader);
 
         if (draft.Count > 0) status.Text = $"{draft.Count} unsaved change(s)";
+        int changeCount = draft.Count + (playerScalarDrafts.TryGetValue(player.Address, out var scalarsForCount) ? scalarsForCount.Count : 0);
+        bool contractPending = contractDrafts.Any(c => c.Value.Player.Address == player.Address && c.Value.Changes.Count > 0);
+        SetActiveTabDirty(changeCount > 0 || contractPending);
+        // Stars of the page's own edits: kept while their drafts exist, dropped once saved or discarded.
+        if (playerPageSections.TryGetValue(player.Address, out var pageSections))
+        {
+            if (changeCount == 0) pageSections.RemoveWhere(k => k != "Contract");
+            if (!contractPending) pageSections.Remove("Contract");
+        }
+        PublishSections(player);
 
         var sections = new List<SectionHost.Section>
         {
@@ -1092,7 +1241,6 @@ public sealed partial class MainWindow : Window
             new("Preferred Moves", "Preferred Moves", () => PreferredMovesPanel(player)),
             new("Relationships", "Relationships", () => RelationshipsPanel(player)),
             new("Languages", "Languages", () => LanguagesPanel(player)),
-            new("Scout Information", "Scout Information", EmptySection),
             new("Comparison", "Comparison", () => ComparisonPanel(player)),
             new("Clone Center", "Clone Center", () => ClonePanel(player)),
             new("Swap National Call Up", "Swap National Call Up", () => CallUpPanel(player)),
@@ -1105,6 +1253,7 @@ public sealed partial class MainWindow : Window
         var sectionHost = SectionHost.Build("player", sections, pendingSection,
             key => actions.IsVisible = key == "Information", playerTab?.Rail);
         pendingSection = null;
+        PublishSections(player);
         var bodyGrid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
@@ -1119,23 +1268,74 @@ public sealed partial class MainWindow : Window
         HookPlayerActions(player);
     }
 
-    static Control EmptySection() => new Panel();
 
-    Control GroupControl(string group, PlayerRecord player, Control? customHeader = null)
+    Control GroupControl(string group, PlayerRecord player, Control? customHeader = null) =>
+        AttributeCard(group, PlayerFields.All.Where(f => f.Group == group).Select(f => FieldControl(f, player)), customHeader);
+
+    /// <summary>The player attribute card: zebra rows of label + value, as on the player's Information page.</summary>
+    internal static Control AttributeCard(string title, IEnumerable<Control> rows, Control? customHeader = null, Control? rightHeader = null)
     {
         var rowsPanel = new StackPanel { Spacing = 0 };
         int rowIndex = 0;
-        foreach (var field in PlayerFields.All.Where(f => f.Group == group))
-        {
-            var rowControl = FieldControl(field, player);
+        foreach (var row in rows)
             rowsPanel.Children.Add(new Border
             {
                 Background = rowIndex++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
                 Padding = new Thickness(4, 1, 4, 1),
-                Child = rowControl
+                Child = row
             });
-        }
-        return UiKit.Card(group, rowsPanel, customTitle: customHeader);
+        return UiKit.Card(title, rowsPanel, customTitle: customHeader, rightHeader: rightHeader);
+    }
+
+    /// <summary>One attribute row: the label on the left, the value control docked right.</summary>
+    internal static Control AttributeRow(string label, Control value)
+    {
+        var line = new DockPanel { MinHeight = 24, LastChildFill = true };
+        var text = new TextBlock
+        {
+            Text = label, FontSize = 13, Foreground = Brush("#CBD5E1"),
+            VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.NoWrap,
+        };
+        DockPanel.SetDock(value, Dock.Right);
+        line.Children.Add(value);
+        line.Children.Add(text);
+        return line;
+    }
+
+    /// <summary>
+    /// The 1-20 rating box of the player attribute page: bold number coloured by band, Enter or leaving the box commits,
+    /// text outside <paramref name="min"/>..<paramref name="max"/> goes back to the last value.
+    /// </summary>
+    internal static TextBox RatingBox(int value, int min, int max, Action<int> commit, Func<int>? current = null)
+    {
+        int last = value;
+        var rating = new TextBox
+        {
+            Text = value.ToString(Inv), Width = 28, MinWidth = 0, MaxWidth = 28, Height = 20, MinHeight = 20,
+            HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(2, 0),
+            FontSize = 13, FontWeight = FontWeight.Bold,
+            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+            Background = RatingBg(value), BorderBrush = RatingBorder(value), Foreground = RatingColor(value),
+        };
+        if (current is not null) rating.GotFocus += (_, _) => last = current();
+        rating.LostFocus += (_, _) =>
+        {
+            if (!int.TryParse(rating.Text, out int v) || v < min || v > max) v = last;
+            rating.Text = v.ToString(Inv);
+            rating.Foreground = RatingColor(v);
+            rating.Background = RatingBg(v);
+            rating.BorderBrush = RatingBorder(v);
+            if (v != last) { last = v; commit(v); }
+        };
+        rating.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+            {
+                TopLevel.GetTopLevel(rating)?.FocusManager?.ClearFocus();
+                e.Handled = true;
+            }
+        };
+        return rating;
     }
 
     static readonly PlayerPosition[] DefensivePositions = PitchLayout.DefensivePositions;
@@ -1445,35 +1645,7 @@ public sealed partial class MainWindow : Window
         }
         if (field.Kind == FieldKind.Rating20)
         {
-            int beforeEdit = currentVal;
-            var rating = new TextBox
-            {
-                Text = currentVal.ToString(Inv), Width = 28, MinWidth = 0, MaxWidth = 28, Height = 20, MinHeight = 20,
-                HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(2, 0),
-                FontSize = 13, FontWeight = FontWeight.Bold,
-                HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
-                Background = RatingBg(currentVal), BorderBrush = RatingBorder(currentVal),
-                Foreground = RatingColor(currentVal),
-            };
-            rating.GotFocus += (_, _) => beforeEdit = draft.Value(field);
-            rating.LostFocus += (_, _) =>
-            {
-                if (!int.TryParse(rating.Text, out int value) || value < field.Min || value > field.Max)
-                    value = beforeEdit;
-                rating.Text = value.ToString(Inv);
-                rating.Foreground = RatingColor(value);
-                rating.Background = RatingBg(value);
-                rating.BorderBrush = RatingBorder(value);
-                if (value != draft.Value(field)) Staged(value);
-            };
-            rating.KeyDown += (_, e) =>
-            {
-                if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
-                {
-                    TopLevel.GetTopLevel(rating)?.FocusManager?.ClearFocus();
-                    e.Handled = true;
-                }
-            };
+            var rating = RatingBox(currentVal, field.Min, field.Max, value => { if (value != draft.Value(field)) Staged(value); }, () => draft.Value(field));
             DockPanel.SetDock(rating, Dock.Right); line.Children.Add(rating); line.Children.Add(label);
             return line;
         }

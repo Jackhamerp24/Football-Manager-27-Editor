@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -13,15 +13,32 @@ public sealed partial class MainWindow
     /// <summary>The loaded players, or on other screens (Staff, Clubs) every player read once: clubs, competitions and languages come from them.</summary>
     PlayerRecord[] Players() => rows.OfType<PlayerRecord>().ToArray() is { Length: > 0 } shown ? shown : playerSource ??= backend.Session.Players.LoadAll().ToArray();
 
+    /// <summary>Builds the career-plan picker catalogue once, in the background after Load Game.</summary>
+    void WarmCareerCatalogue(IReadOnlyList<PlayerRecord> players)
+    {
+        var session = backend.Session;
+        if (session.Profile.CareerPlans is null) return;
+        clubCache ??= session.LoadClubs(players);
+        // The search cache already read every competition; reuse those names instead of reading them again.
+        if (competitionCache is null && unifiedCompetitions.Count > 0)
+            competitionCache = unifiedCompetitions.GroupBy(c => c.Index)
+                .ToDictionary(g => g.Key, g => new CompetitionInfo(g.First().Address, g.First().Name, g.First().ShortName));
+        competitionCache ??= session.LoadCompetitions(players);
+        careerCatalogue ??= session.CareerPlans.Catalogue(
+            clubCache.Select(c => (c.Address, c.Name ?? c.DisplayName)),
+            competitionCache.Values.Select(c => (c.Address, c.Name ?? c.ShortName ?? "")), nationCatalogue);
+    }
+
     /// <summary>One plan's dropdowns, laid out like FMRTE's Options box; also used for a plan that is being added.</summary>
     sealed class PlanEditor
     {
         public required ComboBox Condition, Job, ItemType, Scope;
-        public required AutoCompleteBox Item;
+        public required Button Item;
+        public CareerTarget? ItemTarget;
         public Control[] Cells = [];
 
         public CareerPlanFields? Fields() =>
-            Condition.SelectedIndex < 0 || Job.SelectedIndex < 0 || Scope.SelectedIndex < 0 || Item.SelectedItem is not CareerTarget t ? null
+            Condition.SelectedIndex < 0 || Job.SelectedIndex < 0 || Scope.SelectedIndex < 0 || ItemTarget is not CareerTarget t ? null
             : new(CareerPlanLabels.Conditions[Condition.SelectedIndex].Code, CareerPlanLabels.Scopes[Scope.SelectedIndex].Code,
                 CareerPlanLabels.Jobs[Job.SelectedIndex].Code, t.Item);
     }
@@ -34,34 +51,41 @@ public sealed partial class MainWindow
     PlanEditor PlanRow(Grid grid, int condition, int job, CareerItem? item, int scope, IReadOnlyList<CareerItem> catalogue, Action changed)
     {
         static int Index<T>(IReadOnlyList<(T Code, string Name)> list, T code) => list.ToList().FindIndex(x => Equals(x.Code, code));
+        var itemButton = new Button { Width = 270, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose…", Padding = new Thickness(6, 0) };
         var e = new PlanEditor
         {
             Condition = new ComboBox { Width = 182, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Conditions.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Conditions, condition) },
             Job = new ComboBox { Width = 152, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Jobs.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Jobs, job) },
             ItemType = new ComboBox { Width = 98, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.ItemTypes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.ItemTypes, item?.Type ?? CareerItemType.Club) },
-            // Type to search the chosen kind (clubs, continents, nations, competitions), then pick.
-            Item = new AutoCompleteBox { Width = 270, MinimumPrefixLength = 2, Padding = new Thickness(0), FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300,
-                ItemFilter = (q, o) => o is CareerTarget t && Matches(t.Item.Name, q ?? "") },
+            Item = itemButton,
             Scope = new ComboBox { Width = 96, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Scopes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Scopes, scope) },
         };
-        void Source()
+        void SetTarget(CareerTarget? target, bool notify)
+        {
+            e.ItemTarget = target;
+            itemButton.Content = target?.Item.Name ?? "Choose…";
+            ToolTip.SetTip(itemButton, target?.Item.Name ?? "");
+            if (notify) changed();
+        }
+        // FMRTE's choice box is a search window here: one click opens the app's picker, not a long dropdown.
+        itemButton.Click += async (_, _) =>
         {
             if (e.ItemType.SelectedIndex < 0) return;
             var type = CareerPlanLabels.ItemTypes[e.ItemType.SelectedIndex].Type;
-            var choices = catalogue.Where(c => c.Type == type).Select(c => new CareerTarget(c)).ToList();
-            if (item is not null && item.Type == type && !choices.Any(c => c.Item.Address == item.Address))
-                choices.Add(new CareerTarget(item));
-            e.Item.ItemsSource = choices;
-        }
-        Source();
-        if (item is not null)
-        {
-            e.Item.SelectedItem = (e.Item.ItemsSource as IEnumerable<CareerTarget>)?.FirstOrDefault(c => c.Item.Address == item.Address);
-            e.Item.Text = item.Name;
-            ToolTip.SetTip(e.Item, item.Name);
-        }
-        e.ItemType.SelectionChanged += (_, _) => { Source(); e.Item.SelectedItem = null; e.Item.Text = ""; changed(); };
-        e.Item.SelectionChanged += (_, _) => { ToolTip.SetTip(e.Item, (e.Item.SelectedItem as CareerTarget)?.Item.Name); changed(); };
+            var choices = catalogue.Where(c => c.Type == type).GroupBy(c => c.Address).Select(g => new CareerTarget(g.First())).ToList();
+            if (item is not null && item.Type == type && !choices.Any(c => c.Item.Address == item.Address)) choices.Add(new CareerTarget(item));
+            var title = "Choose " + CareerPlanLabels.ItemTypes[e.ItemType.SelectedIndex].Name.ToLowerInvariant();
+            string? Short(CareerItem it) => it.Type switch
+            {
+                CareerItemType.Club => clubCache?.FirstOrDefault(c => c.Address == it.Address)?.ShortName,
+                CareerItemType.Competition => competitionCache is not null && competitionCache.Values.FirstOrDefault(c => c.Address == it.Address) is { } comp ? comp.ShortName : null,
+                _ => null,
+            };
+            var chosen = await PickerDialog.Show(this, title, q => choices.Where(c => PickerSearch.Hit(q, c.Item.Name, Short(c.Item))).Select(c => (c.Item.Name, c)).ToList());
+            if (chosen is not null) SetTarget(chosen, true);
+        };
+        if (item is not null) SetTarget(new CareerTarget(item), false);
+        e.ItemType.SelectionChanged += (_, _) => SetTarget(null, true);
         foreach (var box in new[] { e.Condition, e.Job, e.Scope }) box.SelectionChanged += (_, _) => changed();
         int r = grid.RowDefinitions.Count;
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
@@ -84,7 +108,9 @@ public sealed partial class MainWindow
         if (session.Profile.CareerPlans is null || session.CareerPlans.Read(player) is not { } plans) return panel;
         clubCache ??= session.LoadClubs(Players());
         competitionCache ??= session.LoadCompetitions(Players());
-        careerCatalogue ??= session.CareerPlans.Catalogue(clubCache.Select(c => c.Address), competitionCache.Values.Select(c => c.Address));
+        careerCatalogue ??= session.CareerPlans.Catalogue(
+            clubCache.Select(c => (c.Address, c.Name ?? c.DisplayName)),
+            competitionCache.Values.Select(c => (c.Address, c.Name ?? c.ShortName ?? "")), nationCatalogue);
         var catalogue = careerCatalogue;
 
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = false, Classes = { "accent" } };

@@ -16,10 +16,10 @@ For single-player, offline saves only. Do not use it online or in shared saves.
 |---|---|
 | Players | Attributes, positions, personality, CA/PA, reputation, height, date of birth, nationality and other details; contract and future contract, bonuses and transfer clauses; career plans, relationships, languages, preferred moves, development speed; injuries, bans, unhappiness, national call-ups; work permit and promises |
 | Moving players | Move to club as a transfer with fee and sell-on, as a loan, or as a **future transfer** with a date and all the transfer terms (instalments, appearance and goal payments, buy-back fee, sell-on, wage contribution, friendly), which can also be removed again; swap two players; release; captain / vice captain; clone attributes to other players; comparison |
-| Staff | Attributes, CA/PA, personality, contract, career plans, relationships, languages, knowledge, formations, tendencies, move to another club with a new role and wage |
+| Staff | Attributes, CA/PA, personality, training rating, caps, goals, licence, role ratings, contract, career plans, relationships, languages, knowledge, formations, tendencies, move to another club with a new role and wage |
 | Clubs | Information, finances, debt, affiliations, club vision, kits and colours, relationships, staff, squads, transfer center |
 | Nations, stadiums, cities, competitions, awards, referees, injury types | Details, reputation and settings, each in its own screen. Stadiums: owner, location, nearby stadium and coordinates. Cities: nation, region, language and weather |
-| Tools | Squad presets with preview and Undo (grant work permit for the club's country, Golden Generation, heal, fitness, morale, lift bans, remove unhappiness, max attributes, prevent retirement, tactical understanding, team cohesion), freezer, export to CSV / JSON, advanced filters, favourites, reload of the current screen (Ctrl+R), settings (date format) |
+| Tools | Squad presets with preview and Undo (grant work permit for the club's country, Golden Generation, heal, fitness, morale, lift bans, remove unhappiness, max attributes, prevent retirement, tactical understanding, team cohesion), mass edit, Hook Manager (Wonderkid Academy, Development Speed), freezer, export to CSV / JSON, advanced filters, favourites, reload of the current screen (Ctrl+R), settings (date format, currency) |
 
 Every change goes into a history with Undo. See [CHANGELOG.md](CHANGELOG.md) for what is new.
 
@@ -34,10 +34,79 @@ The editor reads the value back after writing it. If anything does not match, it
 A few actions add rows to the game's own lists (a new promise, a future transfer, a language). When a list is full, the
 editor allocates a new one outside the game's allocator. Keep a backup of the save before using them.
 
+## Highlights
+
+### Mass Edit
+Change hundreds of players, coaches, clubs or nations in one go. Pick who is affected with the same filters as Advanced
+Search. Then, for each field, choose **Set to** (everyone gets this value) or **Change by** (everyone moves up or down by
+this much). Before anything is written you get a review list showing every person and every field, with old value →
+new value, and you can untick what you do not want. The whole batch lands in the history as one entry. You can undo it
+all at once, or person by person, or field by field.
+
+### Coach Training Rating
+FM never stores a coach's training stars; it works them out from his attributes. The editor does the same sum, so the
+stars you see match the game. Each of the eleven areas mixes the coach's specialist attribute(s) with his
+**Determination**, **Authority** and **Motivating** (each counted twice):
+
+| Area | What counts most |
+|---|---|
+| Goalkeeping: Shot Stopping | Goalkeeping (×9) |
+| Goalkeeping: Handling and Distribution | Goalkeeping (×6), so it tops out at 4 stars |
+| Defending, Attacking (Technical / Tactical) | Defending or Attacking (×6) plus Technical or Tactical (×3) |
+| Possession (Technical / Tactical) | Possession (×3) plus Technical or Tactical (×6) |
+| Strength, Quickness | Fitness (×9) |
+| Set Pieces | Set Pieces (×3) plus Tactical Knowledge (×6) |
+
+The weighted total becomes 0–5 stars in half steps.
+
+To change a rating, drag its slider. On Save, every attribute behind that area becomes **stars × 4** on the 1–20 scale
+(4 stars → 16). Determination, Authority and Motivating sit in every area, so the other ratings move with it. In Mass
+Edit, "Change by" adds to each coach's current stars, kept between 0 and 5.
+
+### Wonderkid Academy (Experimental)
+Shapes the youngsters the game creates from now on (youth intakes and other new players).
+
+- Each new youngster gets a random potential inside the range you choose. It is never below his current ability and
+  never above 200.
+- **Wonderkid %** is the chance that he also starts with a higher current ability, part of the way to that potential.
+- It can apply to every new youngster, or only to those of chosen continents, nations or clubs. Only one of these
+  levels is active at a time; choosing a wider one removes the narrower entries it already covers.
+- Players who already exist are never changed.
+- It keeps working until you close FM. The **How to use** window explains it step by step.
+
+### Development Speed
+Makes chosen players improve faster from training while you play: 2 is twice the normal gain, 1 is normal, and the
+maximum is 20. Set it on a player's Tools card; the Hook Manager lists everyone you sped up.
+
+### Staff details
+The staff Information page shows and edits caps, goals, the coaching licence (including "Studying to…") and the fifteen
+role ratings (Manager, Coach, Scout, Data Analyst and the rest).
+
+### Clubs
+You can edit these on the club screen and in Mass Edit:
+- Club Status: Professional, Semi Professional or Amateur.
+- Every Ownership Type, Chairperson Title and Rich Benefactor option.
+- Stadium capacity and pitch sizes.
+
+### Captains and unsaved changes
+**Make Captain** and **Make Vice Captain** work in one click. Every child tab of a player or coach shows a * while it
+holds edits you have not saved, so you always know where your changes are.
+
+### Currency
+Club money (balance, budgets, wages and the other finance fields) is shown in the currency FM itself is set to, detected
+automatically, or in any currency you pick in Settings. A currency you pick stays, even when the game uses another one.
+Amounts you type in that currency are converted with the game's own fixed rates before they are saved; the game always
+keeps them in pounds, so viewing in another currency never changes anything in your save.
+
+### Calibration
+Every supported game build is checked against a calibration save: about 550 known values read from FMRTE and from FM's
+own screens. They cover attributes, contracts, clauses, club finances, stadiums, nations and coaches. After a game patch
+this shows within seconds whether anything moved, before a wrong value can reach your save.
+
 ## Requirements
 
 - Windows 10/11 x64
-- Football Manager 27 `27.0.1+2494687` (or `27.0.0+2493426`), Xbox / Game Pass or Steam. Other builds need a new offset profile; see
+- Football Manager 27: Steam `27.0.1+2503222`, Xbox / Game Pass `27.0.1+2494687` (older builds listed below also work). Other builds need a new offset profile; see
   [After a game patch](#after-a-game-patch).
 - [.NET 10 SDK](https://dotnet.microsoft.com/download), only if you build it yourself
 
@@ -45,8 +114,9 @@ What has been checked where:
 
 | Build | Status |
 |---|---|
-| Xbox / Game Pass `27.0.1+2494687` | Current build. Every reader (71 features) and every kind of write (24 round trips) run against the live game; 88 values checked against a calibration save and FMRTE |
-| Steam `27.0.1+2494687` | Current build. Every reader (71 features) and every kind of write (24 round trips) run against the live game |
+| Steam `27.0.1+2503222` | Current Steam build. Every reader (71 features) and every kind of write run against the live game; 550 values checked against a calibration save, FMRTE and FM's own screens |
+| Xbox / Game Pass `27.0.1+2494687` | Current Game Pass build. Every reader and every kind of write run against the live game; the same calibration checks pass |
+| Steam `27.0.1+2494687` | Previous Steam build, still supported |
 | Xbox / Game Pass and Steam `27.0.0+2493426` | Previous build, still supported |
 | Steam `27.0.0+2486695` | Older build, used by the tests |
 
@@ -177,6 +247,8 @@ Done:
 - Light (white and blue) theme next to the dark one, switched with one button and remembered.
 - Mass edit for players, staff and clubs in FMRTE's layout, plus a Nation scope (youth rating and the other nation
   fields) that FMRTE does not have; opened with the toolbar button or Ctrl+M.
+- Coach training ratings, staff licence and role ratings, club status; Wonderkid Academy and Development Speed;
+  money in the game's currency or one you pick; a calibration save that checks every build.
 - Club kits and colours, finances and sponsors; competition VAR, prize money, squad rules and standings; nation
   agreements, transfer preferences and EuroCoefficients; stadium owner, location, nearby stadium and coordinates; city
   nation, region, language and weather.
@@ -184,7 +256,6 @@ Done:
 Next:
 
 - A macOS build.
-- Prices shown in the game's currency, or in a currency the user picks.
 - Deeper analysis: the player stats radar tab and player visualisation.
 - Shortlist.
 - Transfer terms for a move that happens now (today only the sell-on is supported).
@@ -222,6 +293,12 @@ If the editor helps you, you can support development:
 - Vietnamese bank transfer (VietQR, Vietcombank): scan with any Vietnamese banking or e-wallet app
 
 <img src="docs/images/donate-vietqr.png" alt="VietQR, Vietcombank" width="220">
+
+## Acknowledgments
+
+AI assistance was used in developing this repository, including the following models: Claude (Haiku / Sonnet / Opus 5.5),
+DeepSeek v4.1 Flash 1017, MiMo v2.6 Flash, Muse Spark 1.3, Muse Wonder 1.0, ChatGPT Terra / Sol 6.1, LongCat 2.5,
+Gemini 3.8 Flash / 4 Argon. The app logo was generated with ChatGPT Image.
 
 ## License
 

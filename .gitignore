@@ -23,6 +23,7 @@ re/club/
 re/squad/
 re/transfer/
 re/rca-experiments/
+re/calibration/
 
 # Local agent scratch: UI build artifacts, design prototypes, one-off patch scripts, RE surveys
 artifacts/
@@ -52,3 +53,9 @@ re/massedit-ui/
 
 # Calibration save: game-derived, local only (never commit)
 calibration/saves/
+
+# Local RE notes and caches
+re/*.md
+re/scratch-offline/
+__pycache__/
+calibration/findings-*.md

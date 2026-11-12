@@ -40,6 +40,8 @@ internal static class PickerDialog
                 },
             },
         };
+        // The search box takes the keyboard as soon as the picker opens, so typing needs no extra click.
+        window.Opened += (_, _) => input.Focus();
         void Accept()
         {
             if (list.SelectedIndex < 0 || list.SelectedIndex >= shown.Count) return;

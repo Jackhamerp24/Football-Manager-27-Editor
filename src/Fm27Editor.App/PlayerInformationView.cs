@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -198,33 +198,39 @@ public sealed partial class MainWindow
             Row(descriptor.Label, input);
         }
 
-        // Nationality
-        var nationBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = nations.Select(n => n.DisplayName).ToArray() };
-        int nationIndex = nations.ToList().FindIndex(n => n.Address == player.Nationality?.Address);
-        nationBox.SelectedIndex = nationIndex;
-        nationBox.SelectionChanged += (_, _) => Refresh();
-        checks.Add(() => nationBox.SelectedIndex != nationIndex);
-        Row("Nationality", nationBox);
+        // Nationality: one button, the app's search picker (FMRTE's own choice box).
+        NationRecord? chosenNation = null;
+        var nationPick = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = player.Nationality?.DisplayName ?? "Choose nation…" };
+        nationPick.Click += async (_, _) =>
+        {
+            var chosen = await PickerDialog.Show<NationRecord>(this, "Choose nationality", q => nations.Where(n => PickerSearch.Hit(q, n.DisplayName, n.ShortName)).Select(n => (n.DisplayName, n)).ToList());
+            if (chosen is null) return;
+            chosenNation = chosen;
+            nationPick.Content = chosen.DisplayName;
+            Refresh();
+        };
+        checks.Add(() => chosenNation is { } pickedNation && pickedNation.Address != (player.Nationality?.Address ?? 0));
+        Row("Nationality", nationPick);
         var nationalityInfo = Choice("Nationality Info", PlayerField.NationalityInfo, InformationLabels.NationalityInfos);
 
-        // City Of Birth: type to search the game's cities, then pick one.
+        // City Of Birth: the same search picker over the game's cities.
         var nationNames = nations.ToDictionary(n => n.Address, n => n.DisplayName);
         string CityLabel(CityRecord c) => nationNames.TryGetValue(c.Nation, out var n) ? $"{c.Name} ({n})" : c.Name;
-        var citySearch = new TextBox { HorizontalAlignment = HorizontalAlignment.Stretch, Text = city?.Name ?? "" };
-        var cityPick = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        if (city is not null) { cityPick.ItemsSource = new[] { new RelationTarget(CityLabel(city), city.Address) }; cityPick.SelectedIndex = 0; }
-        citySearch.TextChanged += (_, _) =>
+        RelationTarget? chosenCity = city is null ? null : new RelationTarget(CityLabel(city), city.Address);
+        var cityPick = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = city is null ? "Choose city…" : CityLabel(city) };
+        cityPick.Click += async (_, _) =>
         {
-            string q = (citySearch.Text ?? "").Trim();
-            if (q.Length < 2 || q == city?.Name) return;
             cityCatalogue ??= cities.LoadAll();
-            cityPick.ItemsSource = cityCatalogue.Where(c => Matches(c.Name, q)).Take(60).Select(c => new RelationTarget(CityLabel(c), c.Address)).ToArray();
-            cityPick.SelectedIndex = -1;
+            var choices = cityCatalogue.Select(c => new RelationTarget(CityLabel(c), c.Address)).ToList();
+            var chosen = await PickerDialog.Show<RelationTarget>(this, "Choose city of birth", q => choices.Where(t => PickerSearch.Hit(q, t.Label)).Select(t => (t.Label, t)).ToList());
+            if (chosen is null) return;
+            chosenCity = chosen;
+            cityPick.Content = chosen.Label;
+            Refresh();
         };
-        cityPick.SelectionChanged += (_, _) => Refresh();
-        checks.Add(() => cityPick.SelectedItem is RelationTarget t && t.Address != cityBefore);
+        checks.Add(() => chosenCity?.Address != cityBefore);
         if (session.Profile.Cities is not null)
-            Row("City Of Birth", new StackPanel { Orientation = Orientation.Vertical, Spacing = 3, HorizontalAlignment = HorizontalAlignment.Stretch, Children = { citySearch, cityPick } });
+            Row("City Of Birth", cityPick);
 
         var bodyType = Choice("Body Type", PlayerField.BodyType, InformationLabels.BodyTypes);
         var hairColour = Choice("Hair Colour", PlayerField.HairColour, InformationLabels.HairColours);
@@ -294,12 +300,9 @@ public sealed partial class MainWindow
                 var date = now2.AddDays(-nd);
                 Field(PlayerField.ArrivedInCountry, date.Year * 10000 + date.Month * 100 + date.Day);
             }
-            if (nationBox.SelectedIndex >= 0 && nationBox.SelectedIndex != nationIndex && player.Nationality is { } oldNation)
-            {
-                var nation = nations[nationBox.SelectedIndex];
+            if (chosenNation is { } nation && nation.Address != (player.Nationality?.Address ?? 0) && player.Nationality is { } oldNation)
                 writes.Add(() => session.Origin.SetNationality(player, oldNation.Address, nation));
-            }
-            if (cityPick.SelectedItem is RelationTarget t && t.Address != cityBefore && cities.Read(t.Address) is { } newCity)
+            if (chosenCity is { } pickedCity && pickedCity.Address != cityBefore && cities.Read(pickedCity.Address) is { } newCity)
                 writes.Add(() => session.Origin.SetCity(player, cityBefore, newCity));
             if (retired() is { } ret && ret != (statuses.InternationalRetirement is not null))
                 writes.Add(ret ? () => session.AddInternationalRetirement(player, statuses)
@@ -309,7 +312,7 @@ public sealed partial class MainWindow
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () => { foreach (var w in writes) w(); });
                 status.Text = "Saved information. Continue in FM to see updates.";
                 // The nationality lives on the player record; reload it so the next write checks against the new nation.
-                if (nationBox.SelectedIndex != nationIndex && backend.Players.Reload(player.Address) is { } fresh) { fresh.GameDate = backend.GameDate; selected = fresh; ReplaceRow(fresh); }
+                if ((chosenNation?.Address ?? 0) != (player.Nationality?.Address ?? 0) && backend.Players.Reload(player.Address) is { } fresh) { fresh.GameDate = backend.GameDate; selected = fresh; ReplaceRow(fresh); }
                 return true;
             }
             catch (Exception ex) { status.Text = $"Some information changes may have been saved. {ex.Message}"; return false; }

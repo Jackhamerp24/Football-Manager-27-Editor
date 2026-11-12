@@ -35,9 +35,10 @@ public class PlayerPresetsTests
         TestWorld.Set64(club, 0x00, TestWorld.ModuleBase + ClubVtable);
         BitConverter.GetBytes(0x199).CopyTo(club, 0x08);   // Man Utd's cohesion index
 
-        var header = _w.Memory.Map(Header, 0x10);
+        // Header: count, then one pointer per record (here the records happen to sit back to back).
+        var header = _w.Memory.Map(Header, 0x20);
         BitConverter.GetBytes(3).CopyTo(header, 0);
-        TestWorld.Set64(header, 8, Records);
+        for (int i = 0; i < 3; i++) TestWorld.Set64(header, 8 + 8 * i, Records + (ulong)(i * RecordSize));
         byte[] all =
         [
             .. Record(new(2026, 7, 1), new(2026, 10, 18), endFlags: 0x5E00),   // Baptiste, ended 18/10/2026

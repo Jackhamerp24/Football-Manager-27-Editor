@@ -89,6 +89,18 @@ public class TransferProposalTests
     }
 
     [Fact]
+    public void Status_write_touches_one_byte_and_refuses_stale_offers()
+    {
+        var p = Reader().Read(Player())[0];
+        var before = _w.Bytes(Offer, 0x98);
+        new TransferProposalWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase).SetStatus(p, 5);
+        before[0x8D] = 5;
+        Assert.Equal(before, _w.Bytes(Offer, 0x98));
+        Assert.Throws<StaleObjectException>(() => new TransferProposalWriter(_w.Memory, _w.Profile, TestWorld.ModuleBase).SetStatus(p, 12));
+        Assert.Equal(5, _w.Bytes(Offer + 0x8D, 1)[0]);
+    }
+
+    [Fact]
     public void Club_offers_include_staff_and_players_and_hide_completed_offers()
     {
         // Julio Figueroa → Man Utd, £0, status 10 (FMRTE 27, 3/11/2026); pointers remapped to fixture objects.

@@ -21,13 +21,17 @@ public interface ICodePatchHost
 }
 
 /// <summary>One player whose development is sped up, as the game process holds it.</summary>
-public sealed record AcceleratedPlayer(ulong Address, int PlayerId, int Multiplier);
+/// <summary>One player whose development is sped up; <see cref="Multiplier"/> in steps of 0.1 (2.5 = two and a half times).</summary>
+public sealed record AcceleratedPlayer(ulong Address, int PlayerId, double Multiplier);
 
 /// <summary>Whether the patch is in place, how often it has run, and who it speeds up.</summary>
 public sealed record AcceleratedState(ulong Site, ulong Cave, long Calls, long Hits, bool LiftZeroGains, IReadOnlyList<AcceleratedPlayer> Players)
 {
     /// <summary>The last objects (r15) the game passed through the site, newest first; for checking the hook sees players.</summary>
     public IReadOnlyList<ulong> Recent { get; init; } = [];
+
+    /// <summary>The block was written by an earlier editor version (whole-number multipliers); Install replaces it.</summary>
+    public bool IsOlderVersion { get; init; }
 }
 
 /// <summary>
@@ -45,12 +49,17 @@ public sealed record AcceleratedState(ulong Site, ulong Cave, long Calls, long H
 /// </remarks>
 public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost? host, OffsetProfile profile, ulong moduleBase, int moduleSize)
 {
-    public const int MinMultiplier = 2, MaxMultiplier = 20;
+    /// <summary>Speeds are 1.1x to 20x in steps of 0.1; 1x (or 0) means normal speed.</summary>
+    public const double MinMultiplier = 1.1, MaxMultiplier = 20;
 
-    /// <summary>The largest gain one call can produce after multiplying; CA is 1â€“200, so this never wraps.</summary>
+    /// <summary>The largest gain one call can produce after multiplying; CA is 1–200, so this never wraps.</summary>
     public const int MaxGain = 200;
 
-    public static readonly int[] OfferedMultipliers = [2, 3, 5, 10, 20];
+    public static readonly double[] OfferedMultipliers = [2, 3, 5, 10, 20];
+
+    /// <summary>True for a speed the routine can hold: 1.1-20 with at most one decimal.</summary>
+    public static bool IsAllowedMultiplier(double value) =>
+        value >= MinMultiplier - 1e-9 && value <= MaxMultiplier + 1e-9 && Math.Abs(value * 10 - Math.Round(value * 10)) < 1e-6;
 
     // Block layout. Header fields are read and written by the editor; the routine only counts and reads.
     internal const int MagicOffset = 0x00, CallsOffset = 0x08, HitsOffset = 0x10, OriginalOffset = 0x18, SiteOffset = 0x20,
@@ -58,7 +67,8 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
         TableOffset = 0x200, EntrySize = 0x10;
     public const int BlockSize = 0x10000;
     public const int Capacity = (BlockSize - TableOffset) / EntrySize;
-    internal static readonly byte[] Magic = "FM27ACC1"u8.ToArray();
+    /// <summary>Version 2 keeps multipliers in tenths; version 1 (an earlier editor) kept whole numbers.</summary>
+    internal static readonly byte[] Magic = "FM27ACC2"u8.ToArray(), MagicV1 = "FM27ACC1"u8.ToArray();
     const int StolenLength = 8;
     const uint PageExecuteReadWrite = 0x40;
 
@@ -140,7 +150,8 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
         ulong code = at + 5 + (ulong)(long)BitConverter.ToInt32(bytes, 1);
         ulong cave = code - CodeOffset;
         var head = memory.Read(cave, TableOffset);
-        if (!head.AsSpan(MagicOffset, Magic.Length).SequenceEqual(Magic) || BitConverter.ToUInt64(head, SiteOffset) != at)
+        bool v1 = head.AsSpan(MagicOffset, MagicV1.Length).SequenceEqual(MagicV1);
+        if (!v1 && !head.AsSpan(MagicOffset, Magic.Length).SequenceEqual(Magic) || BitConverter.ToUInt64(head, SiteOffset) != at)
             throw new InvalidOperationException("The training-gain code is patched by another tool");
         int count = BitConverter.ToInt32(head, CountOffset);
         if (count is < 0 or > Capacity) throw new InvalidOperationException("The accelerated player table is damaged");
@@ -149,14 +160,15 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
         {
             var rows = memory.Read(cave + TableOffset, count * EntrySize);
             for (int i = 0; i < count; i++)
-                players.Add(new(BitConverter.ToUInt64(rows, i * EntrySize), BitConverter.ToInt32(rows, i * EntrySize + 12), BitConverter.ToUInt16(rows, i * EntrySize + 8)));
+                players.Add(new(BitConverter.ToUInt64(rows, i * EntrySize), BitConverter.ToInt32(rows, i * EntrySize + 12),
+                    BitConverter.ToUInt16(rows, i * EntrySize + 8) / (v1 ? 1.0 : 10.0)));
         }
         uint ring = BitConverter.ToUInt32(head, RingIndexOffset);
         var recent = new List<ulong>(RingSize);
         for (int i = 1; i <= Math.Min(RingSize, (int)Math.Min(ring, RingSize)); i++)
             recent.Add(BitConverter.ToUInt64(head, RingOffset + (int)((ring - (uint)i) % RingSize) * 8));
         return new(at, cave, BitConverter.ToInt64(head, CallsOffset), BitConverter.ToInt64(head, HitsOffset), head[LiftZeroOffset] != 0, players)
-            { Recent = recent };
+            { Recent = recent, IsOlderVersion = v1 };
     }
 
     /// <summary>Puts the jump and the routine in place (once per game run); returns the state.</summary>
@@ -190,6 +202,7 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
 
     bool RoutineIsCurrent(AcceleratedState state)
     {
+        if (state.IsOlderVersion) return false;
         var stolen = memory.Read(state.Cave + OriginalOffset, StolenLength);
         var expected = BuildRoutine(state.Cave + CodeOffset, state.Cave, state.Site + StolenLength, stolen);
         return memory.Read(state.Cave + CodeOffset, expected.Length).AsSpan().SequenceEqual(expected);
@@ -209,7 +222,7 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
         BitConverter.GetBytes(old.Hits).CopyTo(block, HitsOffset);
         BitConverter.GetBytes(old.Players.Count).CopyTo(block, CountOffset);
         for (int i = 0; i < old.Players.Count; i++)
-            EntryBytes(old.Players[i].Address, old.Players[i].PlayerId, old.Players[i].Multiplier).CopyTo(block, TableOffset + i * EntrySize);
+            EntryBytes(old.Players[i].Address, old.Players[i].PlayerId, old.Players[i].Multiplier).CopyTo(block, TableOffset + i * EntrySize);  // Read already turned v1 whole numbers into multipliers
         Put(cave, block);
         host.FlushCode(cave, block.Length);
         var patch = BuildPatch(old.Site, cave + CodeOffset);
@@ -241,13 +254,14 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
     }
 
     /// <summary>
-    /// Sets the player's multiplier (<see cref="MinMultiplier"/>â€“<see cref="MaxMultiplier"/>), or takes him out of the table
-    /// with 0. Returns false when nothing changed. Installs the patch on first use.
+    /// Sets the player's speed (<see cref="MinMultiplier"/>-<see cref="MaxMultiplier"/> in steps of 0.1), or takes him out of
+    /// the table with 0 or 1 (normal speed). Returns false when nothing changed. Installs the patch on first use.
     /// </summary>
-    public bool Set(PlayerRecord player, int multiplier)
+    public bool Set(PlayerRecord player, double multiplier)
     {
-        if (multiplier != 0 && multiplier is < MinMultiplier or > MaxMultiplier)
-            throw new ArgumentOutOfRangeException(nameof(multiplier), multiplier, $"Multiplier must be {MinMultiplier}â€“{MaxMultiplier}, or 0 to stop");
+        if (multiplier == 1) multiplier = 0;
+        if (multiplier != 0 && !IsAllowedMultiplier(multiplier))
+            throw new ArgumentOutOfRangeException(nameof(multiplier), multiplier, $"Speed must be {MinMultiplier}-{MaxMultiplier} with at most one decimal, or 1 for normal");
         if (player.Id is not > 0) throw new InvalidOperationException($"{player.DisplayName}: the player has no readable id");
         RequirePlayer(player);
         var state = multiplier == 0 ? Read() : Install();
@@ -263,7 +277,7 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
         }
         if (index >= 0)
         {
-            if (state.Players[index].Multiplier == multiplier && state.Players[index].PlayerId == player.Id) return false;
+            if (Math.Abs(state.Players[index].Multiplier - multiplier) < 1e-9 && state.Players[index].PlayerId == player.Id) return false;
             Put(Entry(state.Cave, index), EntryBytes(player.Address, player.Id.Value, multiplier));
             return true;
         }
@@ -275,7 +289,7 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
     }
 
     /// <summary>The player's multiplier, or 0 when he is not accelerated (or the patch is not installed).</summary>
-    public int MultiplierOf(PlayerRecord player) =>
+    public double MultiplierOf(PlayerRecord player) =>
         Read()?.Players.FirstOrDefault(p => p.Address == player.Address)?.Multiplier ?? 0;
 
     /// <summary>Takes out every row whose object is no longer that player (another save was loaded into the same game run).</summary>
@@ -314,11 +328,11 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
 
     static ulong Entry(ulong cave, int index) => cave + TableOffset + (ulong)(index * EntrySize);
 
-    static byte[] EntryBytes(ulong address, int playerId, int multiplier)
+    static byte[] EntryBytes(ulong address, int playerId, double multiplier)
     {
         var row = new byte[EntrySize];
         BitConverter.GetBytes(address).CopyTo(row, 0);
-        BitConverter.GetBytes((ushort)multiplier).CopyTo(row, 8);
+        BitConverter.GetBytes((ushort)Math.Round(multiplier * 10)).CopyTo(row, 8);   // tenths
         BitConverter.GetBytes(playerId).CopyTo(row, 12);
         return row;
     }
@@ -349,8 +363,7 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
     /// mov edx,[rcx+Count]; lea rax,[rcx+Table]
     /// next: test edx,edx; jz done; cmp [rax],r15; je hit; add rax,16; dec edx; jmp next
     /// hit:  test di,di; jg grow; cmp byte [rcx+LiftZero],0; je done; mov di,1
-    /// grow: movzx edx,word [rax+8]; imul dx,di; jo cap; cmp dx,MaxGain; jle keep
-    /// cap:  mov dx,MaxGain
+    /// grow: edx = word [rax+8] (multiplier in tenths); edx = (di * edx + 5) / 10; at most MaxGain
     /// keep: mov di,dx; inc qword [rcx+Hits]
     /// done: pop rdx; pop rcx; pop rax; popfq
     ///       (the eight stolen bytes: movzx eax, word [r15+CA])
@@ -395,11 +408,15 @@ public sealed class AcceleratedDevelopment(IProcessMemory memory, ICodePatchHost
         a.Emit(0x80, 0x79, LiftZeroOffset, 0x00); a.Jump8(0x74, "done");  // cmp byte [rcx+LiftZero],0; je done
         a.Emit(0x66, 0xBF, 0x01, 0x00);                                   // mov di,1
         a.Label("grow");
-        a.Emit(0x0F, 0xB7, 0x50, 0x08);                                   // movzx edx,word [rax+8]
-        a.Emit(0x66, 0x0F, 0xAF, 0xD7); a.Jump8(0x70, "cap");             // imul dx,di; jo cap
-        a.Emit(0x66, 0x81, 0xFA); a.Int16(MaxGain); a.Jump8(0x7E, "keep"); // cmp dx,MaxGain; jle keep
-        a.Label("cap");
-        a.Emit(0x66, 0xBA); a.Int16(MaxGain);                             // mov dx,MaxGain
+        a.Emit(0x0F, 0xB7, 0x50, 0x08);                                   // movzx edx,word [rax+8]   (tenths)
+        a.Emit(0x0F, 0xBF, 0xC7);                                         // movsx eax,di             (gain > 0 here)
+        a.Emit(0x0F, 0xAF, 0xC2);                                         // imul eax,edx
+        a.Emit(0x83, 0xC0, 0x05);                                         // add eax,5                (round)
+        a.Emit(0xBA); a.Int32(unchecked((int)0xCCCCCCCD));                // mov edx,0xCCCCCCCD
+        a.Emit(0xF7, 0xE2);                                               // mul edx
+        a.Emit(0xC1, 0xEA, 0x03);                                         // shr edx,3                (edx = eax / 10)
+        a.Emit(0x81, 0xFA); a.Int32(MaxGain); a.Jump8(0x7E, "keep");      // cmp edx,MaxGain; jle keep
+        a.Emit(0xBA); a.Int32(MaxGain);                                   // mov edx,MaxGain
         a.Label("keep");
         a.Emit(0x66, 0x89, 0xD7);                                         // mov di,dx
         a.Emit(0x48, 0xFF, 0x41, HitsOffset);                             // inc qword [rcx+Hits]

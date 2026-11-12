@@ -63,6 +63,29 @@ public class ContractLabelTests
         Assert.Equal("signed for 429,515", ContractLabels.Detail(uche));
     }
 
+    /// <summary>
+    /// Bryan Mbeumo's clauses with Brentford as FM27's own screen lists them (15/12/2026): "Goals Money £500K … after
+    /// another 6 league goals" is the record with condition 3, 14 of 20; "Appearance Money £400K … after another 13
+    /// league appearances" has condition 0, 47 of 60. FMRTE 27 calls both "Appearance Money".
+    /// </summary>
+    [Fact]
+    public void Appearance_fee_records_counting_goals_are_goals_fees()
+    {
+        var goals = new TransferClause(4, TransferClauseKind.AppearanceFee, 1, null, 500000, null, null, 20, 14, null, null, null)
+            { Condition = TransferClauseCondition.LeagueGoals };
+        var apps = goals with { Amount = 400000, Appearances = 60, AppearancesSoFar = 47, Condition = TransferClauseCondition.LeagueAppearances };
+        var unknown = goals with { Condition = 2 };
+
+        Assert.Equal(3, TransferClauseCondition.LeagueGoals);
+        Assert.Equal("Goals Fee", ContractLabels.Of(goals));
+        Assert.Equal("14 / 20 goals", ContractLabels.Detail(goals));
+        Assert.Equal("Appearance Fee", ContractLabels.Of(apps));
+        Assert.Equal("47 / 60 apps", ContractLabels.Detail(apps));
+        Assert.Equal("Appearance Fee (type 2)", ContractLabels.Of(unknown));
+        Assert.Equal("14 / 20", ContractLabels.Detail(unknown));
+        Assert.Equal("Appearance Fee", ContractLabels.Of(goals with { Condition = null }));
+    }
+
     [Fact]
     public void Clause_save_input_distinguishes_unchanged_cleared_and_populated_fields()
     {

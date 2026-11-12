@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -19,12 +19,24 @@ public sealed partial class MainWindow
     readonly Dictionary<ulong, string> clubFamiliarityDrafts = [];
     readonly Dictionary<ulong, ClubAffiliationEntry> pendingAffiliationRemovals = [];
 
+    static int StyleLimit(ClubKitItem item) => (item.Type, item.Flags) switch
+    {
+        (3, 0x100) => 56,   // shirt
+        (2, 0x100) => 56,   // text
+        (2, 0) => 56,       // GK shirt
+        (1, 0) or (0x21, 0) => 56,   // icon
+        (4, 0) or (4, 1) => 10,      // shorts
+        (5, 0) or (5, 1) => 15,      // socks
+        _ => 56,
+    };
+
     void UpdateKitSaveButtons(ulong club)
     {
         bool pending = (kitDrafts.TryGetValue(club, out var drafts) && drafts.Count > 0) || pendingAffiliationRemovals.ContainsKey(club) || clubFamiliarityDrafts.ContainsKey(club);
         bool scalar = clubDrafts.TryGetValue(club, out var draft) && draft.CanSave;
         bool invalidScalar = draft is not null && draft.InvalidCount > 0;
         if (clubScreen.SaveButton is { } save) save.IsEnabled = !invalidScalar && (pending || scalar);
+    UpdateClubStatusFromDraft();
     }
 
     void SetKitDraft(ClubKitItem item, int? colourIndex, string text, Action? onDraftChanged = null)
@@ -36,7 +48,18 @@ public sealed partial class MainWindow
             if (string.Equals(text.Trim(), $"#{draft.Snapshot.Colour(index):X8}", StringComparison.OrdinalIgnoreCase)) draft.Colours.Remove(index);
             else draft.Colours[index] = text;
         }
-        else draft.Style = text.Trim() == draft.Snapshot.Style.ToString(Inv) ? null : text;
+        else
+        {
+            // In-game editor style counts: shirt/text/icon 56, shorts 10, socks 15.
+            string style = text.Trim();
+            if (int.TryParse(style, out int parsed))
+            {
+                int limit = StyleLimit(item);
+                int clamped = Math.Clamp(parsed, 1, limit);
+                if (clamped != parsed) style = clamped.ToString(Inv);
+            }
+            draft.Style = style == draft.Snapshot.Style.ToString(Inv) ? null : style;
+        }
         if (draft.Colours.Count == 0 && draft.Style is null) drafts.Remove(item.Slot);
         if (drafts.Count == 0) kitDrafts.Remove(item.Club);
         UpdateKitSaveButtons(item.Club);
@@ -59,7 +82,11 @@ public sealed partial class MainWindow
             }
             int? style = null;
             if (draft.Style is { } raw)
-                style = int.TryParse(raw.Trim(), out int value) ? value : throw new FormatException("Invalid Item Style");
+            {
+                if (!int.TryParse(raw.Trim(), out int value) || value < 1 || value > StyleLimit(draft.Snapshot))
+                    throw new FormatException($"Item Style must be 1 to {StyleLimit(draft.Snapshot)}");
+                style = value;
+            }
             parsed.Add((draft, colours, style));
         }
         var current = session.ClubKits.Read(club.Address, club.Id!.Value).ToDictionary(x => x.Slot);
@@ -122,8 +149,7 @@ public sealed partial class MainWindow
         string[] tabNames = ["Home Kit", "Away Kit", "Third Kit", "GK Home Kit", "GK Away Kit", "GK Third Kit"];
         string[] kitNames = ["Home", "Away", "Third", "GK Home", "GK Away", "GK Third"];
         string[] partNames = ["Shirt", "Text", "Icon", "Shorts", "Socks"];
-        var tabs = new TabControl();
-        var tabItems = new List<TabItem>();
+        var pages = new List<(string Title, Control Content)>();
 
         uint EffectiveColour(ClubKitItem item, int index)
         {
@@ -237,15 +263,10 @@ public sealed partial class MainWindow
             grid.Children.Add(partCard);
             grid.Children.Add(editCard);
             grid.Children.Add(preview.Control);
-            tabItems.Add(new TabItem { Header = tabNames[t], Content = grid });
+            pages.Add((tabNames[t], grid));
         }
-        tabs.ItemsSource = tabItems;
-        tabs.SelectionChanged += (_, _) =>
-        {
-            if (tabs.SelectedIndex >= 0) selectedKitTab[ownerAddress] = tabs.SelectedIndex;
-        };
-        tabs.SelectedIndex = Math.Clamp(selectedKitTab.GetValueOrDefault(ownerAddress), 0, tabItems.Count - 1);
-        return tabs;
+        int start = Math.Clamp(selectedKitTab.GetValueOrDefault(ownerAddress), 0, pages.Count - 1);
+        return UiKit.OptionTabs(pages, start, index => selectedKitTab[ownerAddress] = index);
     }
 }
 

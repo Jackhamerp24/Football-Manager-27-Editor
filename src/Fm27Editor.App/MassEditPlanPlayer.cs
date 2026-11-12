@@ -58,6 +58,30 @@ internal sealed partial class MassEditWindow
                     }
                     break;
                 }
+                case Kind.PlayerDetail when row.Index == DetailAge:
+                {
+                    var today = session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+                    foreach (var p in players)
+                    {
+                        if (p.DateOfBirth is not { } born) continue;
+                        var line = PerPerson(p.DisplayName, row, mode, Fm27Editor.Core.Staff.StaffDetailsMassEdit.AgeOn(born, today),
+                            after => session.Writer.SetDateOfBirth(p, Fm27Editor.Core.Staff.StaffDetailsMassEdit.BornForAge(born, (int)after, today)));
+                        if (line is not null) rows.Add(line);
+                    }
+                    break;
+                }
+                case Kind.PlayerDetail when row.Index == DetailNationality:
+                {
+                    if (nationChoices.FirstOrDefault(n => n.Id == row.Number) is not { Address: not 0 } nation) { rows.Add(MassRow.Refused("(every target)", row.Label, "Choose a nation")); break; }
+                    var record = new Fm27Editor.Core.Nations.NationRecord(nation.Address, nation.Id, nation.Name, null);
+                    foreach (var p in players)
+                    {
+                        if (p.Nationality is not { } current || current.Address == nation.Address) continue;
+                        rows.Add(MassRow.Change(p.DisplayName, row.Label, current.Name ?? "", nation.Name,
+                            () => { session.Origin.SetNationality(p, current.Address, record); return 1; }));
+                    }
+                    break;
+                }
                 case Kind.PlayerScalar:
                     rows.AddRange(Guarded(row.Label, () => PlayerScalarMassEdit.Plan(players, session.PlayerFields, (PlayerField)row.Index, mode, (int)row.Number)
                         .Select(c => MassRow.Change(c.Player.DisplayName, row.Label, c.Before, c.After, () => { PlayerPresetBatch.Apply(c, session.Players, session.PlayerFields); return 1; }))));

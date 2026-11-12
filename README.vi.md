@@ -16,10 +16,10 @@ Chỉ dùng cho save chơi một mình, offline. Không dùng khi chơi online h
 |---|---|
 | Cầu thủ | Chỉ số, vị trí, tính cách, CA/PA, danh tiếng, chiều cao, ngày sinh, quốc tịch và thông tin khác; hợp đồng và hợp đồng tương lai, thưởng và điều khoản chuyển nhượng; kế hoạch sự nghiệp, quan hệ, ngôn ngữ, động tác ưa thích; chấn thương, án treo giò, bất mãn, triệu tập đội tuyển; giấy phép lao động và lời hứa |
 | Chuyển cầu thủ | Chuyển CLB dưới dạng chuyển nhượng (có phí và % bán lại), cho mượn, hoặc **chuyển nhượng tương lai** có ngày và đủ điều khoản (trả góp, tiền theo số trận và bàn thắng, phí mua lại, bán lại, đóng góp lương, giao hữu); đổi chỗ hai cầu thủ; giải phóng hợp đồng; đội trưởng / đội phó; chép chỉ số sang cầu thủ khác; so sánh |
-| Nhân sự | Chỉ số, CA/PA, tính cách, hợp đồng, kế hoạch sự nghiệp, quan hệ, ngôn ngữ, hiểu biết, sơ đồ, xu hướng, chuyển sang CLB khác kèm vai trò và lương mới |
+| Nhân sự | Chỉ số, CA/PA, tính cách, training rating, số trận và bàn thắng quốc tế, bằng huấn luyện, điểm vai trò, hợp đồng, kế hoạch sự nghiệp, quan hệ, ngôn ngữ, hiểu biết, sơ đồ, xu hướng, chuyển sang CLB khác kèm vai trò và lương mới |
 | CLB | Thông tin, tài chính, nợ, CLB liên kết, tầm nhìn CLB, áo đấu và màu, quan hệ, nhân sự, đội hình, trung tâm chuyển nhượng |
 | Quốc gia, sân, thành phố, giải đấu, giải thưởng, trọng tài, loại chấn thương | Thông tin, danh tiếng và thiết lập, mỗi loại một màn riêng. Sân: chủ sở hữu, vị trí, sân lân cận và toạ độ. Thành phố: quốc gia, vùng, ngôn ngữ và khí hậu |
-| Công cụ | Preset cả đội có xem trước và Undo (hồi phục, thể lực, tinh thần, xoá án treo giò, xoá bất mãn, chỉ số tối đa, chặn giải nghệ, tactical understanding, team cohesion), khoá giá trị, xuất CSV / JSON, bộ lọc nâng cao, yêu thích, tải lại màn hình hiện tại (Ctrl+R) |
+| Công cụ | Preset cả đội có xem trước và Undo (hồi phục, thể lực, tinh thần, xoá án treo giò, xoá bất mãn, chỉ số tối đa, chặn giải nghệ, tactical understanding, team cohesion), Mass Edit, Hook Manager (Wonderkid Academy, Development Speed), khoá giá trị, xuất CSV / JSON, bộ lọc nâng cao, yêu thích, tải lại màn hình hiện tại (Ctrl+R) |
 
 Mọi thay đổi được ghi vào lịch sử, có Undo. Xem [CHANGELOG.md](CHANGELOG.md) để biết bản mới có gì.
 
@@ -34,10 +34,77 @@ Sau khi ghi, app đọc lại để xác nhận. Nếu có gì không khớp th�
 Một vài thao tác thêm dòng vào danh sách của game (lời hứa mới, chuyển nhượng tương lai, ngôn ngữ). Khi danh sách đầy,
 app cấp một danh sách mới ngoài bộ cấp phát của game. Hãy sao lưu save trước khi dùng chúng.
 
+## Điểm nổi bật
+
+### Mass Edit
+Sửa hàng trăm cầu thủ, HLV, CLB hay quốc gia trong một lần. Chọn những ai bị ảnh hưởng bằng chính bộ lọc của Advanced
+Search. Sau đó, với mỗi trường, chọn **Set to** (ai cũng nhận giá trị này) hoặc **Change by** (ai cũng tăng hoặc giảm một
+lượng). Trước khi ghi, bạn có danh sách xem lại từng người, từng trường, giá trị cũ → mới, và bỏ tick được chỗ không
+muốn. Cả lượt sửa nằm trong lịch sử thành một mục. Bạn có thể hoàn tác cả lượt, từng người, hoặc từng trường.
+
+### Training Rating của HLV
+FM không lưu số sao huấn luyện của HLV mà tính ra từ chỉ số của ông ấy. Editor tính đúng như vậy, nên số sao khớp với
+game. Mỗi mảng trong 11 mảng kết hợp chỉ số chuyên môn của HLV với **Determination**, **Authority** và **Motivating**
+(mỗi chỉ số tính hai lần):
+
+| Mảng | Chỉ số nặng ký nhất |
+|---|---|
+| Thủ môn: Shot Stopping | Goalkeeping (×9) |
+| Thủ môn: Handling and Distribution | Goalkeeping (×6), nên tối đa 4 sao |
+| Phòng ngự, Tấn công (Technical / Tactical) | Defending hoặc Attacking (×6) cộng Technical hoặc Tactical (×3) |
+| Kiểm soát bóng (Technical / Tactical) | Possession (×3) cộng Technical hoặc Tactical (×6) |
+| Sức mạnh, Tốc độ | Fitness (×9) |
+| Bóng chết | Set Pieces (×3) cộng Tactical Knowledge (×6) |
+
+Tổng có trọng số được đổi ra 0–5 sao, bước nửa sao.
+
+Muốn đổi một mảng, kéo thanh trượt của mảng đó. Khi Save, mọi chỉ số đứng sau mảng đó thành **số sao × 4** trên thang
+1–20 (4 sao → 16). Determination, Authority và Motivating có mặt ở mọi mảng, nên các mảng khác cũng đổi theo. Trong Mass
+Edit, "Change by" cộng vào số sao hiện tại của từng HLV, giữ trong khoảng 0–5.
+
+### Wonderkid Academy (Experimental)
+Định hình các cầu thủ trẻ game tạo ra từ giờ trở đi (youth intake và cầu thủ mới).
+
+- Mỗi cầu thủ trẻ mới nhận potential ngẫu nhiên trong khoảng bạn chọn, không thấp hơn CA hiện tại và không quá 200.
+- **Wonderkid %** là khả năng cầu thủ đó còn có CA ban đầu cao hơn, tiến một phần về phía potential.
+- Có thể áp cho mọi cầu thủ trẻ, hoặc chỉ cho cầu thủ của những châu lục, quốc gia hay CLB bạn chọn. Mỗi lúc chỉ một
+  cấp có hiệu lực; chọn cấp rộng hơn sẽ bỏ các mục hẹp hơn mà nó đã bao.
+- Cầu thủ đã có không bao giờ bị đổi.
+- Tính năng chạy tới khi bạn tắt FM. Cửa sổ **How to use** hướng dẫn từng bước.
+
+### Development Speed
+Cho các cầu thủ được chọn tiến bộ nhanh hơn khi tập luyện: 2 là gấp đôi, 1 là bình thường, tối đa 20. Đặt ở thẻ Tools
+của cầu thủ; Hook Manager liệt kê mọi cầu thủ đã được đặt.
+
+### Thông tin nhân sự
+Trang Information của nhân sự hiện và sửa được số trận và bàn thắng quốc tế, bằng huấn luyện (kể cả "Đang học…") và
+điểm 15 vai trò (Manager, Coach, Scout, Data Analyst…).
+
+### CLB
+Sửa được ở màn CLB và trong Mass Edit:
+- Status: Chuyên nghiệp, Bán chuyên hoặc Nghiệp dư.
+- Đủ mọi lựa chọn Ownership, Chairperson Title và Rich Benefactor.
+- Sức chứa và kích thước sân.
+
+### Đội trưởng và thay đổi chưa lưu
+**Make Captain** và **Make Vice Captain** chỉ cần một lần bấm. Mỗi tab con của cầu thủ hay HLV có dấu * khi còn thay
+đổi chưa lưu, để bạn luôn biết mình đã sửa ở đâu.
+
+### Tiền tệ
+Tiền của CLB (số dư, ngân sách, lương và các mục tài chính khác) hiện theo đơn vị FM đang dùng (tự nhận ra), hoặc theo
+đơn vị bạn chọn trong Settings. Đơn vị bạn tự chọn được giữ nguyên, kể cả khi game dùng đơn vị khác. Số bạn gõ vào được
+quy đổi theo tỷ giá cố định của game trước khi lưu; game luôn lưu bằng bảng Anh, nên xem bằng đơn vị khác không làm
+thay đổi gì trong save.
+
+### Hiệu chuẩn
+Mỗi bản game được hỗ trợ đều được kiểm với một save hiệu chuẩn: khoảng 550 giá trị đã biết, đọc từ FMRTE và màn hình
+của FM, gồm chỉ số, hợp đồng, điều khoản, tài chính CLB, sân, quốc gia và HLV. Sau mỗi bản vá game, chỉ vài giây là
+biết có gì bị lệch, trước khi giá trị sai kịp vào save của bạn.
+
 ## Yêu cầu
 
 - Windows 10/11 x64
-- Football Manager 27 `27.0.1+2494687` (hoặc `27.0.0+2493426`), Xbox / Game Pass hoặc Steam. Bản game khác cần profile offset mới, xem
+- Football Manager 27: Steam `27.0.1+2503222`, Xbox / Game Pass `27.0.1+2494687` (các bản cũ hơn ở bảng dưới vẫn chạy). Bản game khác cần profile offset mới, xem
   [Khi game có patch](#khi-game-có-patch).
 - [.NET 10 SDK](https://dotnet.microsoft.com/download), chỉ khi bạn tự build
 
@@ -45,8 +112,9 @@ app cấp một danh sách mới ngoài bộ cấp phát của game. Hãy sao l�
 
 | Bản | Tình trạng |
 |---|---|
-| Xbox / Game Pass `27.0.1+2494687` | Bản hiện tại. Mọi phần đọc (71 tính năng) và mọi loại ghi (24 lượt ghi rồi trả lại) đã chạy trên game thật; 88 giá trị đối chiếu với save hiệu chuẩn và FMRTE |
-| Steam `27.0.1+2494687` | Bản hiện tại. Mọi phần đọc (71 tính năng) và mọi loại ghi (24 lượt ghi rồi trả lại) đã chạy trên game thật |
+| Steam `27.0.1+2503222` | Bản Steam hiện tại. Mọi phần đọc (71 tính năng) và mọi loại ghi đã chạy trên game thật; 550 giá trị đối chiếu với save hiệu chuẩn, FMRTE và màn hình của FM |
+| Xbox / Game Pass `27.0.1+2494687` | Bản Game Pass hiện tại. Mọi phần đọc và mọi loại ghi đã chạy trên game thật; qua cùng bộ kiểm hiệu chuẩn |
+| Steam `27.0.1+2494687` | Bản Steam trước, vẫn hỗ trợ |
 | Xbox / Game Pass và Steam `27.0.0+2493426` | Bản trước, vẫn hỗ trợ |
 | Steam `27.0.0+2486695` | Bản cũ, dùng cho test |
 
@@ -174,6 +242,8 @@ sách, hiện không có nhãn hoặc sai dữ liệu, và việc sửa chúng c
 - Giao diện sáng (trắng và xanh dương) bên cạnh giao diện tối, đổi bằng một nút và được nhớ cho lần sau.
 - Sửa hàng loạt (mass edit) cho cầu thủ, nhân sự và CLB theo bố cục FMRTE, thêm phạm vi **Quốc gia** (Youth Rating và
   các field quốc gia) mà FMRTE không có; mở bằng nút trên thanh công cụ hoặc Ctrl+M.
+- Training rating của HLV, bằng huấn luyện và điểm vai trò của nhân sự, Status của CLB; Wonderkid Academy và Development
+  Speed; tiền theo đơn vị của game hoặc đơn vị bạn chọn; save hiệu chuẩn kiểm mọi bản game.
 - Áo đấu và màu CLB, tài chính và nhà tài trợ; VAR, tiền thưởng, quy định đội hình và bảng xếp hạng của giải; thoả thuận,
   ưu tiên chuyển nhượng và EuroCoefficients của quốc gia; chủ sở hữu, vị trí, sân lân cận và toạ độ của sân; quốc gia,
   vùng, ngôn ngữ và khí hậu của thành phố.
@@ -181,7 +251,6 @@ sách, hiện không có nhãn hoặc sai dữ liệu, và việc sửa chúng c
 Tiếp theo:
 
 - Bản build cho macOS.
-- Hiển thị giá tiền theo tiền tệ trong game, hoặc tiền tệ do người dùng tự đặt.
 - Phân tích chuyên sâu: tab thông số radar và visualisation của cầu thủ.
 - Danh sách theo dõi (shortlist).
 - Điều khoản chuyển nhượng cho lần chuyển diễn ra ngay (hiện chỉ hỗ trợ % bán lại).

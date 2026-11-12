@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using Fm27Editor.Core.Players;
 using System.Text;
 
@@ -46,6 +46,7 @@ public sealed partial class MainWindow
             RenderEditor();
             int unknown = Enum.GetValues<PersonalityAttribute>().Count(a => values[$"Personality.{a}"] == 0);
             status.Text = unknown == 0 ? $"{draft.Count} unsaved change(s)" : $"{draft.Count} unsaved change(s); {unknown} unknown personality value(s) skipped";
+        if (draft.Count > 0) SetActiveTabDirty(true);
         }
         catch (Exception ex) { status.Text = $"Import failed: {ex.Message}"; }
     }

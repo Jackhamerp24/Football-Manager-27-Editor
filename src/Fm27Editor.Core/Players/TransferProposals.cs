@@ -16,16 +16,21 @@ namespace Fm27Editor.Core.Players;
 /// FMRTE 27 writing Balde's Value 150,000 → 150,001 changed +0x58 only (2/11/2026).
 /// </summary>
 public sealed record ProposalOffsets(uint ListRootRva, int ListOffset, int Person, int Buyer, int Seller, int Value, int Id, int Status, int PlayerIds,
-    uint TransferVtable, uint LoanVtable, uint TrialVtable, uint BClubMoveVtable)
+    uint TransferVtable, uint LoanVtable, uint TrialVtable, uint BClubMoveVtable,
+    uint? ManagerRva = null, uint? ManagerVtable = null, int OfferVector = 0x20)
 {
     static readonly string[] Keys = ["listRootRva", "listOffset", "person", "buyer", "seller", "value", "id", "status", "playerIds",
         "transferVtable", "loanVtable", "trialVtable", "bClubMoveVtable"];
 
     internal static ProposalOffsets Load(JsonElement e)
     {
-        long[] v = Keys.Select(key => Convert.ToInt64(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
-            ? s[2..] : throw new FormatException($"player.proposals.{key}: expected hex"), 16)).ToArray();
-        return new((uint)v[0], (int)v[1], (int)v[2], (int)v[3], (int)v[4], (int)v[5], (int)v[6], (int)v[7], (int)v[8], (uint)v[9], (uint)v[10], (uint)v[11], (uint)v[12]);
+        long Hex(string key) => Convert.ToInt64(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
+            ? s[2..] : throw new FormatException($"player.proposals.{key}: expected hex"), 16);
+        long[] v = Keys.Select(Hex).ToArray();
+        return new((uint)v[0], (int)v[1], (int)v[2], (int)v[3], (int)v[4], (int)v[5], (int)v[6], (int)v[7], (int)v[8], (uint)v[9], (uint)v[10], (uint)v[11], (uint)v[12],
+            e.TryGetProperty("managerRva", out _) ? (uint)Hex("managerRva") : null,
+            e.TryGetProperty("managerVtable", out _) ? (uint)Hex("managerVtable") : null,
+            e.TryGetProperty("offerVector", out _) ? (int)Hex("offerVector") : 0x20);
     }
 
     internal void Write(Utf8JsonWriter w)
@@ -33,6 +38,9 @@ public sealed record ProposalOffsets(uint ListRootRva, int ListOffset, int Perso
         long[] v = [ListRootRva, ListOffset, Person, Buyer, Seller, Value, Id, Status, PlayerIds, TransferVtable, LoanVtable, TrialVtable, BClubMoveVtable];
         w.WriteStartObject("proposals");
         for (int i = 0; i < Keys.Length; i++) w.WriteString(Keys[i], $"0x{v[i]:X}");
+        if (ManagerRva is { } manager) w.WriteString("managerRva", $"0x{manager:X}");
+        if (ManagerVtable is { } managerVtable) w.WriteString("managerVtable", $"0x{managerVtable:X}");
+        if (ManagerRva is not null) w.WriteString("offerVector", $"0x{OfferVector:X}");
         w.WriteEndObject();
     }
 }
@@ -105,7 +113,21 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
         if (!Q(header, out ulong begin) || !Q(header + 8, out ulong end) || begin == 0 || end < begin || (end - begin) % 4 != 0 || (end - begin) / 4 > MaxIds) return [];
         var ids = memory.Read(begin, (int)(end - begin));
         if (ids.Length == 0) return [];
-        var offers = OffersCached(o);
+        if (OfferVector(o) is (true, var offersBegin, var offersCount))
+        {
+            var direct = new List<TransferProposal>();
+            for (int i = 0; i < ids.Length; i += 4)
+            {
+                int id = BitConverter.ToInt32(ids, i);
+                if (id < 0 || id >= offersCount) continue;
+                if (Q(offersBegin + (ulong)id * 8, out ulong offer) && offer != 0 && ReadOffer(offer) is { } p && p.Id == id)
+                    direct.Add(p);
+            }
+            return direct;
+        }
+        // Older builds (or a profile without the manager keys): the static vector plus the one-off heap scan.
+        var offers = new Dictionary<int, ulong>(OffersCached(o));
+        foreach (var (id, address) in Offers(o)) offers.TryAdd(id, address);
         var result = new List<TransferProposal>();
         for (int i = 0; i < ids.Length; i += 4)
             if (offers.TryGetValue(BitConverter.ToInt32(ids, i), out ulong offer) && ReadOffer(offer) is { } p) result.Add(p);
@@ -129,7 +151,38 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
 
     /// <summary>True once the one-off offer scan has run. The player tab rail checks this so it never starts the scan
     /// on the UI thread just to decide whether to show a tab.</summary>
-    public bool HasCachedOffers => _offerCache is not null;
+    public bool HasCachedOffers => _offerCache is not null || (profile.Proposals is { } o && OfferVector(o).Valid);
+
+    /// <summary>Reads the offer map now (one heap scan) when the build has no manager vector; a no-op on 27.0.1+.</summary>
+    public void EnsureLoaded()
+    {
+        if (profile.Proposals is { } o && !OfferVector(o).Valid) _ = OffersCached(o);
+    }
+
+    readonly object _offerLock = new();
+
+    /// <summary>Drops the cached offer map; the manager vector needs no refresh (it is read live every time).</summary>
+    public void Refresh()
+    {
+        if (profile.Proposals is { } o && OfferVector(o).Valid) return;
+        lock (_offerLock) _offerCache = null;
+    }
+
+    /// <summary>
+    /// The live offers vector inside TRANSFER_MANAGER (the singleton at <c>managerRva</c>): begin/end/capacity, one
+    /// <c>offer*</c> per id at <c>begin + id*8</c>. It is read every time, so an offer made after Load Game is present
+    /// without a scan or a cache.
+    /// </summary>
+    (bool Valid, ulong Begin, long Count) OfferVector(ProposalOffsets o)
+    {
+        if (o.ManagerRva is not { } slot || o.ManagerVtable is not { } vtable) return default;
+        if (!Q(moduleBase + slot, out ulong manager) || manager == 0) return default;
+        if (!Q(manager, out ulong managerVtable) || managerVtable != moduleBase + vtable) return default;
+        if (!Q(manager + (ulong)o.OfferVector, out ulong begin) || !Q(manager + (ulong)o.OfferVector + 8, out ulong end)) return default;
+        if (begin == 0 || end < begin || (end - begin) % 8 != 0) return default;
+        long count = (long)((end - begin) / 8);
+        return count is > 0 and <= MaxOffers ? (true, begin, count) : default;
+    }
 
     /// <summary>
     /// Offers by id, cached for the reader's lifetime: the static root first (fast path, and the only
@@ -139,10 +192,43 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
     /// </summary>
     Dictionary<int, ulong> OffersCached(ProposalOffsets o)
     {
-        if (_offerCache is not null) return _offerCache;
-        var map = Offers(o);
-        foreach (var (id, address) in ScanOffers(o)) map.TryAdd(id, address);
-        return _offerCache = map;
+        lock (_offerLock)
+        {
+            if (_offerCache is not null) return _offerCache;
+            var map = Offers(o);
+            foreach (var (id, address) in ScanOffers(o)) map.TryAdd(id, address);
+            return _offerCache = map;
+        }
+    }
+
+    /// <summary>
+    /// Every offer whose buyer is one of these clubs, including rejected offers (the force-accept toggle needs
+    /// status 2 offers too). Uses the same one-off offer scan as <see cref="Read"/>.
+    /// </summary>
+    public IReadOnlyList<TransferProposal> ReadAllForBuyer(IReadOnlySet<ulong> buyerClubs)
+    {
+        if (profile.Proposals is not { } o || buyerClubs.Count == 0) return [];
+        var result = new List<TransferProposal>();
+        if (OfferVector(o) is (true, var begin, var count))
+        {
+            var bytes0 = new byte[o.Status + 1];
+            for (long id = 0; id < count; id++)
+            {
+                if (!Q(begin + (ulong)id * 8, out ulong address) || address == 0) continue;
+                if (!memory.TryRead(address, bytes0)) continue;
+                if (!buyerClubs.Contains(TeamClub(BitConverter.ToUInt64(bytes0, o.Buyer)))) continue;
+                if (ReadOffer(address) is { } found) result.Add(found);
+            }
+            return result;
+        }
+        var bytes = new byte[o.Status + 1];
+        foreach (var address in OffersCached(o).Values)
+        {
+            if (!memory.TryRead(address, bytes)) continue;
+            if (!buyerClubs.Contains(TeamClub(BitConverter.ToUInt64(bytes, o.Buyer)))) continue;
+            if (ReadOffer(address) is { } offer) result.Add(offer);
+        }
+        return result;
     }
 
     /// <summary>Every offer-vtable object in writable memory, by its id field: transfer, loan, trial and B club move.
@@ -156,24 +242,57 @@ public sealed class TransferProposalReader(IProcessMemory memory, OffsetProfile 
             loan = o.LoanVtable == 0 ? 0 : moduleBase + o.LoanVtable,
             trial = o.TrialVtable == 0 ? 0 : moduleBase + o.TrialVtable,
             bMove = o.BClubMoveVtable == 0 ? 0 : moduleBase + o.BClubMoveVtable;
-        var buffer = new byte[1 << 22];
-        var id = new byte[4];
-        foreach (var region in windows.EnumerateWritableRegions())
+        // Reading the game's writable memory is I/O bound (about 4 GB, ~200 MB/s on one thread), so the one-off
+        // scan reads regions in parallel. Matches are rare, so each worker collects locally and merges once.
+        var hits = new List<(int Id, ulong Address)>();
+        Parallel.ForEach(windows.EnumerateWritableRegions().Where(r => !r.IsModuleData),
+            new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 8) }, region =>
         {
-            if (region.IsModuleData) continue;
+            var buffer = new byte[1 << 22];
+            var id = new byte[4];
+            var local = new List<(int, ulong)>();
             for (ulong offset = 0; offset + 8 <= region.Size; offset += (ulong)buffer.Length)
             {
                 int length = (int)Math.Min((ulong)buffer.Length, region.Size - offset);
                 if (!memory.TryRead(region.Start + offset, buffer.AsSpan(0, length))) break;
-                for (int i = 0; i + 8 <= length; i += 8)
+                var words = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, ulong>(buffer.AsSpan(0, length));
+                int w = 0;
+                if (System.Runtime.Intrinsics.Vector256.IsHardwareAccelerated)
                 {
-                    ulong v = BitConverter.ToUInt64(buffer, i);
+                    var v0 = System.Runtime.Intrinsics.Vector256.Create(transfer);
+                    var v1 = System.Runtime.Intrinsics.Vector256.Create(loan == 0 ? ulong.MaxValue : loan);
+                    var v2 = System.Runtime.Intrinsics.Vector256.Create(trial == 0 ? ulong.MaxValue : trial);
+                    var v3 = System.Runtime.Intrinsics.Vector256.Create(bMove == 0 ? ulong.MaxValue : bMove);
+                    int lanes = System.Runtime.Intrinsics.Vector256<ulong>.Count;
+                    for (; w + lanes <= words.Length; w += lanes)
+                    {
+                        var value = System.Runtime.Intrinsics.Vector256.LoadUnsafe(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(words.Slice(w)));
+                        var match = System.Runtime.Intrinsics.Vector256.Equals(value, v0)
+                            | System.Runtime.Intrinsics.Vector256.Equals(value, v1)
+                            | System.Runtime.Intrinsics.Vector256.Equals(value, v2)
+                            | System.Runtime.Intrinsics.Vector256.Equals(value, v3);
+                        if (match == System.Runtime.Intrinsics.Vector256<ulong>.Zero) continue;
+                        uint bits = System.Runtime.Intrinsics.Vector256.ExtractMostSignificantBits(match);
+                        while (bits != 0)
+                        {
+                            int lane = System.Numerics.BitOperations.TrailingZeroCount(bits);
+                            bits &= bits - 1;
+                            ulong address = region.Start + offset + (ulong)(w + lane) * 8;
+                            if (memory.TryRead(address + (ulong)o.Id, id)) local.Add((BitConverter.ToInt32(id), address));
+                        }
+                    }
+                }
+                for (; w < words.Length; w++)
+                {
+                    ulong v = words[w];
                     if (v != transfer && (loan == 0 || v != loan) && (trial == 0 || v != trial) && (bMove == 0 || v != bMove)) continue;
-                    ulong address = region.Start + offset + (ulong)i;
-                    if (memory.TryRead(address + (ulong)o.Id, id)) map.TryAdd(BitConverter.ToInt32(id), address);
+                    ulong address = region.Start + offset + (ulong)w * 8;
+                    if (memory.TryRead(address + (ulong)o.Id, id)) local.Add((BitConverter.ToInt32(id), address));
                 }
             }
-        }
+            lock (hits) hits.AddRange(local);
+        });
+        foreach (var (id, address) in hits) map.TryAdd(id, address);
         return map;
     }
 
@@ -232,5 +351,21 @@ public sealed class TransferProposalWriter(IProcessMemory memory, OffsetProfile 
         ulong at = proposal.Address + (ulong)o.Value;
         var data = BitConverter.GetBytes(value);
         if (!memory.TryWrite(at, data) || !memory.Read(at, 4).AsSpan().SequenceEqual(data)) throw new MemoryAccessException($"Could not write 0x{at:X}");
+    }
+
+    /// <summary>
+    /// Writes the offer status byte (FMRTE: 0 Offer made, 1 Negotiating, 2 Rejected, 5 Seller accepted,
+    /// 8 Player accepted, 12 Ready to sign, 19 Confirmed). Guarded like the fee: same kind/id/status, read-back.
+    /// </summary>
+    public void SetStatus(TransferProposal proposal, byte status)
+    {
+        var o = profile.Proposals ?? throw new InvalidOperationException("Profile has no proposal offsets");
+        if (new TransferProposalReader(memory, profile, moduleBase).ReadOffer(proposal.Address) is not { } now
+            || now.Type != proposal.Type || now.Id != proposal.Id || now.Status != proposal.Status)
+            throw new StaleObjectException("The offer changed since it was read");
+        ulong at = proposal.Address + (ulong)o.Status;
+        byte[] data = [status];
+        if (!memory.TryWrite(at, data) || !memory.Read(at, 1).AsSpan().SequenceEqual(data))
+            throw new MemoryAccessException($"Could not write 0x{at:X}");
     }
 }

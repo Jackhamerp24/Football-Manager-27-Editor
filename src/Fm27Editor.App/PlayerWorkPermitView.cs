@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -160,10 +160,13 @@ public sealed partial class MainWindow
 
         save.Click += (_, _) =>
         {
+            // FMRTE docs: a permit year runs from 1901 to the current in-game year.
+            int maxYear = backend.GameDate?.Year ?? DateOnly.FromDateTime(DateTime.Today).Year;
+            string YearMessage() => $"Work permit: enter a year from 1901 to {maxYear}";
             foreach (var (_, _, year) in additions)
-                if (!int.TryParse(year.Text, out int y) || y is < 1900 or > 2300) { status.Text = "Work permit: enter a year like 2026"; return; }
+                if (!int.TryParse(year.Text, out int y) || y is < 1901 || y > maxYear) { status.Text = YearMessage(); return; }
             foreach (var g in grants)
-                if (yearEdits.TryGetValue(g.Record, out var t) && (!int.TryParse(t.Text, out int y) || y is < 1900 or > 2300)) { status.Text = "Work permit: enter a year like 2026"; return; }
+                if (yearEdits.TryGetValue(g.Record, out var t) && (!int.TryParse(t.Text, out int y) || y is < 1901 || y > maxYear)) { status.Text = YearMessage(); return; }
             if (!permitsLoaded && (additions.Count > 0 || removedGrants.Count > 0)) { status.Text = "The work permits are still loading"; return; }
             try
             {

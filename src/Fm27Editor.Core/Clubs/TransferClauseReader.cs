@@ -29,7 +29,24 @@ public sealed record TransferClause(
     CompetitionInfo? Competition,
     DateOnly? Ends,
     TransferClauseOrigin? Origin = null,
-    string? Snapshot = null);
+    string? Snapshot = null)
+{
+    /// <summary>
+    /// What an appearance-fee record counts (record +0x20), null when not read: see <see cref="TransferClauseCondition"/>.
+    /// </summary>
+    public byte? Condition { get; init; }
+}
+
+/// <summary>
+/// The counter of an appearance-fee record (byte +0x20). Checked against FM27's own clause screen for Bryan Mbeumo
+/// (Brentford, Steam 27.0.1, 15/12/2026): records with 0 are "Appearance Money … after another 13 league appearances"
+/// (so far 47 of 60), records with 3 are "Goals Money … after another 6 league goals" (so far 14 of 20). Values 1 and 2
+/// also occur (33 and 43 records in that save) and are not identified yet.
+/// </summary>
+public static class TransferClauseCondition
+{
+    public const byte LeagueAppearances = 0, LeagueGoals = 3;
+}
 
 /// <summary>
 /// Record layouts on 27.0.0+2486695, checked against FMRTE 27's clause screens (Almería, Getafe, Sheffield United):
@@ -64,6 +81,23 @@ public sealed class TransferClauseReader(IProcessMemory memory, OffsetProfile pr
         if (profile.Club?.TransferClauses is not { Scan: true } t) return [];
         _competitions = competitions ?? _competitions;
         return Scanned(0, t);
+    }
+
+    /// <summary>Every clause of every listed club, walking each club's own vector (the scan-free path).</summary>
+    public IReadOnlyList<TransferClause> ReadAll(IReadOnlyList<ClubEntry> clubs, IReadOnlyDictionary<int, CompetitionInfo>? competitions = null)
+    {
+        if (profile.Club?.TransferClauses is not { } t) return [];
+        _competitions = competitions ?? _competitions;
+        if (t.Scan) return Scanned(0, t);
+        var result = new List<TransferClause>();
+        foreach (var club in clubs) result.AddRange(Read(club.Address, competitions));
+        return result;
+    }
+
+    /// <summary>Runs the one-off clause scan now, so the first Contract card opens with its clauses already found.</summary>
+    public void EnsureLoaded()
+    {
+        if (profile.Club?.TransferClauses is { Scan: true } t) _ = ScannedObjects(t);
     }
 
     /// <summary>
@@ -122,21 +156,51 @@ public sealed class TransferClauseReader(IProcessMemory memory, OffsetProfile pr
                 var sell = moduleBase + t.SellOnVtableRva;
                 ulong? appearance = t.AppearanceFeeVtableRva is { } a ? moduleBase + a : null;
                 ulong? competition = t.CompetitionBonusVtableRva is { } c ? moduleBase + c : null;
-                var buffer = new byte[1 << 22];
-                foreach (var region in windows.EnumerateWritableRegions())
+                // Reading the game's writable memory is I/O bound (~4 GB, ~200 MB/s on one thread), so the one-off
+                // scan reads regions in parallel; matches are rare, so workers collect locally and merge once.
+                var hits = new List<ulong>();
+                Parallel.ForEach(windows.EnumerateWritableRegions().Where(r => !r.IsModuleData),
+                    new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 8) }, region =>
                 {
-                    if (region.IsModuleData) continue;
+                    var buffer = new byte[1 << 22];
+                    var local = new List<ulong>();
                     for (ulong offset = 0; offset + 8 <= region.Size; offset += (ulong)buffer.Length)
                     {
                         int length = (int)Math.Min((ulong)buffer.Length, region.Size - offset);
                         if (!memory.TryRead(region.Start + offset, buffer.AsSpan(0, length))) break;
-                        for (int i = 0; i + 8 <= length; i += 8)
+                        var words = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, ulong>(buffer.AsSpan(0, length));
+                        int w = 0;
+                        if (System.Runtime.Intrinsics.Vector256.IsHardwareAccelerated)
                         {
-                            ulong v = BitConverter.ToUInt64(buffer, i);
-                            if (v == sell || v == appearance || v == competition) found.Add(region.Start + offset + (ulong)i);
+                            var v0 = System.Runtime.Intrinsics.Vector256.Create(sell);
+                            var v1 = System.Runtime.Intrinsics.Vector256.Create(appearance ?? ulong.MaxValue);
+                            var v2 = System.Runtime.Intrinsics.Vector256.Create(competition ?? ulong.MaxValue);
+                            int lanes = System.Runtime.Intrinsics.Vector256<ulong>.Count;
+                            for (; w + lanes <= words.Length; w += lanes)
+                            {
+                                var value = System.Runtime.Intrinsics.Vector256.LoadUnsafe(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(words.Slice(w)));
+                                var match = System.Runtime.Intrinsics.Vector256.Equals(value, v0)
+                                    | System.Runtime.Intrinsics.Vector256.Equals(value, v1)
+                                    | System.Runtime.Intrinsics.Vector256.Equals(value, v2);
+                                if (match == System.Runtime.Intrinsics.Vector256<ulong>.Zero) continue;
+                                uint bits = System.Runtime.Intrinsics.Vector256.ExtractMostSignificantBits(match);
+                                while (bits != 0)
+                                {
+                                    int lane = System.Numerics.BitOperations.TrailingZeroCount(bits);
+                                    bits &= bits - 1;
+                                    local.Add(region.Start + offset + (ulong)(w + lane) * 8);
+                                }
+                            }
+                        }
+                        for (; w < words.Length; w++)
+                        {
+                            ulong v = words[w];
+                            if (v == sell || v == appearance || v == competition) local.Add(region.Start + offset + (ulong)w * 8);
                         }
                     }
-                }
+                    lock (hits) hits.AddRange(local);
+                });
+                found.AddRange(hits);
             }
             return _scanned = found;
         }
@@ -170,7 +234,7 @@ public sealed class TransferClauseReader(IProcessMemory memory, OffsetProfile pr
             else if (v == t.AppearanceFeeVtableRva)
                 clauses.Add(new(c, TransferClauseKind.AppearanceFee, player, Club(BitConverter.ToUInt64(b, 0x10)),
                     BitConverter.ToInt32(b, 0x18), null, null, BitConverter.ToInt16(b, 0x1C), BitConverter.ToInt16(b, 0x1E), null, null, null, origin,
-                    Convert.ToHexString(b.AsSpan(0, 0x28))));
+                    Convert.ToHexString(b.AsSpan(0, 0x28))) { Condition = b[0x20] });
             else if (v == t.CompetitionBonusVtableRva && full)
             {
                 int index = BitConverter.ToInt32(b, 0x24);

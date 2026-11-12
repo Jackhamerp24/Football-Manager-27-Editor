@@ -64,13 +64,13 @@ public class AcceleratedDevelopmentTests
 
         public nint Player => player;
 
-        public void Table(params (nint Address, int Multiplier)[] rows)
+        public void Table(params (nint Address, double Multiplier)[] rows)
         {
             for (int i = 0; i < rows.Length; i++)
             {
                 nint row = Block + 0x200 + i * 0x10;
                 Marshal.WriteInt64(row, rows[i].Address);
-                Marshal.WriteInt16(row + 8, (short)rows[i].Multiplier);
+                Marshal.WriteInt16(row + 8, (short)Math.Round(rows[i].Multiplier * 10));   // the table holds tenths
             }
             Marshal.WriteInt32(Block + 0x28, rows.Length);
         }
@@ -131,7 +131,7 @@ public class AcceleratedDevelopmentTests
     [InlineData(20, 2000, 200)]  // 40,000 overflows 16 bits: capped, not wrapped negative
     [InlineData(20, 10, 200)]    // exactly 200 is kept
     [InlineData(2, 99, 198)]
-    public void The_multiplied_gain_never_exceeds_200(int multiplier, short gain, short expected)
+    public void The_multiplied_gain_never_exceeds_200(double multiplier, short gain, short expected)
     {
         using var r = new NativeRoutine(liftZeroGains: true);
         r.Table((r.Player, multiplier));
@@ -263,15 +263,42 @@ public class AcceleratedDevelopmentTests
     }
 
     [Theory]
-    [InlineData(1)]
+    [InlineData(2.5, 1, 3)]      // 2.5 rounds up to 3
+    [InlineData(2.5, 2, 5)]
+    [InlineData(1.5, 1, 2)]      // 1.5 rounds up to 2
+    [InlineData(1.5, 3, 5)]      // 4.5 rounds up to 5
+    [InlineData(1.1, 3, 3)]      // 3.3 rounds down to 3
+    [InlineData(4.5, 4, 18)]
+    public void Decimal_speeds_multiply_the_gain_and_round_to_the_nearest_whole_point(double multiplier, short gain, short expected)
+    {
+        using var r = new NativeRoutine(liftZeroGains: true);
+        r.Table((r.Player, multiplier));
+        Assert.Equal(expected, r.Run(gain).Gain);
+    }
+
+    [Theory]
+    [InlineData(1.05)]
+    [InlineData(0.5)]
+    [InlineData(2.55)]
     [InlineData(21)]
     [InlineData(-2)]
-    public void Multipliers_outside_2_to_20_are_refused(int multiplier)
+    public void Speeds_outside_1_1_to_20_or_with_two_decimals_are_refused(double multiplier)
     {
         var (memory, profile, _) = Module_((int)SiteRva);
         var accel = new AcceleratedDevelopment(memory, new FakeHost(memory), profile, Module, 0x10000);
         Assert.Throws<ArgumentOutOfRangeException>(() => accel.Set(Record(Player, 111), multiplier));
         Assert.Equal(GameSiteBytes, memory.Read(Module + SiteRva, GameSiteBytes.Length));
+    }
+
+    [Fact]
+    public void A_speed_of_1_means_normal_and_takes_the_player_out()
+    {
+        var (memory, profile, _) = Module_((int)SiteRva);
+        var accel = new AcceleratedDevelopment(memory, new FakeHost(memory), profile, Module, 0x10000);
+        accel.Set(Record(Player, 111), 2.5);
+        Assert.Equal(2.5, accel.MultiplierOf(Record(Player, 111)));
+        Assert.True(accel.Set(Record(Player, 111), 1));
+        Assert.Empty(accel.Read()!.Players);
     }
 
     [Fact]
@@ -337,5 +364,25 @@ public class AcceleratedDevelopmentTests
         var site = memory.Read(Module + SiteRva, 8);
         Assert.Equal(fresh.Cave + 0x40, Module + SiteRva + 5 + (ulong)(long)BitConverter.ToInt32(site, 1));
         Assert.Equal(GameSiteBytes[..8], memory.Read(fresh.Cave + 0x18, 8));
+    }
+
+    [Fact]
+    public void A_block_from_the_whole_number_version_is_replaced_and_its_speeds_kept()
+    {
+        var (memory, profile, _) = Module_((int)SiteRva);
+        var host = new FakeHost(memory);
+        var accel = new AcceleratedDevelopment(memory, host, profile, Module, 0x10000);
+        accel.Set(Record(Player, 111), 5);
+        var old = accel.Read()!;
+        // What version 1 held: its magic and the speed as a whole number, not tenths.
+        memory.TryWrite(old.Cave, "FM27ACC1"u8.ToArray());
+        memory.TryWrite(old.Cave + 0x200 + 8, BitConverter.GetBytes((ushort)5));
+        Assert.Equal(5, accel.Read()!.Players[0].Multiplier);
+
+        var fresh = new AcceleratedDevelopment(memory, host, profile, Module, 0x10000).Install();
+
+        Assert.NotEqual(old.Cave, fresh.Cave);
+        Assert.Equal([new AcceleratedPlayer(Player, 111, 5)], fresh.Players);
+        Assert.Equal(50, BitConverter.ToUInt16(memory.Read(fresh.Cave + 0x200 + 8, 2)));
     }
 }

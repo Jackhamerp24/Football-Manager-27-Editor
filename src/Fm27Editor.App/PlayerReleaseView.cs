@@ -14,7 +14,15 @@ public sealed partial class MainWindow
     static ReleaseService ReleaseWriter(GameSession session) => new(session.Memory, session.Profile, session.ModuleBase,
         () => session.Staff.LoadAll());
 
+    /// <summary>Opens at most one at a time: a second click while it is loading or open does nothing.</summary>
     async Task ShowReleasePlayerAsync(PlayerRecord player)
+    {
+        if (!openers.Add("ShowReleasePlayerAsync")) return;
+        try { await ShowReleasePlayerAsyncOnce(player); }
+        finally { openers.Remove("ShowReleasePlayerAsync"); }
+    }
+
+    async Task ShowReleasePlayerAsyncOnce(PlayerRecord player)
     {
         if (busy || backend.State.Status != ConnectionStatus.Connected) return;
         var session = backend.Session;

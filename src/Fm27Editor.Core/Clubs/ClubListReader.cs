@@ -29,8 +29,17 @@ public sealed record ClubAffiliationEntry(ulong Address, ClubListClub? ParentClu
     byte? FriendlyChance = null, byte? ParentWagePercent = null, bool? PlayFriendlies = null, bool? FirstOption = null,
     bool? PlayersOnLoan = null, bool? ScoutingShared = null);
 
-/// <summary>The two competition IDs are indistinguishable and every observed year is zero; only Level is confirmed.</summary>
-public sealed record ClubRegionalDivisionEntry(ulong Address, byte Level);
+/// <summary>
+/// One regional division row, a 0xC-byte record: competition unique id at +0 and again at +4 (always equal in every save
+/// seen), year (int16) at +8, level (byte) at the profile's offset. Measured on Steam 27.0.1 for Man Utd against FMRTE:
+/// Premier League 2 Division 1 / 2, PL Development League North, Central League North-West, U18 Premier League North,
+/// U18 PL Development League North, U18 Youth Alliance North-West, levels 1-4 and 1-3, year 0. <see cref="Bytes"/> is the
+/// whole record as read, so a write can refuse when anything changed.
+/// </summary>
+public sealed record ClubRegionalDivisionEntry(ulong Address, byte Level, int? CompetitionId = null, short? Year = null, string Bytes = "")
+{
+    public const int CompetitionOffset = 0x0, SecondCompetitionOffset = 0x4, YearOffset = 0x8;
+}
 
 /// <summary>Finances → Sponsors and Other. Annual value and the Renew Income / Fixed Value flags are not confirmed and are absent.</summary>
 public sealed record ClubSponsorEntry(ulong Address, byte IncomeTypeCode, int TotalValue, DateOnly? StartDate, DateOnly? EndDate,
@@ -146,7 +155,10 @@ public sealed class ClubListReader(IProcessMemory memory, OffsetProfile profile,
             || Vector(PointerAt(clubAddress, l.RegionalPointer)) is not { } pointers) return [];
         var result = new List<ClubRegionalDivisionEntry>();
         foreach (ulong address in pointers)
-            if (Bytes(address, l.RegionalSize) is { } b) result.Add(new(address, b[l.Level]));
+            if (Bytes(address, l.RegionalSize) is { } b)
+                result.Add(l.RegionalSize >= ClubRegionalDivisionEntry.YearOffset + 2
+                    ? new(address, b[l.Level], BitConverter.ToInt32(b, ClubRegionalDivisionEntry.CompetitionOffset), BitConverter.ToInt16(b, ClubRegionalDivisionEntry.YearOffset), Convert.ToHexString(b))
+                    : new(address, b[l.Level]));
         return result.AsReadOnly();
     }
 

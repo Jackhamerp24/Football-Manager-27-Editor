@@ -36,7 +36,8 @@ public sealed partial class MainWindow
         if (backend.State.Status != ConnectionStatus.Connected) { status.Text = "Load game first"; return; }
         try
         {
-            if (screens.Any(s => s.ReloadCurrent())) return;
+            // A player tab on screen comes first: the module bar may still point at another module (a player opened from a
+            // club's squad keeps that module selected), and that module's screen would take the reload instead.
             var tab = playerTabs.FirstOrDefault(t => ReferenceEquals(t.Root, bodyHost.Content));
             if (tab?.Player is { } open)
             {
@@ -52,6 +53,7 @@ public sealed partial class MainWindow
                 status.Text = $"Reloaded {fresh.DisplayName}";
                 return;
             }
+            if (screens.Any(s => s.ReloadCurrent())) return;
             if (module is PlayersModule) { _ = LoadAsync(); return; }
             status.Text = "Nothing to reload here";
         }

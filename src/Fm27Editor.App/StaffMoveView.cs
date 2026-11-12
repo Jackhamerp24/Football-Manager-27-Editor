@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -20,16 +20,8 @@ public sealed partial class MainWindow
         var service = new StaffMoveService(session.Memory, session.Profile, session.ModuleBase);
         IReadOnlyList<ClubEntry> all = clubCache ?? [];
         StaffMovePlan? plan = null;
-        var search = new TextBox { Watermark = "Filter club name or ID...", HorizontalAlignment = HorizontalAlignment.Stretch };
-        var clubs = new ListBox
-        {
-            Height = 220,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Background = UiKit.SurfaceInput,
-            BorderBrush = UiKit.BorderControl,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-        };
+        ClubOption? chosenClub = null;
+        var pickClub = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose destination club…" };
         var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextPrimary, FontSize = 13.5, IsVisible = false };
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#F59E0B"), FontSize = 13, IsVisible = false };
         // Role and weekly wage the member gets at the new club (the current ones to start with); the move itself takes effect today.
@@ -52,10 +44,6 @@ public sealed partial class MainWindow
         }
         void Filter()
         {
-            string query = Fold(search.Text?.Trim() ?? "");
-            clubs.ItemsSource = all.Where(c => c.Address != staff.Club?.Address && c.Id is > 0 && c.Gender != Fm27Editor.Core.Offsets.Gender.Women &&
-                    (query.Length == 0 || Fold(c.DisplayName).Contains(query) || Fold(c.Name ?? "").Contains(query) || c.Id.ToString() == query))
-                .OrderBy(c => c.DisplayName).Take(200).Select(c => new ClubOption(c)).ToArray();
             Invalidate();
         }
         void UpdateStaff(StaffRecord before)
@@ -65,11 +53,10 @@ public sealed partial class MainWindow
             staffScreen.RefreshFilters(showAllClubs: true);
         }
 
-        search.TextChanged += (_, _) => Filter();
         void Replan()
         {
             Invalidate();
-            if (clubs.SelectedItem is not ClubOption option) return;
+            if (chosenClub is not { } option) return;
             try
             {
                 var from = all.Single(c => c.Address == staff.Club?.Address);
@@ -86,7 +73,6 @@ public sealed partial class MainWindow
                 error.IsVisible = true;
             }
         }
-        clubs.SelectionChanged += (_, _) => Replan();
         roleBox.SelectionChanged += (_, _) => Replan();
         wageBox.ValueChanged += (_, _) => Replan();
         apply.Click += (_, _) =>
@@ -132,6 +118,16 @@ public sealed partial class MainWindow
         }
         else Filter();
 
+        pickClub.Click += async (_, _) =>
+        {
+            var choices = all.Where(c => c.Address != staff.Club?.Address && c.Id is > 0 && c.Gender != Fm27Editor.Core.Offsets.Gender.Women)
+                .OrderBy(c => c.DisplayName).Select(c => new ClubOption(c)).ToList();
+            var chosen = await PickerDialog.Show<ClubOption>(this, "Choose destination club", q => choices.Where(o => PickerSearch.Hit(q, o.Club.DisplayName, o.Club.ShortName, o.Club.Id)).Select(o => (o.Club.DisplayName, o)).ToList());
+            if (chosen is null) return;
+            chosenClub = chosen;
+            pickClub.Content = chosen.Club.DisplayName;
+            Replan();
+        };
         var curRow = new DockPanel { LastChildFill = true };
         var curVal = new TextBlock { Text = staff.Club?.DisplayName ?? "None", FontWeight = FontWeight.SemiBold, Foreground = UiKit.TextPrimary };
         DockPanel.SetDock(curVal, Dock.Right);
@@ -142,7 +138,7 @@ public sealed partial class MainWindow
         {
             Spacing = 8,
             Margin = new Thickness(12, 10),
-            Children = { curRow, search, clubs },
+            Children = { curRow, pickClub },
         });
         var rightCard = UiKit.Card("Transfer Summary", new StackPanel
         {

@@ -45,6 +45,8 @@ public sealed class StaffOffsets
     public int? TendenciesHolder { get; init; }
     public int? Formations { get; init; }
     public int? ContractRolling { get; init; }
+    /// <summary>Caps, goals, licence and role ratings on the person part; null when not measured for this build.</summary>
+    public StaffPersonDetails? PersonDetails { get; init; }
     public int? ContractRollingMask { get; init; }
     /// <summary>Staff-part byte offset per attribute and whether it is stored ×5 (most) or as 1–20.</summary>
     public required IReadOnlyDictionary<StaffAttribute, (int Offset, bool Scaled)> Attributes { get; init; }
@@ -88,6 +90,8 @@ public sealed class StaffOffsets
             TendenciesHolder = e.TryGetProperty("tendenciesHolder", out _) ? Hex(e, "tendenciesHolder") : null,
             Formations = e.TryGetProperty("formations", out _) ? Hex(e, "formations") : null,
             ContractRolling = e.TryGetProperty("contractRolling", out _) ? Hex(e, "contractRolling") : null,
+            PersonDetails = e.TryGetProperty("personDetails", out var pd) ? new StaffPersonDetails(
+                (uint)Hex(pd, "personVtable"), Hex(pd, "caps"), Hex(pd, "goals"), Hex(pd, "license"), Hex(pd, "roles")) : null,
             ContractRollingMask = e.TryGetProperty("contractRollingMask", out _) ? Hex(e, "contractRollingMask") : null,
         };
     }
@@ -96,6 +100,12 @@ public sealed class StaffOffsets
     {
         void H(string k, long v) => w.WriteString(k, $"0x{v:X}");
         w.WriteStartObject("staff");
+        if (PersonDetails is { } d)
+        {
+            w.WriteStartObject("personDetails");
+            H("personVtable", d.PersonVtableRva); H("caps", d.Caps); H("goals", d.Goals); H("license", d.License); H("roles", d.Roles);
+            w.WriteEndObject();
+        }
         if (KnowledgeHolder is { } kh) H("knowledgeHolder", kh);
         if (KnowledgeValue is { } kv) H("knowledgeValue", kv);
         if (TendenciesHolder is { } th) H("tendenciesHolder", th);
@@ -130,6 +140,33 @@ public sealed class StaffOffsets
 }
 
 /// <summary>Staff attributes as FMRTE 27 groups them (Coaching, Tactical, Non Tactical, Mental, Scouting, Chairman).</summary>
+/// <summary>
+/// Fields of the person part, measured on Steam 27.0.1 by tracing FMRTE 27's writes when its staff Information page is
+/// saved (Paolo Orlandoni, 12/11/2026): Caps int16 +0x134, Goals int16 +0x136, Licence signed byte +0x13C
+/// (<see cref="StaffLicense"/>), and +0xD0 a pointer to the fifteen role ratings (<see cref="StaffRole"/>). Only person
+/// objects with <see cref="PersonVtableRva"/> carry this layout; other staff kinds report them as unknown.
+/// </summary>
+public sealed record StaffPersonDetails(uint PersonVtableRva, int Caps, int Goals, int License, int Roles);
+
+/// <summary>Coaching licence codes, from FMRTE 27 writing each choice in turn on Paolo Orlandoni (Steam 27.0.1, 12/11/2026).</summary>
+public enum StaffLicense : sbyte
+{
+    StudyingToNationalC = -7, StudyingToNationalB = -6, StudyingToNationalA = -5, StudyingToContinentalC = -4,
+    StudyingToContinentalB = -3, StudyingToContinentalA = -2, StudyingToContinentalPro = -1,
+    None = 0, ContinentalPro = 1, ContinentalA = 2, ContinentalB = 3, ContinentalC = 4, NationalA = 5, NationalB = 6,
+    NationalC = 7, NoLicence = 8,
+}
+
+/// <summary>
+/// The fifteen role ratings (1-20) in the order of their bytes behind person +0xD0: setting FMRTE's Roles Attributes to
+/// 2..17 in its list order wrote the bytes in this order.
+/// </summary>
+public enum StaffRole
+{
+    Manager, AssistantManager, Coach, Physio, Scout, GoalkeepingCoach, FitnessCoach, SetPieceCoach, Chairperson,
+    DirectorOfFootball, HeadOfYouthDevelopment, LoanManager, DataAnalyst, SportsScientist, TechnicalDirector,
+}
+
 public enum StaffAttribute
 {
     CoachingAttacking, CoachingDefending, CoachingFitness, CoachingGoalkeeping, CoachingPossession, CoachingPlayer,

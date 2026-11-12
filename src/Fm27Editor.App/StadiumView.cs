@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
@@ -392,8 +392,7 @@ internal sealed class StadiumScreen(IScreenHost host)
         var nations = Host.NationCatalogue.GroupBy(n => n.Address).ToDictionary(g => g.Key, g => g.First().DisplayName);
         return await PickerDialog.Show(Host.Window, "Change Stadium Location", q =>
         {
-            string folded = Fold(q);
-            return all.Where(c => Fold(c.Name).Contains(folded, StringComparison.Ordinal)).Take(200)
+            return all.Where(c => PickerSearch.Hit(q, c.Name)).Take(200)
                 .Select(c => (nations.TryGetValue(c.Nation, out var nation) ? $"{c.Name}, {nation}" : c.Name, c)).ToList();
         });
     }

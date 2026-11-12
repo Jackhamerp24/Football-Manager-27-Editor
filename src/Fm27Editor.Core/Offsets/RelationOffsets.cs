@@ -24,6 +24,17 @@ public sealed class ContractOffsets
     public required int TeamClub { get; init; }
     /// <summary>Agreed playing time, one byte (index into <see cref="Players.PlayingTime"/>); optional.</summary>
     public int? PlayingTime { get; init; }
+    /// <summary>Previous agreed playing time, one byte (index into <see cref="Players.PlayingTime"/>); optional.
+    /// Measured on FM27 27.0.1 against FMRTE's Contract page (Mbappé and Dembélé Star, Yoro Unset).</summary>
+    public int? PreviousPlayingTime { get; init; }
+    /// <summary>Loan-listed flag: byte offset and bit mask in the contract (27.0.1: offset 0x57, mask 0x02 —
+    /// a FMRTE Listed→None toggle flips exactly this bit, and it is set on exactly the 2120 players FMRTE's
+    /// Listed For Loan search returns). Optional; absent when unmapped.</summary>
+    public int? LoanStatusOffset { get; init; }
+    public int? LoanStatusMask { get; init; }
+    /// <summary>On Rolling Contract: byte offset and bit (27.0.1: +0x2B, 0x08 — FMRTE's checkbox on Leny Yoro flips exactly this bit).</summary>
+    public int? RollingContractOffset { get; init; }
+    public int? RollingContractMask { get; init; }
 
     // Measured on FM26 26.3.2 against FMRTE's contract screen and confirmed on FM27 27.0.0 (Acerbi at PSG).
     /// <summary>int16 contract type (0 part time, 1 full time, 2 amateur, 3 youth, 6 non contract).</summary>

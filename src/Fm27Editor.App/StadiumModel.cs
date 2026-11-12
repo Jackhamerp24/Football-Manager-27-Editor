@@ -59,7 +59,7 @@ public static class StadiumLabels
             (StadiumField.PitchType, "Pitch Type"), (StadiumField.PitchCondition, "Pitch Condition"), (StadiumField.PitchDeteriorationRate, "Pitch Deterioration Rate"),
             (StadiumField.PitchRecoveryRate, "Pitch Recovery Rate"), (StadiumField.PitchLastRelaid, "Date Pitch Last Relaid"),
             (StadiumField.PitchRelayRequired, "Pitch Relay Required Date"), (StadiumField.PitchLength, "Pitch Length (m)"),
-            (StadiumField.PitchWidth, "Pitch Width (m)"), (StadiumField.MinPitchLength, "Min. Length (m)"), (StadiumField.MinPitchWidth, "Min. Width (m)"),
+            (StadiumField.PitchWidth, "Pitch Width (m)"), (StadiumField.InternationalPitchLength, "International Pitch Length (m)"), (StadiumField.InternationalPitchWidth, "International Pitch Width (m)"), (StadiumField.MinPitchLength, "Min. Length (m)"), (StadiumField.MinPitchWidth, "Min. Width (m)"),
             (StadiumField.MaxPitchLength, "Max. Length (m)"), (StadiumField.MaxPitchWidth, "Max. Width (m)")]),
     ];
 
@@ -80,6 +80,7 @@ public static class StadiumLabels
         StadiumField.PitchRecoveryRate => (1, 20),
         StadiumField.PitchCondition => (0, 200),
         StadiumField.PitchLength or StadiumField.MinPitchLength or StadiumField.MaxPitchLength => (80, 130),
+                StadiumField.InternationalPitchLength or StadiumField.InternationalPitchWidth => (0, 200),
         StadiumField.PitchWidth or StadiumField.MinPitchWidth or StadiumField.MaxPitchWidth => (40, 100),
         _ => (0, 200_000),
     };

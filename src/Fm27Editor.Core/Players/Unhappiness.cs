@@ -6,21 +6,33 @@ namespace Fm27Editor.Core.Players;
 
 /// <summary>
 /// Unhappiness motives: the full contract (player + contract.playerContract, contract vtable) points at
-/// <see cref="Pointer"/> to a list header (int32 count at +0, pointer to the records at +8); the records are
-/// <see cref="RecordSize"/> bytes each, back to back. Measured on FM27 against FMRTE 27's Contract tab: Bruno Fernandes
+/// <see cref="Pointer"/> to a list header: int32 count at +0, then one pointer per motive from +8 (8 bytes each), each
+/// to its own <see cref="RecordSize"/>-byte record. The records are separate allocations from a shared pool: the record
+/// after one player's record can belong to another player. Measured on Steam 27.0.1 (game date 15/12/2026): Tahith
+/// Chong's header holds 4 pointers to 0x...D38, 0x...D00, 0x...D70, 0x...D1C, and FMRTE lists the two open ones,
+/// 802 with Jamal Baptiste and 902 with Matt Doherty, both from 2/12/2026; reading 4 records back to back from the
+/// first pointer gave another player's 1202 and 629 instead. Measured on FM27 against FMRTE 27's Contract tab: Bruno Fernandes
 /// "Unhappy at being stripped of the captaincy", Concerned, from 15/8/2026, no end date; Mauro Icardi has the same
 /// motive ending on the game date (8/11/2026) and FMRTE shows him content. Players with 2-5 motives fill
 /// count × 0x1C bytes exactly.
 /// </summary>
 public sealed record UnhappinessOffsets(int Pointer, int RecordSize, int Start, int End, int Item1, int Item2, int Motive, int Type)
 {
+    /// <summary>
+    /// Record byte +0x1B (0, 4, 6, 0xC seen). Its meaning is unknown: an earlier reading took it for "FMRTE lists this
+    /// motive", but that came from reading records back to back; with the pointer array, FMRTE lists Tahith Chong's two
+    /// open motives whose byte is 0. Kept only for diagnosis; it does not decide what is shown.
+    /// </summary>
+    public int? Visible { get; init; }
+
     static readonly string[] Keys = ["pointer", "recordSize", "start", "end", "item1", "item2", "motive", "type"];
 
     internal static UnhappinessOffsets Load(JsonElement e)
     {
         int[] v = Keys.Select(key => Convert.ToInt32(e.GetProperty(key).GetString() is { } s && s.StartsWith("0x")
             ? s[2..] : throw new FormatException($"contract.unhappiness.{key}: expected hex offset"), 16)).ToArray();
-        return new(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+        int? visible = e.TryGetProperty("visible", out var vis) && vis.GetString() is { } vs && vs.StartsWith("0x") ? Convert.ToInt32(vs[2..], 16) : null;
+        return new(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]) { Visible = visible };
     }
 
     internal void Write(Utf8JsonWriter w)
@@ -28,6 +40,7 @@ public sealed record UnhappinessOffsets(int Pointer, int RecordSize, int Start, 
         int[] v = [Pointer, RecordSize, Start, End, Item1, Item2, Motive, Type];
         w.WriteStartObject("unhappiness");
         for (int i = 0; i < Keys.Length; i++) w.WriteString(Keys[i], $"0x{v[i]:X}");
+        if (Visible is { } visible) w.WriteString("visible", $"0x{visible:X}");
         w.WriteEndObject();
     }
 }
@@ -36,13 +49,16 @@ public sealed record UnhappinessOffsets(int Pointer, int RecordSize, int Start, 
 /// One unhappiness motive. Raw codes: <see cref="Motive"/> 600 = stripped of the captaincy; <see cref="Type"/> 1 =
 /// Concerned. <see cref="End"/> null = no end date. Item IDs are -1 when unused (Bruno: 21506, not a club or player).
 /// </summary>
-public sealed record PlayerUnhappiness(int Index, DateOnly? Start, DateOnly? End, int Item1, int Item2, short Motive, byte Type)
+public sealed record PlayerUnhappiness(int Index, DateOnly? Start, DateOnly? End, int Item1, int Item2, short Motive, byte Type, byte? Visible = null)
 {
-    /// <summary>FMRTE lists a motive while it has no end date or ends after the game date (Icardi, ending today: content).</summary>
+    /// <summary>
+    /// FMRTE lists a motive while it has no end date or ends after the game date (Icardi, ending today: content).
+    /// Checked on Steam 27.0.1, 15/12/2026: Tahith Chong (2 open of 4, both listed), Kylian Mbappe (2, both ended, none listed).
+    /// </summary>
     public bool IsActive(DateOnly gameDate) => End is not { } e || e > gameDate;
 }
 
-/// <summary>One reversible removal, retaining the original and packed record bytes.</summary>
+/// <summary>One reversible removal: the header's pointer array before and after (records themselves are not touched).</summary>
 public sealed class UnhappinessRemovalPlan(PlayerRecord player, ulong contract, ulong header, ulong records, int oldCount,
     int newCount, byte[] before, byte[] after)
 {
@@ -64,9 +80,23 @@ public sealed class UnhappinessReader(IProcessMemory memory, OffsetProfile profi
 
     /// <summary>Every motive in the list, ended ones included; filter with <see cref="PlayerUnhappiness.IsActive"/>.</summary>
     public IReadOnlyList<PlayerUnhappiness> Read(PlayerRecord player) =>
-        Locate(player) is { } list ? Decode(memory.Read(list.Records, list.Count * list.Offsets.RecordSize), list.Offsets) : [];
+        Locate(player) is { } list ? Decode(ReadRecords(list), list.Offsets) : [];
 
-    internal sealed record List(ulong Header, ulong Records, int Count, UnhappinessOffsets Offsets);
+    /// <summary>Each record's raw bytes, for diagnosis (calibrate dump); same order as <see cref="Read"/>.</summary>
+    public IReadOnlyList<byte[]> ReadRaw(PlayerRecord player) =>
+        Locate(player) is { } list ? list.Pointers.Select(r => memory.Read(r, list.Offsets.RecordSize)).ToList() : [];
+
+    /// <param name="Pointers">One record address per motive, in list order.</param>
+    internal sealed record List(ulong Header, IReadOnlyList<ulong> Pointers, UnhappinessOffsets Offsets)
+    {
+        public int Count => Pointers.Count;
+        /// <summary>Address of the pointer array (header + 8).</summary>
+        public ulong Slots => Header + 8;
+        public byte[] SlotBytes() => [.. Pointers.SelectMany(BitConverter.GetBytes)];
+    }
+
+    /// <summary>All records of a list, concatenated in list order.</summary>
+    internal byte[] ReadRecords(List list) => [.. list.Pointers.SelectMany(r => memory.Read(r, list.Offsets.RecordSize))];
 
     /// <summary>Null when the player has no full contract or no list, or the header does not look like one.</summary>
     internal List? Locate(PlayerRecord player)
@@ -77,12 +107,15 @@ public sealed class UnhappinessReader(IProcessMemory memory, OffsetProfile profi
         if (!memory.TryRead(player.Address + (ulong)c.PlayerContract, q) || BitConverter.ToUInt64(q) is var contract && contract == 0) return null;
         if (!memory.TryRead(contract, q) || BitConverter.ToUInt64(q) != moduleBase + c.ContractVtableRva) return null;
         if (!memory.TryRead(contract + (ulong)o.Pointer, q) || BitConverter.ToUInt64(q) is var header && header == 0) return null;
-        var h = new byte[16];
+        var h = new byte[4];
         if (!memory.TryRead(header, h)) return null;
         int count = BitConverter.ToInt32(h);
-        ulong records = BitConverter.ToUInt64(h, 8);
-        if (count < 0 || count > MaxMotives || (count > 0 && records == 0)) return null;
-        return new(header, records, count, o);
+        if (count < 0 || count > MaxMotives) return null;
+        var slots = new byte[count * 8];
+        if (count > 0 && !memory.TryRead(header + 8, slots)) return null;
+        var pointers = Enumerable.Range(0, count).Select(i => BitConverter.ToUInt64(slots, i * 8)).ToList();
+        if (pointers.Any(r => r == 0 || !memory.TryRead(r, new byte[o.RecordSize]))) return null;
+        return new(header, pointers, o);
     }
 
     internal static List<PlayerUnhappiness> Decode(byte[] raw, UnhappinessOffsets o)
@@ -92,7 +125,8 @@ public sealed class UnhappinessReader(IProcessMemory memory, OffsetProfile profi
         {
             int b = i * o.RecordSize;
             result.Add(new(i, Date(raw, b + o.Start), Date(raw, b + o.End), BitConverter.ToInt32(raw, b + o.Item1),
-                BitConverter.ToInt32(raw, b + o.Item2), BitConverter.ToInt16(raw, b + o.Motive), raw[b + o.Type]));
+                BitConverter.ToInt32(raw, b + o.Item2), BitConverter.ToInt16(raw, b + o.Motive), raw[b + o.Type],
+                o.Visible is { } v && v < o.RecordSize ? raw[b + v] : null));
         }
         return result;
     }
@@ -122,16 +156,16 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
             memory.ReadUInt64(player.Address) != moduleBase + player.VtableRva || !profile.PlayerVtableRvas.Contains(player.VtableRva) ||
             BitConverter.ToInt32(memory.Read(player.Address + (ulong)idOffset, 4)) != player.Id)
             throw new StaleObjectException("Player changed since it was read");
-        var list = new UnhappinessReader(memory, profile, moduleBase).Locate(player);
+        var reader = new UnhappinessReader(memory, profile, moduleBase);
+        var list = reader.Locate(player);
         if (list is null || list.Count == 0) return null;
-        var before = memory.Read(list.Records, list.Count * list.Offsets.RecordSize);
-        var kept = UnhappinessReader.Decode(before, list.Offsets).Where(m => !m.IsActive(gameDate)).ToArray();
+        var kept = UnhappinessReader.Decode(reader.ReadRecords(list), list.Offsets).Where(m => !m.IsActive(gameDate)).ToArray();
         if (kept.Length == list.Count) return null;
+        var before = list.SlotBytes();
         var after = (byte[])before.Clone();
-        int size = list.Offsets.RecordSize;
-        for (int i = 0; i < kept.Length; i++) before.AsSpan(kept[i].Index * size, size).CopyTo(after.AsSpan(i * size));
+        for (int i = 0; i < kept.Length; i++) BitConverter.GetBytes(list.Pointers[kept[i].Index]).CopyTo(after, i * 8);
         var plan = new UnhappinessRemovalPlan(player, memory.ReadUInt64(player.Address + (ulong)c.PlayerContract),
-            list.Header, list.Records, list.Count, kept.Length, before, after);
+            list.Header, list.Slots, list.Count, kept.Length, before, after);
         GuardPlan(plan);
         return plan;
     }
@@ -174,6 +208,80 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
         onRestored?.Invoke();
     }
 
+    /// <summary>What one motive row should hold after an edit; End null means no end date.</summary>
+    public sealed record MotiveValues(short Motive, byte Type, DateOnly Start, DateOnly? End, int Item1 = -1);
+
+    /// <summary>Changes one motive in place (motive, type, dates, person), keeping its other bytes. Guarded and read back.</summary>
+    public void Edit(PlayerRecord player, PlayerUnhappiness row, MotiveValues values)
+    {
+        var (list, raw) = CurrentList(player);
+        if (row.Index < 0 || row.Index >= list.Count) throw new StaleObjectException("Unhappiness list changed since it was read");
+        var o = list.Offsets;
+        var current = UnhappinessReader.Decode(raw, o)[row.Index];
+        if (current != row) throw new StaleObjectException("Unhappiness row changed since it was read");
+        var record = raw.AsSpan(row.Index * o.RecordSize, o.RecordSize).ToArray();
+        Fill(record, o, values);
+        WriteChecked(list.Pointers[row.Index], record);
+    }
+
+    /// <summary>
+    /// Adds a motive. The header has no known spare room, so a new record and a new header (count + one more pointer)
+    /// are written to blocks from <paramref name="allocate"/>, and the contract's pointer is switched to the new header;
+    /// the old header and records stay as they are. The new record copies the first existing record (or zeros, with
+    /// item2 -1) for the bytes whose meaning is unknown.
+    /// </summary>
+    public void Add(PlayerRecord player, MotiveValues values, Func<int, ulong> allocate)
+    {
+        var (list, raw) = CurrentList(player);
+        var o = list.Offsets;
+        if (list.Count >= UnhappinessReader.MaxMotives) throw new InvalidOperationException("The player has too many motives");
+        var record = list.Count > 0 ? raw.AsSpan(0, o.RecordSize).ToArray() : new byte[o.RecordSize];
+        if (list.Count == 0)
+        {
+            BitConverter.GetBytes(-1).CopyTo(record, o.Item2);
+        }
+        Fill(record, o, values);
+        ulong recordBlock = allocate(o.RecordSize);
+        WriteChecked(recordBlock, record);
+        byte[] header = [.. BitConverter.GetBytes((long)(list.Count + 1)), .. list.SlotBytes(), .. BitConverter.GetBytes(recordBlock)];
+        ulong headerBlock = allocate(header.Length);
+        WriteChecked(headerBlock, header);
+        var c = profile.Contract!;
+        ulong slot = memory.ReadUInt64(player.Address + (ulong)c.PlayerContract) + (ulong)o.Pointer;
+        if (memory.ReadUInt64(slot) != list.Header || BitConverter.ToInt32(memory.Read(list.Header, 4)) != list.Count ||
+            !memory.Read(list.Slots, list.Count * 8).AsSpan().SequenceEqual(list.SlotBytes()))
+            throw new StaleObjectException("Unhappiness list changed while adding");
+        WriteChecked(slot, BitConverter.GetBytes(headerBlock));
+    }
+
+    static void Fill(byte[] record, UnhappinessOffsets o, MotiveValues values)
+    {
+        BitConverter.GetBytes(values.Motive).CopyTo(record, o.Motive);
+        record[o.Type] = values.Type;
+        PutDate(record, o.Start, values.Start);
+        if (values.End is { } end) PutDate(record, o.End, end);
+        else { BitConverter.GetBytes((ushort)((BitConverter.ToUInt16(record, o.End) & ~DayMask) | 1)).CopyTo(record, o.End); BitConverter.GetBytes((short)1900).CopyTo(record, o.End + 2); }
+        BitConverter.GetBytes(values.Item1).CopyTo(record, o.Item1);
+    }
+
+    static void PutDate(byte[] record, int at, DateOnly date)
+    {
+        if (date.Year is <= 1900 or > 2300) throw new ArgumentOutOfRangeException(nameof(date), "Date out of range");
+        BitConverter.GetBytes((ushort)((BitConverter.ToUInt16(record, at) & ~DayMask) | date.DayOfYear)).CopyTo(record, at);
+        BitConverter.GetBytes((short)date.Year).CopyTo(record, at + 2);
+    }
+
+    (UnhappinessReader.List List, byte[] Raw) CurrentList(PlayerRecord player)
+    {
+        if (player.Id is not > 0 || profile.Fields.Id is not { } idOffset ||
+            memory.ReadUInt64(player.Address) != moduleBase + player.VtableRva || !profile.PlayerVtableRvas.Contains(player.VtableRva) ||
+            BitConverter.ToInt32(memory.Read(player.Address + (ulong)idOffset, 4)) != player.Id)
+            throw new StaleObjectException("Player changed since it was read");
+        var list = new UnhappinessReader(memory, profile, moduleBase).Locate(player)
+            ?? throw new InvalidOperationException("The player has no contract with an unhappiness list");
+        return (list, new UnhappinessReader(memory, profile, moduleBase).ReadRecords(list));
+    }
+
     void GuardPlan(UnhappinessRemovalPlan plan)
     {
         var c = profile.Contract ?? throw new InvalidOperationException("Profile has no contract offsets");
@@ -186,7 +294,6 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
             memory.ReadUInt64(plan.Contract) != moduleBase + c.ContractVtableRva ||
             memory.ReadUInt64(plan.Contract + (ulong)o.Pointer) != plan.Header ||
             BitConverter.ToInt32(memory.Read(plan.Header, 4)) != (plan.CountWritten ? plan.NewCount : plan.OldCount) ||
-            memory.ReadUInt64(plan.Header + 8) != plan.Records ||
             !memory.Read(plan.Records, plan.Before.Length).AsSpan().SequenceEqual(plan.RecordsWritten ? plan.After : plan.Before))
             throw new StaleObjectException("Unhappiness list or player changed since the plan was prepared");
     }
@@ -209,9 +316,10 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
     {
         if (gameDate.Year is < 1901 or > 2300) throw new ArgumentOutOfRangeException(nameof(gameDate), "Year is out of range");
         var o = profile.Unhappiness ?? throw new InvalidOperationException("Profile has no unhappiness offsets");
-        if (new UnhappinessReader(memory, profile, moduleBase).Locate(player) is not { Count: > 0 } list) return 0;
+        var reader = new UnhappinessReader(memory, profile, moduleBase);
+        if (reader.Locate(player) is not { Count: > 0 } list) return 0;
 
-        var before = memory.Read(list.Records, list.Count * o.RecordSize);
+        var before = reader.ReadRecords(list);
         var changed = new List<(int At, byte[] Value)>();
         for (int i = 0; i < list.Count; i++)
         {
@@ -224,10 +332,11 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
         }
         if (changed.Count == 0) return 0;
 
-        if (BitConverter.ToInt32(memory.Read(list.Header, 4)) != list.Count || memory.ReadUInt64(list.Header + 8) != list.Records
-            || !memory.Read(list.Records, before.Length).AsSpan().SequenceEqual(before))
+        if (BitConverter.ToInt32(memory.Read(list.Header, 4)) != list.Count
+            || !memory.Read(list.Slots, list.Count * 8).AsSpan().SequenceEqual(list.SlotBytes())
+            || !reader.ReadRecords(list).AsSpan().SequenceEqual(before))
             throw new StaleObjectException("The unhappiness list changed while ending the motives");
-        foreach (var (at, value) in changed) WriteChecked(list.Records + (ulong)at, value);
+        foreach (var (at, value) in changed) WriteChecked(list.Pointers[at / o.RecordSize] + (ulong)(at % o.RecordSize), value);
         return changed.Count;
     }
 
@@ -238,18 +347,20 @@ public sealed class UnhappinessWriter(IProcessMemory memory, OffsetProfile profi
         var reader = new UnhappinessReader(memory, profile, moduleBase);
         if (reader.Locate(player) is not { } list || list.Count == 0) return 0;
         var o = list.Offsets;
-        var snapshot = memory.Read(list.Records, list.Count * o.RecordSize);
+        var snapshot = reader.ReadRecords(list);
         var motives = UnhappinessReader.Decode(snapshot, o);
         var kept = motives.Where(m => !(m.IsActive(gameDate) && (which?.Invoke(m) ?? true))).ToList();
         int removed = motives.Count - kept.Count;
         if (removed == 0) return 0;
 
-        if (BitConverter.ToInt32(memory.Read(list.Header, 4)) != list.Count || memory.ReadUInt64(list.Header + 8) != list.Records
-            || !memory.Read(list.Records, snapshot.Length).AsSpan().SequenceEqual(snapshot))
+        if (BitConverter.ToInt32(memory.Read(list.Header, 4)) != list.Count
+            || !memory.Read(list.Slots, list.Count * 8).AsSpan().SequenceEqual(list.SlotBytes())
+            || !reader.ReadRecords(list).AsSpan().SequenceEqual(snapshot))
             throw new StaleObjectException("The unhappiness list changed while removing motives");
-        var packed = kept.SelectMany(m => snapshot.AsSpan(m.Index * o.RecordSize, o.RecordSize).ToArray()).ToArray();
-        if (packed.Length > 0 && (!memory.TryWrite(list.Records, packed) || !memory.Read(list.Records, packed.Length).AsSpan().SequenceEqual(packed)))
-            throw new MemoryAccessException($"Write at 0x{list.Records:X} failed");
+        // Only the pointer array is compacted; each record stays where it is (the pool holds other players' records too).
+        byte[] packed = [.. kept.SelectMany(m => BitConverter.GetBytes(list.Pointers[m.Index]))];
+        if (packed.Length > 0 && (!memory.TryWrite(list.Slots, packed) || !memory.Read(list.Slots, packed.Length).AsSpan().SequenceEqual(packed)))
+            throw new MemoryAccessException($"Write at 0x{list.Slots:X} failed");
         var count = BitConverter.GetBytes(kept.Count);
         if (!memory.TryWrite(list.Header, count) || !memory.Read(list.Header, 4).AsSpan().SequenceEqual(count))
             throw new MemoryAccessException($"Write at 0x{list.Header:X} failed");

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -16,6 +16,9 @@ internal interface IScreenHost
     EditorBackend Backend { get; }
     GraphicsCatalog Graphics { get; }
     void SetStatus(string text);
+
+    /// <summary>The page has (or no longer has) changes that are not saved: the shell marks its tab with a star.</summary>
+    void SetUnsaved(bool dirty);
     /// <summary>Adds the screen's list to the module row and the navigation box.</summary>
     void AddModule(string title, Control root, object navItem);
     object? SelectedNav { get; }
@@ -92,7 +95,7 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
     protected readonly ContentControl HeaderHost = new() { Margin = new Thickness(12, 9, 12, 8) };
     protected readonly StackPanel Editor = new() { Spacing = 12, Margin = new Thickness(12, 0, 12, 12) };
     /// <summary>The section list down the left of the editor, for kinds that have sections.</summary>
-    protected readonly ContentControl RailHost = new() { Width = 196, Margin = new Thickness(12, 0, 0, 10) };
+    protected readonly ContentControl RailHost = new() { Width = 168, Margin = new Thickness(12, 0, 0, 10) };
     protected virtual bool HasRail => false;
     protected readonly Dictionary<ulong, TDraft> Drafts = [];
     bool active;
@@ -333,12 +336,25 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
     {
         HeaderHost.Content = null;
         Editor.Children.Clear();
-        if (Selected is not { } record) { SaveButton = null; return; }
+        if (Selected is not { } record) { SaveButton = null; if (IsActive) Host.SetUnsaved(false); return; }
         ulong address = AddressOf(record);
         if (!Drafts.TryGetValue(address, out var draft)) Drafts[address] = draft = NewDraftFor(record);
         var save = new Button { IsVisible = false, Content = "Save changes", IsEnabled = HasChanges(record, draft), Classes = { "accent" } };
         SaveButton = save;
-        void Changed() => save.IsEnabled = HasChanges(record, draft);
+        void Changed()
+        {
+            bool dirty = HasChanges(record, draft);
+            save.IsEnabled = dirty;
+            if (!IsActive) return;
+            Host.SetUnsaved(dirty);
+            if (HasRail) SectionHost.MarkDirty(Kind, dirty && SectionHost.Selected(Kind) is { } key ? [key] : []);
+        }
+        if (IsActive)
+        {
+            bool initiallyDirty = HasChanges(record, draft);
+            Host.SetUnsaved(initiallyDirty);
+            if (HasRail) SectionHost.MarkDirty(Kind, initiallyDirty && SectionHost.Selected(Kind) is { } openKey ? [openKey] : []);
+        }
         save.Click += (_, _) => Save(record, draft);
         BuildEditor(record, draft, Changed);
     }
@@ -403,10 +419,22 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
         int idx = 0;
         foreach (var (label, value) in items)
         {
-            var line = new DockPanel { MinHeight = 26, LastChildFill = true };
-            DockPanel.SetDock(value, Dock.Right);
+            // Two columns: the label wraps inside its own space, the value keeps its width. A long rule name used to
+            // run under the box because the label had no wrapping and no column of its own.
+            var text = Label(label);
+            text.TextWrapping = TextWrapping.Wrap;
+            text.Margin = new Thickness(0, 0, 12, 0);
+            value.HorizontalAlignment = HorizontalAlignment.Right;
+            var line = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                MinHeight = 26,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(text, 0);
+            Grid.SetColumn(value, 1);
+            line.Children.Add(text);
             line.Children.Add(value);
-            line.Children.Add(Label(label));
             stack.Children.Add(new Border
             {
                 Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,

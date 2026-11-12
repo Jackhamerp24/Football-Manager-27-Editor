@@ -1,6 +1,7 @@
 using Fm27Editor.Core.Clubs;
 using Fm27Editor.Core.Nations;
 using Fm27Editor.Core.Players;
+using Fm27Editor.Core.Stadiums;
 using Fm27Editor.Core.Staff;
 
 namespace Fm27Editor.App;
@@ -36,6 +37,11 @@ internal sealed partial class MassEditWindow
                     rows.AddRange(Guarded(row.Label, () => StaffPersonalityMassEdit.Plan(staff, (StaffPersonality)row.Index, mode, (int)row.Number)
                         .Select(c => MassRow.Change(c.Staff.DisplayName, row.Label, c.Before, c.After, () => { StaffPersonalityMassEdit.Apply(c, session.Staff, session.StaffWriter); return 1; }))));
                     break;
+                case Kind.StaffDetail:
+                    rows.AddRange(Guarded(row.Label, () => CoachDetailPlan(staff, row, mode)
+                        .Select(c => MassRow.Change(c.Staff.DisplayName, row.Label, ShowDetail(row, c.Before), ShowDetail(row, c.After),
+                            () => { StaffDetailsMassEdit.Apply(c, session.Staff); return 1; }))));
+                    break;
                 case Kind.StaffWage:
                     rows.AddRange(Guarded(row.Label, () => StaffWageMassEdit.Plan(staff, session.StaffContracts, mode, (int)row.Number).Changes
                         .Select(c => MassRow.Change(c.Staff.DisplayName, row.Label, c.Before, c.After, () => { StaffWageMassEdit.Apply(c, session.Staff, session.StaffContracts); return 1; }))));
@@ -53,9 +59,20 @@ internal sealed partial class MassEditWindow
         var session = backend.Session;
         var clubs = ClubTargets();
         var rows = new List<MassRow>();
-        foreach (var row in planFields.Where(f => f.ModeIndex != ModeNone))
+        IReadOnlyList<StadiumRecord>? stadiums = null;
+        // Only this scope's rows: every scope's fields share one list, and an index means a different field in each.
+        foreach (var row in planFields.Where(f => f.ModeIndex != ModeNone && f.Kind is Kind.ClubField or Kind.StadiumField))
         {
             var mode = row.ModeIndex == ModeSet ? MassEditMode.Set : MassEditMode.Change;
+            if (row.Kind == Kind.StadiumField)
+            {
+                stadiums ??= session.Stadiums.LoadAll();
+                rows.AddRange(Guarded(row.Label, () => StadiumMassEdit.Plan(clubs, stadiums, (StadiumField)row.Index, mode, row.Number, row.Min, row.Max,
+                    session.Memory, session.Profile, session.ModuleBase)
+                    .Select(c => MassRow.Change(c.Club.DisplayName, row.Label, Money(row, c.Before), Money(row, c.After),
+                        () => { StadiumMassEdit.Apply(c, session.Memory, session.Profile, session.ModuleBase); return 1; }))));
+                continue;
+            }
             rows.AddRange(Guarded(row.Label, () => ClubMassEdit.Plan(clubs, (ClubField)row.Index, mode, row.Number, row.Min, row.Max, session.Memory, session.Profile, session.ModuleBase)
                 .Select(c => MassRow.Change(c.Club.DisplayName, row.Label, c.Before, c.After,
                     () => { ClubMassEdit.Apply(c, session.Memory, session.Profile, session.ModuleBase); return 1; }))));
@@ -63,12 +80,18 @@ internal sealed partial class MassEditWindow
         return new MassPlan("Club", clubs.Count, rows);
     }
 
+    /// <summary>Club money in the review is written in the display currency, as on the club screen.</summary>
+    static object Money(FieldInput row, long value) =>
+        ClubFieldInfo.All.FirstOrDefault(m => (int)m.Field == row.Index)?.DisplayKind == ClubDisplayKind.Money
+            ? Fm27Editor.Core.Settings.CurrencySetting.Format(value) : value;
+
     MassPlan NationPlan()
     {
         var session = backend.Session;
         var nations = NationTargets();
         var rows = new List<MassRow>();
-        foreach (var row in planFields.Where(f => f.ModeIndex != ModeNone))
+        // Only this scope's rows: every scope's fields share one list, and an index means a different field in each.
+        foreach (var row in planFields.Where(f => f.ModeIndex != ModeNone && f.Kind == Kind.NationField))
         {
             var mode = row.ModeIndex == ModeSet ? MassEditMode.Set : MassEditMode.Change;
             rows.AddRange(Guarded(row.Label, () => NationMassEdit.Plan(nations, session.NationFields, (NationField)row.Index, mode, row.Number)

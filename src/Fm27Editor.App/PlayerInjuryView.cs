@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -128,7 +128,7 @@ public sealed partial class MainWindow
             var (template, types) = catalogue.IsCompletedSuccessfully ? catalogue.Result : (null, []);
             foreach (var r in rows)
             {
-                if (!ushort.TryParse(r.Minimum.Text, out _) || !ushort.TryParse(r.Extra.Text, out _)) { status.Text = "Injury: enter whole days 0–65535"; return; }
+                if (!ushort.TryParse(r.Minimum.Text, out ushort minimumDay) || minimumDay < 1 || !ushort.TryParse(r.Extra.Text, out _)) { status.Text = "Injury: Minimum Days is 1 or more, Extra Days 0 or more"; return; }
                 if (r.Injury is null && r.Type.SelectedItem is not InjuryType { Address: not 0 }) { status.Text = "Injury: pick a type for the new injury"; return; }
             }
             if (rows.Any(r => r.Injury is null) && template is null) { status.Text = "Injury: no injury to build a new one from was found yet"; return; }
