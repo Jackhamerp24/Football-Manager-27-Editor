@@ -872,6 +872,7 @@ public sealed partial class MainWindow : Window
                         }
                         Warm("wonderkid academy site", () => backend.Session.GoldenGenerationHook.FindSite());
                         Warm("development speed site", () => backend.Session.AcceleratedDevelopment.FindSite());
+                        Warm("transfer offer site", () => backend.Session.ForceTransferOffersHook.FindSite());
                     });
                     // Profiles still on the clause heap scan (Game Pass until measured live) warm it in the
                     // background; Steam reads the club vector and skips this.

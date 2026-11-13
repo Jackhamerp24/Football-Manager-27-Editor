@@ -64,6 +64,12 @@ public sealed class GameSession : IDisposable
     public Presets.GoldenGenerationHook GoldenGenerationHook =>
         _golden ??= new(_memory, _memory.CanWrite ? _memory : null, Profile, Game.ModuleBase, Game.ModuleSize);
 
+    Presets.ForceTransferOffersHook? _forceTransfer;
+
+    /// <summary>Guarded trampoline hook for forcing other clubs to accept transfer offers made by your managed club.</summary>
+    public Presets.ForceTransferOffersHook ForceTransferOffersHook =>
+        _forceTransfer ??= new(_memory, _memory.CanWrite ? _memory : null, Profile, Game.ModuleBase, Game.ModuleSize);
+
     /// <summary>Current in-game date, read fresh on every call; null if unknown.</summary>
     public DateOnly? ReadGameDate() => GameClock.Read(_memory, Profile, Game.ModuleBase);
 

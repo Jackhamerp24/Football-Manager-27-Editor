@@ -76,6 +76,7 @@ try
         "keepplaying" => KeepPlaying(int.Parse(args[1]), args.Contains("--write")),
         "keepplayingbatch" => KeepPlayingBatch(args[1..]),
         "forceaccept" => ForceAcceptCommand(args[1..]),
+        "forceaccept-hook" => ForceAcceptHookCommand(args[1..]),
         "forceacceptdeal" => ForceAcceptDealCommand(args[1..]),
         "forceacceptoffer" => ForceAcceptOfferCommand(args[1..]),
         "captain" => CaptainCommand(args[1..]),
@@ -7047,6 +7048,87 @@ int ForceAcceptCommand(string[] rest)
     Console.WriteLine($"{preset}: {after.State}");
     foreach (var site in after.Sites)
         Console.WriteLine($"  {site.Key}: {site.State} current={(site.Current is null ? "-" : Convert.ToHexString(site.Current))}");
+    return 0;
+}
+
+int ForceAcceptHookCommand(string[] rest)
+{
+    string action = rest.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))?.ToLowerInvariant() ?? "status";
+    bool write = rest.Contains("--write", StringComparer.OrdinalIgnoreCase);
+    bool mutating = action is "install" or "enable" or "disable" or "uninstall";
+    using var session = Attach(writable: mutating && write);
+    var hook = session.ForceTransferOffersHook;
+    ulong site = hook.FindSite();
+    var bytes = session.Memory.Read(site, Fm27Editor.Core.Presets.ForceTransferOffersHook.OriginalPattern().Length);
+
+    List<int> ManagedIds()
+    {
+        if (session.Profile.Club?.Id is not { } idOff) return [];
+        var ids = new List<int>();
+        foreach (var s in session.Staff.LoadAll())
+        {
+            if (s.ManagerAttributes is null || s.Club is not { } club) continue;
+            var raw = new byte[4];
+            if (!session.Memory.TryRead(club.Address + (ulong)idOff, raw)) continue;
+            int id = BitConverter.ToInt32(raw, 0);
+            if (id != 0 && id != -1 && !ids.Contains(id)) ids.Add(id);
+        }
+        return ids;
+    }
+
+    void PrintState(Fm27Editor.Core.Presets.ForceTransferOffersState? s)
+    {
+        if (s is null)
+        {
+            Console.WriteLine($"site=0x{site:X} (RVA 0x{site - session.Game.ModuleBase:X}) state=Original bytes={Convert.ToHexString(bytes)}");
+            return;
+        }
+        Console.WriteLine($"site=0x{s.Site:X} (RVA 0x{s.Site - session.Game.ModuleBase:X}) cave=0x{s.Cave:X} enabled={s.Enabled} calls={s.Calls} forced={s.Forced} clubIds=[{string.Join(",", s.ClubIds)}]");
+        foreach (var h in s.Recent.Take(10))
+            Console.WriteLine($"  proposal=0x{h.Proposal:X} club=0x{h.BuyerClub:X} uid={h.BuyerClubId} orig={h.OriginalStatus} new={h.NewStatus} forced={h.Forced}");
+    }
+
+    if (action is "status" or "plan")
+    {
+        PrintState(hook.Read());
+        Console.WriteLine($"managedClubIds=[{string.Join(",", ManagedIds())}]");
+        return 0;
+    }
+
+    if (!mutating) throw new InvalidOperationException("usage: forceaccept-hook status|plan|install|enable [clubId...]|disable|uninstall [--write]");
+    if (!write)
+    {
+        Console.WriteLine($"plan only for '{action}' at site=0x{site:X} (RVA 0x{site - session.Game.ModuleBase:X}); add --write to apply");
+        PrintState(hook.Read());
+        return 0;
+    }
+
+    switch (action)
+    {
+        case "install":
+            PrintState(hook.Install());
+            break;
+        case "enable":
+        {
+            var explicitIds = rest.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).Select(int.Parse).ToList();
+            var ids = explicitIds.Count > 0 ? explicitIds : ManagedIds();
+            if (ids.Count == 0) throw new InvalidOperationException("no managed club ids found; pass explicit club id(s)");
+            PrintState(hook.Configure(true, ids));
+            break;
+        }
+        case "disable":
+        {
+            var existing = hook.Read();
+            var ids = existing?.ClubIds ?? ManagedIds();
+            PrintState(existing is null ? hook.Install() : hook.Configure(false, ids));
+            break;
+        }
+        case "uninstall":
+            hook.Uninstall();
+            var restored = session.Memory.Read(site, Fm27Editor.Core.Presets.ForceTransferOffersHook.OriginalPattern().Length);
+            Console.WriteLine($"uninstalled: site=0x{site:X} bytes={Convert.ToHexString(restored)} read={hook.Read()?.ToString() ?? "null"}");
+            break;
+    }
     return 0;
 }
 

@@ -3,122 +3,209 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Fm27Editor.Core.Game;
+using Fm27Editor.Core.Memory;
+using Fm27Editor.Core.Presets;
 
 namespace Fm27Editor.App;
 
 public sealed partial class MainWindow
 {
-#if false // Coming soon: Force Accept Transfer is disabled until the mechanism is finished. Re-enable this block and the call in HookManagerView.cs.
-    readonly List<(ulong Address, int Status)> forceAcceptSaved = [];
-
-    /// <summary>
-    /// Hook Manager section: a data-only on/off for transfer seller acceptance. On writes status 5 (seller accepted)
-    /// on the human manager's current offers; Off writes the statuses saved at On back. No code patch and no hook.
-    /// </summary>
     Control BuildForceAcceptTransferSection(GameSession session)
     {
+        var hook = session.ForceTransferOffersHook;
         var panel = new StackPanel { Spacing = 6 };
-        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        title.Children.Add(new TextBlock
+
+        var heading = new TextBlock
         {
             Text = "Force Accept Transfer (Experimental)",
             FontSize = 14,
             FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(0, 8, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
-        });
-        const string explanation = "The selling clubs accept the transfer offers you have already made. " +
-            "Offers you make later are not included: turn it off and on again after a new offer. Turning it off puts the offers back as they were.";
-        var info = UiKit.InfoBadge(explanation);
-        info.Margin = new Thickness(0, 8, 0, 0);
-        title.Children.Add(info);
-        panel.Children.Add(title);
+        };
+        panel.Children.Add(UiKit.TitleWithInfo(
+            heading,
+            "Clubs accept transfer offers made by the club you manage. Works while active without affecting offers made by AI clubs."));
 
-        var on = new CheckBox { Content = "On", IsChecked = forceAcceptSaved.Count > 0 };
-        var state = new TextBlock
+        var on = new CheckBox { Content = "On", VerticalAlignment = VerticalAlignment.Center };
+        var refreshBtn = new Button
         {
+            Content = "Refresh",
+            Height = 26,
+            MinHeight = 26,
+            Padding = new Thickness(10, 0),
             FontSize = 12.5,
-            Text = forceAcceptSaved.Count > 0 ? $"On: {forceAcceptSaved.Count} offer(s) saved" : "Off",
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = UiKit.TextSecondary,
+        };
+        var removeBtn = new Button
+        {
+            Content = "Remove",
+            Height = 26,
+            MinHeight = 26,
+            Padding = new Thickness(10, 0),
+            FontSize = 12.5,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = false,
+        };
+        panel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children = { on, refreshBtn, removeBtn },
+        });
+
+        var stateText = new TextBlock
+        {
+            Text = "Checking…",
+            FontSize = 12.5,
+            Foreground = UiKit.Brush("#8FA3B8"),
             TextWrapping = TextWrapping.Wrap,
         };
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(on);
-        row.Children.Add(state);
-        panel.Children.Add(row);
+        panel.Children.Add(stateText);
 
-        var saved = forceAcceptSaved;
-        bool busy = false;
-        on.Click += async (_, _) =>
+        var status = new TextBlock
         {
-            if (busy) return;
-            bool accept = on.IsChecked == true;
-            busy = true;
-            on.IsEnabled = false;
-            state.Text = accept ? "Reading offers…" : "Restoring…";
+            Text = "",
+            FontSize = 12,
+            Foreground = UiKit.Brush("#8FA3B8"),
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false,
+        };
+        panel.Children.Add(status);
+
+        bool syncing = false;
+        bool busy = false;
+
+        IReadOnlyList<(int Id, string Name)> ReadManagedClubs()
+        {
+            if (session.Profile.Club?.Id is not { } idOff) return [];
+            var result = new List<(int Id, string Name)>();
+            var seen = new HashSet<int>();
+            foreach (var staff in session.Staff.LoadAll())
+            {
+                if (staff.ManagerAttributes is null || staff.Club is not { } club) continue;
+                var raw = new byte[4];
+                if (!session.Memory.TryRead(club.Address + (ulong)idOff, raw)) continue;
+                int id = BitConverter.ToInt32(raw, 0);
+                if (id == 0 || id == -1 || !seen.Add(id)) continue;
+                result.Add((id, string.IsNullOrWhiteSpace(club.Name) ? $"club {id}" : club.Name));
+            }
+            return result;
+        }
+
+        void RenderState(ForceTransferOffersState? state, IReadOnlyList<(int Id, string Name)> clubs)
+        {
+            syncing = true;
             try
             {
-                if (accept)
+                on.IsChecked = state?.Enabled == true;
+                removeBtn.IsEnabled = state is not null;
+                if (state is null)
                 {
-                    var result = await Task.Run(() =>
-                    {
-                        var clubs = session.Staff.LoadAll()
-                            .Where(s => s.ManagerAttributes is not null && s.Club is not null)
-                            .Select(s => s.Club!.Address).ToHashSet();
-                        if (clubs.Count == 0) throw new InvalidOperationException("No human-manager club found");
-                        // An offer made after Load Game may exist only in the heap; scan again rather than
-                        // acting on the map cached at Load Game.
-                        session.Proposals.Refresh();
-                        var offers = session.Proposals.ReadAllForBuyer(clubs)
-                            .Where(o => o.Status is 0 or 1 or 2).ToList();
-                        saved.Clear();
-                        int accepted = 0;
-                        foreach (var offer in offers)
-                        {
-                            saved.Add((offer.Address, offer.Status));
-                            session.ProposalWriter.SetStatus(offer, 5);
-                            accepted++;
-                        }
-                        return accepted;
-                    });
-                    state.Text = result == 0 ? "On: no current offers to accept" : $"On: {result} offer(s) set to seller accepted";
-                    status.Text = state.Text;
+                    stateText.Text = clubs.Count == 0
+                        ? "Not installed · no managed club found"
+                        : $"Not installed · managed clubs: {string.Join(", ", clubs.Select(c => $"{c.Name} ({c.Id})"))}";
                 }
                 else
                 {
-                    var result = await Task.Run(() =>
-                    {
-                        int restored = 0, skipped = 0;
-                        foreach (var (address, oldStatus) in saved)
-                        {
-                            var offer = session.Proposals.ReadOffer(address);
-                            if (offer is null || offer.Status != 5) { skipped++; continue; }
-                            session.ProposalWriter.SetStatus(offer, (byte)oldStatus);
-                            restored++;
-                        }
-                        saved.Clear();
-                        return (restored, skipped);
-                    });
-                    state.Text = result.restored == 0 && result.skipped == 0
-                        ? "Off: nothing was saved to restore"
-                        : $"Off: restored {result.restored} offer(s)" + (result.skipped > 0 ? $", {result.skipped} changed by the game" : "");
-                    status.Text = state.Text;
+                    var nameMap = clubs.ToDictionary(c => c.Id, c => c.Name);
+                    string clubLabel = state.ClubIds.Count == 0
+                        ? "none"
+                        : string.Join(", ", state.ClubIds.Select(id => nameMap.TryGetValue(id, out var n) ? $"{n} ({id})" : $"club {id}"));
+                    stateText.Text = $"{(state.Enabled ? "On" : "Off")} · offers seen {state.Calls} · accepted {state.Forced} · clubs: {clubLabel}";
                 }
+            }
+            finally { syncing = false; }
+        }
+
+        async Task RefreshSectionAsync()
+        {
+            if (busy) return;
+            busy = true;
+            try
+            {
+                var (state, clubs) = await Task.Run(() => (hook.Read(), ReadManagedClubs()));
+                RenderState(state, clubs);
             }
             catch (Exception ex)
             {
-                state.Text = $"Force Accept Transfer: {UserMessage.For(ex)}";
-                status.Text = state.Text;
-                on.IsChecked = !accept;
+                status.Text = UserMessage.For(ex);
+                status.IsVisible = true;
             }
-            finally
+            finally { busy = false; }
+        }
+
+        on.IsCheckedChanged += async (_, _) =>
+        {
+            if (syncing || busy) return;
+            bool enable = on.IsChecked == true;
+            busy = true;
+            status.IsVisible = false;
+            try
             {
-                busy = false;
-                on.IsEnabled = true;
+                var result = await Task.Run(() =>
+                {
+                    var clubs = ReadManagedClubs();
+                    if (enable)
+                    {
+                        if (clubs.Count == 0)
+                            throw new InvalidOperationException("No managed club found in the loaded save.");
+                        var s = hook.Configure(true, clubs.Select(c => c.Id));
+                        return (s, clubs);
+                    }
+                    else
+                    {
+                        var existing = hook.Read();
+                        var ids = existing?.ClubIds ?? clubs.Select(c => c.Id).ToList();
+                        var s = existing is null ? null : hook.Configure(false, ids);
+                        return (s, clubs);
+                    }
+                });
+                RenderState(result.s, result.clubs);
+                status.Text = enable ? "Force Accept Transfer enabled." : "Force Accept Transfer turned off.";
+                status.IsVisible = true;
             }
+            catch (Exception ex)
+            {
+                syncing = true;
+                on.IsChecked = !enable;
+                syncing = false;
+                status.Text = UserMessage.For(ex);
+                status.IsVisible = true;
+            }
+            finally { busy = false; }
         };
+
+        removeBtn.Click += async (_, _) =>
+        {
+            if (busy) return;
+            busy = true;
+            status.IsVisible = false;
+            try
+            {
+                var clubs = await Task.Run(() =>
+                {
+                    hook.Uninstall();
+                    return ReadManagedClubs();
+                });
+                RenderState(null, clubs);
+                status.Text = "Force Accept Transfer removed.";
+                status.IsVisible = true;
+            }
+            catch (Exception ex)
+            {
+                status.Text = UserMessage.For(ex);
+                status.IsVisible = true;
+            }
+            finally { busy = false; }
+        };
+
+        refreshBtn.Click += async (_, _) =>
+        {
+            status.IsVisible = false;
+            await RefreshSectionAsync();
+        };
+
+        _ = RefreshSectionAsync();
         return panel;
     }
-#endif
 }
