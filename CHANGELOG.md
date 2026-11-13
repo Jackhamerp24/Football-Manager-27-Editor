@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Checked on Steam `27.0.1+2503222`; not yet checked on Game Pass.
+
+### Transfers
+- **Free agents** can be moved:
+  - with Move now, the player joins at once on a copy of the destination squad's first contract, as FMRTE does;
+  - as a future transfer, you enter the weekly wage.
+- **Staff free agents** can be moved to a club: choose the role, wage and end date. Written the way FM's in-game editor does it.
+- Steam `27.0.1+2503222`: the offer list was read from the wrong place, so Transfer Proposals and future transfers did not work.
+- **Financial Fair Play:** an instant transfer now counts for FFP on both sides.
+  - The selling club gets the fee as Transfer Income for the season.
+  - FM keeps a finished-transfer record for the buying club. The buyer's FFP updates once game time moves on.
+- Move to club: the team is chosen in a list next to the club, and the first team is picked by default.
+
+### App
+- **Update now**: when a new release is out, the editor downloads it, checks it against the release checksum, replaces itself
+  and restarts. Builds before this one still need one manual download.
+
 ## 1.3.0
 
 ### Game builds

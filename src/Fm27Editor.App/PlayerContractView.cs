@@ -567,7 +567,9 @@ public sealed partial class MainWindow
 
         ClubOption? chosenClub = null;
         // One field for the whole destination: click it, choose the club in the search window, then its team.
-        var target = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose club and team…" };
+        var target = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose club…" };
+        // The club's teams sit next to it; the first team is picked as soon as a club is chosen.
+        var teamBox = new ComboBox { Width = 190, IsEnabled = false, PlaceholderText = "Team" };
         TeamOption? chosenTeam = null;
         var fee = new NumericUpDown { Minimum = 0, Maximum = 1_000_000_000, Value = 0, Increment = 100_000, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
         // Sell-on owed by the buyer to the seller on the next sale; 0 = none.
@@ -589,6 +591,11 @@ public sealed partial class MainWindow
         var gameDate = backend.Session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
         var futureDate = new DateBox { Text = DateSetting.Format(gameDate.AddMonths(6)), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
         FutureTransferCreator.Plan? futurePlan = null;
+        // A free agent has no contract to carry over: Move now copies the destination's first squad contract (as FMRTE does),
+        // and a future transfer needs the weekly wage of the new contract, which the player enters.
+        bool freeAgent = player.Contract is null;
+        FreeAgentSigningPlan? freePlan = null;
+        var freeWage = new NumericUpDown { Minimum = 0, Maximum = 1_000_000_000, Value = null, Increment = 1_000, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
         NumericUpDown Money(decimal increment) => new() { Minimum = 0, Maximum = 1_000_000_000, Value = 0, Increment = increment, FormatString = "N0", ShowButtonSpinner = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Right };
         var loanWage = new NumericUpDown { Minimum = 0, Maximum = 200, Value = 100, Increment = 5, FormatString = "0'%'", ShowButtonSpinner = false, Width = 96, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Right };
         var loanStart = new DateBox { Text = DateSetting.Format(gameDate), Width = 130, HorizontalAlignment = HorizontalAlignment.Left };
@@ -672,6 +679,7 @@ public sealed partial class MainWindow
             plan = null;
             loanPlan = null;
             futurePlan = null;
+            freePlan = null;
             apply.IsEnabled = false;
             preview.Children.Clear();
             preview.RowDefinitions.Clear();
@@ -703,6 +711,22 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { Invalidate(); warning.Text = UserMessage.For(ex); warning.IsVisible = true; }
         }
+        void PreviewFreeAgent(ClubOption chosen)
+        {
+            try
+            {
+                freePlan = backend.Session.PlanFreeAgentSigning(player, chosen.Club, chosenTeam?.Team);
+                int head = Row();
+                Cell("Free agent", head, 1, true); Cell(chosen.Club.DisplayName, head, 2, true);
+                int w = Row(); Cell("Wage", w, 0); Cell(freePlan.Wage.ToString("N0", Inv), w, 2);
+                int s = Row(); Cell("Squad", s, 0); Cell($"{freePlan.ToTeam.SquadCount} → {freePlan.ToTeam.SquadCount + 1}", s, 2);
+                warning.Text = "The new contract copies the one of the first player in the squad; change its terms afterwards on the Contract page. "
+                    + (freePlan.NeedsAllocation ? "The contract and a new squad list" : "The contract") + " are allocated in the game's heap; keep a backup of the save.";
+                warning.IsVisible = true;
+                apply.IsEnabled = true;
+            }
+            catch (Exception ex) { Invalidate(); warning.Text = UserMessage.For(ex); warning.IsVisible = true; }
+        }
         void PreviewFuture(ClubOption chosen)
         {
             try
@@ -711,7 +735,9 @@ public sealed partial class MainWindow
                 if (!DateBox.TryParse(futureDate.Text, out var date))
                 { warning.Text = $"Enter the transfer date as {DateSetting.Hint}"; warning.IsVisible = true; return; }
                 var terms = ReadTerms();
-                futurePlan = backend.Session.PlanFutureTransfer(player, team.Team.Address, (int)(fee.Value ?? 0), date, terms);
+                if (freeAgent && freeWage.Value is null)
+                { warning.Text = "Enter the weekly wage of the new contract."; warning.IsVisible = true; return; }
+                futurePlan = backend.Session.PlanFutureTransfer(player, team.Team.Address, (int)(fee.Value ?? 0), date, terms, freeAgent ? (int)freeWage.Value!.Value : null);
                 int head = Row();
                 Cell(player.Club?.DisplayName ?? "", head, 1, true); Cell(chosen.Club.DisplayName, head, 2, true);
                 int f = Row(); Cell("Fee", f, 0); Cell(futurePlan.Fee.ToString("N0", Inv), f, 2);
@@ -735,6 +761,7 @@ public sealed partial class MainWindow
             if (chosenClub is not { } chosen) return;
             if (IsLoan()) { PreviewLoan(chosen); return; }
             if (IsFuture()) { PreviewFuture(chosen); return; }
+            if (freeAgent) { PreviewFreeAgent(chosen); return; }
             try
             {
                 var now = ReadTerms();
@@ -789,7 +816,7 @@ public sealed partial class MainWindow
         {
             chosenClub = club;
             chosenTeam = team;
-            target.Content = team is null ? club.Club.DisplayName : $"{club.Club.DisplayName} — {team.TeamName}";
+            target.Content = club.Club.DisplayName;
             Preview();
         }
         target.Click += async (_, _) =>
@@ -800,15 +827,18 @@ public sealed partial class MainWindow
             var chosen = await PickerDialog.Show<ClubOption>(this, "Choose destination club", q => clubs.Where(o => PickerSearch.Hit(q, o.Club.DisplayName, o.Club.ShortName, o.Club.Id)).Select(o => (o.Club.DisplayName, o)).ToList());
             if (chosen is null) return;
             var options = chosen.Club.Teams.OrderByDescending(t => t.IsFirstTeam).Select((t, i) => new TeamOption(t, i)).ToList();
-            TeamOption? team = options.FirstOrDefault();
-            if (options.Count > 1)
-            {
-                team = await PickerDialog.Show<TeamOption>(this, "Choose team", q => options.Where(o => PickerSearch.Hit(q, o.TeamName)).Select(o => (o.TeamName, o)).ToList());
-                if (team is null) return;
-            }
-            SelectTarget(chosen, team);
+            chosenClub = chosen;   // set before the team list changes, so the selection event previews the right club
+            teamBox.ItemsSource = options;
+            teamBox.IsEnabled = options.Count > 1;
+            teamBox.SelectedItem = options.FirstOrDefault();
+            SelectTarget(chosen, options.FirstOrDefault());
+        };
+        teamBox.SelectionChanged += (_, _) =>
+        {
+            if (chosenClub is { } club && teamBox.SelectedItem is TeamOption team && !ReferenceEquals(team, chosenTeam)) SelectTarget(club, team);
         };
         fee.ValueChanged += (_, _) => Preview();
+        freeWage.ValueChanged += (_, _) => Preview();
         loanWage.ValueChanged += (_, _) => Preview();
         loanPrice.ValueChanged += (_, _) => Preview();
         loanBuyBack.ValueChanged += (_, _) => Preview();
@@ -822,6 +852,8 @@ public sealed partial class MainWindow
         foreach (var box in new[] { termProfit, friendly }) box.IsCheckedChanged += (_, _) => Preview();
         instPeriod.SelectionChanged += (_, _) => Preview();
         var feeRow = Labeled("Fee", fee);
+        var freeWageRow = Labeled("Wage (weekly)", freeWage);
+        freeWageRow.IsVisible = false;
         var moveNowRow = Labeled(" ", moveNow);
         moveNowRow.IsVisible = canFuture;
         var futureRows = new Control[] { Labeled("Transfer Date", futureDate) };
@@ -834,15 +866,17 @@ public sealed partial class MainWindow
         foreach (var row in loanRows) row.IsVisible = false;
         void ShowRows()
         {
-            feeRow.IsVisible = !IsLoan();
+            feeRow.IsVisible = !IsLoan() && !(freeAgent && !IsFuture());   // FMRTE: a free agent moves now without a fee
+            freeWageRow.IsVisible = freeAgent && IsFuture();
             moveNowRow.IsVisible = canFuture && !IsLoan();
             foreach (var row in futureRows) row.IsVisible = IsFuture();
-            foreach (var row in termRows) row.IsVisible = !IsLoan();
+            foreach (var row in termRows) row.IsVisible = !IsLoan() && !(freeAgent && !IsFuture());
             foreach (var row in loanRows) row.IsVisible = IsLoan();
             apply.Content = IsLoan() ? "Confirm loan" : "Confirm transfer";
         }
         moveNow.IsCheckedChanged += (_, _) => { ShowRows(); Preview(); };
         type.SelectionChanged += (_, _) => { ShowRows(); Preview(); };
+        ShowRows();
         apply.Click += async (_, _) =>
         {
             // Tell the player what is missing in plain words before anything is written.
@@ -880,6 +914,19 @@ public sealed partial class MainWindow
                 selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
                 pendingSection = "Contract"; RenderEditor();
                 status.Text = $"Future transfer to {chosenClub?.Club.DisplayName} on {DateSetting.Format(future.Date)} created. Continue in FM to see it.";
+                return;
+            }
+            if (freePlan is { } signing)
+            {
+                try
+                {
+                    backend.Edits.Execute("Player", player.DisplayName, "Page save", () => backend.Session.ApplyFreeAgentSigning(signing));
+                }
+                catch (Exception ex) { Invalidate(); status.Text = $"Transfer stopped: {UserMessage.For(ex)}"; return; }
+                clubCache = null; contractDrafts.Remove(player.Address);
+                selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
+                pendingSection = "Contract"; RenderEditor();
+                status.Text = $"Signed for {signing.Buyer.DisplayName}. Set the new contract terms; Continue in FM to see it.";
                 return;
             }
             if (plan is null) return;
@@ -920,10 +967,15 @@ public sealed partial class MainWindow
 
         var formStack = new StackPanel { Spacing = 8, Margin = new Thickness(12, 10) };
         formStack.Children.Add(from);
-        formStack.Children.Add(Labeled("Team", target));
+        var destination = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
+        Grid.SetColumn(teamBox, 1);
+        destination.Children.Add(target);
+        destination.Children.Add(teamBox);
+        formStack.Children.Add(Labeled("Club", destination));
         formStack.Children.Add(Labeled("Type", type));
         formStack.Children.Add(moveNowRow);
         formStack.Children.Add(feeRow);
+        formStack.Children.Add(freeWageRow);
         foreach (var row in futureRows) formStack.Children.Add(row);
         foreach (var row in termRows) formStack.Children.Add(row);
         foreach (var row in loanRows) formStack.Children.Add(row);

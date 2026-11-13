@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Fm27Editor.Core.Clubs;
+using Fm27Editor.Core.Players;
 using Fm27Editor.Core.Staff;
 
 namespace Fm27Editor.App;
@@ -32,12 +33,18 @@ public sealed partial class MainWindow
         int? currentWage = null;
         try { currentWage = session.StaffContracts.Read(staff)?.Wage; } catch (Exception) { }
         var wageBox = new NumericUpDown { Minimum = 0, Maximum = 1_000_000_000, Increment = 100, FormatString = "0", Width = 140, Value = currentWage ?? 0, IsEnabled = currentWage is not null };
+        var gameToday = session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
+        // 30 June two years on: what the game gave two of the three free agents it signed in the traces.
+        var expiryBox = new DateBox { Text = DateSetting.Format(new DateOnly(gameToday.Year + 2, 6, 30)), Width = 140 };
+        var freeService = new FreeStaffSigning(session.Memory, session.Profile, session.ModuleBase);
+        FreeStaffSigningPlan? freePlan = null;
         var apply = new Button { Content = "Confirm transfer", IsEnabled = false, Classes = { "accent" } };
         var undo = new Button { Content = "Undo last staff move", IsEnabled = staffMoveUndo.Count > 0, IsVisible = staffMoveUndo.Count > 0 };
 
         void Invalidate()
         {
             plan = null;
+            freePlan = null;
             apply.IsEnabled = false;
             details.Text = ""; details.IsVisible = false;
             error.Text = ""; error.IsVisible = false;
@@ -57,9 +64,25 @@ public sealed partial class MainWindow
         {
             Invalidate();
             if (chosenClub is not { } option) return;
+            if (staff.Club is null)
+            {
+                try
+                {
+                    if (roleBox.SelectedItem is not RoleOption role) { error.Text = "Choose the role."; error.IsVisible = true; return; }
+                    if (wageBox.Value is not { } wage) { error.Text = "Enter the weekly wage."; error.IsVisible = true; return; }
+                    if (!DateBox.TryParse(expiryBox.Text, out var expiry)) { error.Text = $"Enter the contract end as {DateSetting.Hint}"; error.IsVisible = true; return; }
+                    freePlan = freeService.Plan(staff, option.Club, role.Code, (int)wage, session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), expiry);
+                    details.Text = $"Free agent  →  {option.Club.DisplayName}\n{role.Name}, {StaffMoveService.DepartmentOf(role.Code)}";
+                    details.IsVisible = true;
+                    apply.IsEnabled = true;
+                }
+                catch (Exception ex) { error.Text = UserMessage.For(ex); error.IsVisible = true; }
+                return;
+            }
             try
             {
-                var from = all.Single(c => c.Address == staff.Club?.Address);
+                var from = all.FirstOrDefault(c => c.Address == staff.Club?.Address)
+                    ?? throw new InvalidOperationException("The current club can't be found; reload the save");
                 byte? newJob = roleBox.SelectedItem is RoleOption r && r.Code != staff.JobCode ? r.Code : null;
                 int? newWage = currentWage is { } w && wageBox.Value is { } v && (int)v != w ? (int)v : null;
                 plan = service.Plan(staff, from, option.Club, session.ReadGameDate(), newJob, newWage);
@@ -75,8 +98,26 @@ public sealed partial class MainWindow
         }
         roleBox.SelectionChanged += (_, _) => Replan();
         wageBox.ValueChanged += (_, _) => Replan();
+        expiryBox.LostFocus += (_, _) => Replan();
         apply.Click += (_, _) =>
         {
+            if (freePlan is { } signing)
+            {
+                try
+                {
+                    backend.Edits.Execute("Staff", staff.DisplayName, "Move", () =>
+                    {
+                        if (session.ReadGameDate() != signing.Today) throw new StaleObjectException("The game date changed; nothing was written");
+                        freeService.Apply(signing, session.AllocateGameBlock);
+                    });
+                    clubCache = null;
+                    UpdateStaff(staff);
+                    status.Text = $"{staff.DisplayName} joined {signing.To.DisplayName}. Continue in FM to see updates.";
+                    apply.IsEnabled = false;
+                }
+                catch (Exception ex) { Invalidate(); status.Text = UserMessage.For(ex); }
+                return;
+            }
             if (plan is not { } selectedPlan) return;
             try
             {
@@ -101,6 +142,8 @@ public sealed partial class MainWindow
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
+        // A free agent has no contract: the wage must be entered, and the contract gets an end date.
+        if (staff.Club is null) { wageBox.IsEnabled = true; wageBox.Value = null; }
         if (clubCache is null)
         {
             _ = Task.Run(() => session.LoadClubs(session.Players.LoadAll())).ContinueWith(task => Dispatcher.UIThread.Post(() =>
@@ -148,6 +191,7 @@ public sealed partial class MainWindow
             {
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Role", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, roleBox } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Wages", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, wageBox } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = staff.Club is null, Children = { new TextBlock { Text = "Until", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, expiryBox } },
                 details,
                 error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } },

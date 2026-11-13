@@ -6,7 +6,8 @@ public static class FutureTransferRecordTemplate
     public static byte[] Offer(ulong vtable, ulong person, ulong buyer, ulong seller, int fee, int id, int serial,
         ulong auxiliary, DateOnly today, DateOnly transferDate)
     {
-        if (vtable == 0 || person == 0 || buyer == 0 || seller == 0 || auxiliary == 0)
+        // seller is 0 for a free agent (FMRTE trace, Coutinho and Benzema, 14/11/2026).
+        if (vtable == 0 || person == 0 || buyer == 0 || auxiliary == 0)
             throw new ArgumentException("Missing offer object pointer");
         if (fee < 0 || id < 0 || serial < 0) throw new ArgumentOutOfRangeException(nameof(fee));
         var b = new byte[208];

@@ -17,7 +17,10 @@ public sealed class FutureTransferCreator(IProcessMemory memory, OffsetProfile p
         TransferTerms? OfferTerms = null);
 
     /// <param name="offerTerms">Transfer terms for the offer; null or all zero writes the empty terms object FMRTE writes without "Set transfer terms".</param>
-    public Plan Prepare(PlayerRecord player, ulong buyer, int fee, DateOnly today, DateOnly date, TransferTerms? offerTerms = null)
+    /// <param name="freeAgentWage">Weekly wage of the new contract, required for a free agent (no contract to copy). FMRTE fills in a
+    /// wage it works out itself (Coutinho 192,963, Benzema 196,892; not read from the game and not the squad mean or median), so
+    /// the editor asks for it instead of guessing.</param>
+    public Plan Prepare(PlayerRecord player, ulong buyer, int fee, DateOnly today, DateOnly date, TransferTerms? offerTerms = null, int? freeAgentWage = null)
     {
         // Every address comes from the profile, so the same code runs on Game Pass and Steam; the guards below refuse any object that is not the expected kind.
         if (fee < 0 || date <= today) throw new ArgumentException("A future date and non-negative fee are required");
@@ -35,14 +38,25 @@ public sealed class FutureTransferCreator(IProcessMemory memory, OffsetProfile p
         if (!profile.PlayerVtableRvas.Any(x => playerVtable == moduleBase + x)) throw new StaleObjectException("Player vtable changed");
         if (Pointer(buyer, "buying team vtable") != moduleBase + to.VtableRva) throw new StaleObjectException("Invalid buying team");
         ulong contract = Pointer(player.Address + (ulong)co.PlayerContract, "current contract pointer");
-        if (contract == 0) throw new InvalidOperationException("Player has no current contract");
-        var source = Guard(contract, ContractBytes, "current contract");
-        if (BitConverter.ToUInt64(source) != moduleBase + co.ContractVtableRva) throw new StaleObjectException("Invalid contract vtable");
-        ulong seller = BitConverter.ToUInt64(source, co.Team);
-        if (seller == 0 || Pointer(seller, "selling team vtable") != moduleBase + to.VtableRva || seller == buyer)
-            throw new InvalidOperationException("Invalid selling team or destination");
-        if (BitConverter.ToUInt64(source, 8) != player.Address + (ulong)rel.PlayerPerson)
-            throw new StaleObjectException("Contract belongs to a different person");
+        byte[] source;
+        ulong seller;
+        if (contract == 0)
+        {
+            if (freeAgentWage is not { } wage) throw new InvalidOperationException("Enter the weekly wage for the new contract");
+            if (wage < 0) throw new ArgumentOutOfRangeException(nameof(freeAgentWage), "Wage cannot be negative");
+            source = FreeAgentContract(moduleBase + co.ContractVtableRva, player.Address + (ulong)rel.PlayerPerson, wage);
+            seller = 0;
+        }
+        else
+        {
+            source = Guard(contract, ContractBytes, "current contract");
+            if (BitConverter.ToUInt64(source) != moduleBase + co.ContractVtableRva) throw new StaleObjectException("Invalid contract vtable");
+            seller = BitConverter.ToUInt64(source, co.Team);
+            if (seller == 0 || Pointer(seller, "selling team vtable") != moduleBase + to.VtableRva || seller == buyer)
+                throw new InvalidOperationException("Invalid selling team or destination");
+            if (BitConverter.ToUInt64(source, 8) != player.Address + (ulong)rel.PlayerPerson)
+                throw new StaleObjectException("Contract belongs to a different person");
+        }
         if (fo.CurrentLoanHolder is { } loan && Pointer(player.Address + (ulong)loan, "loan holder") != 0)
             throw new InvalidOperationException("Creation for an existing loan has not been verified");
         ulong root = Pointer(moduleBase + po.ListRootRva, "offer root");
@@ -67,12 +81,30 @@ public sealed class FutureTransferCreator(IProcessMemory memory, OffsetProfile p
         var proposals = new TransferProposalReader(memory, profile, moduleBase).Read(player);
         if (new FutureTransferReader(memory, profile, moduleBase).Read(player, proposals).Count != 0)
             throw new InvalidOperationException("Player already has a future transfer");
-        var terms = FutureTransferVectorSnapshot.Capture(memory, contract + 0x68, 8, 10_000);
-        var extra = FutureTransferVectorSnapshot.Capture(memory, contract + 0x80, 32, 10_000);
+        var terms = contract == 0 ? FutureTransferVectorSnapshot.Empty(8) : FutureTransferVectorSnapshot.Capture(memory, contract + 0x68, 8, 10_000);
+        var extra = contract == 0 ? FutureTransferVectorSnapshot.Empty(32) : FutureTransferVectorSnapshot.Capture(memory, contract + 0x80, 32, 10_000);
         Guard(root + ChangedFlag, 1, "offer changed flag");
         if (offerTerms is not null) TransferTermsLayout.Records(offerTerms);   // rejects negative amounts before anything is allocated
         return new(player, buyer, seller, fee, today, date, root, id, serial, source, terms, extra, offers, dates,
             ids, links, playerIds, playerContracts, guards, offerTerms);
+    }
+
+    /// <summary>
+    /// The bytes FMRTE starts a free agent's future contract from, before the usual future-contract fields are filled in
+    /// (<see cref="FutureTransferContractTemplate.Build"/>). Both traced contracts (Coutinho to Liverpool, Benzema to Arsenal,
+    /// Steam 27.0.1+2503222, 14/11/2026) had exactly these bytes outside the fields Build writes: vtable, person +0x08,
+    /// wage +0x20, +0x26 = 1, +0x54 = 3, +0xC0..+0xC7 = 00 00 00 01 FF 00 00 00, everything else 0.
+    /// </summary>
+    public static byte[] FreeAgentContract(ulong contractVtable, ulong person, int wage)
+    {
+        var b = new byte[ContractBytes];
+        BitConverter.GetBytes(contractVtable).CopyTo(b, 0);
+        BitConverter.GetBytes(person).CopyTo(b, 0x08);
+        BitConverter.GetBytes(wage).CopyTo(b, 0x20);
+        b[0x26] = 1;
+        b[0x54] = 3;
+        new byte[] { 0, 0, 0, 1, 0xFF, 0, 0, 0 }.CopyTo(b, 0xC0);
+        return b;
     }
 
     /// <summary>Allocates with the supplied target CRT allocator, then checks snapshots and writes through one transaction.</summary>

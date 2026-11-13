@@ -103,6 +103,8 @@ public class TransferServiceTests
         Assert.Equal(2_000_000 + 135_000, I32(BuyerFin + 0x810));
         Assert.Equal(100_000_000 + 12_345_678, I32(SellerFin + 0xC));
         Assert.Equal(12_345_678, I32(SellerFin + 0x32C));
+        // FM's own £50M Palmer move (14/11/2026) raised the seller's +0x55C (season players sold, the FFP Transfer Income) by the fee too.
+        Assert.Equal(12_345_678, I32(SellerFin + 0x55C));
         Assert.Equal(20_000_000 + 12_345_678, I32(SellerFin + 0x7C4));
         Assert.Equal(3_000_000 - 135_000, I32(SellerFin + 0x810));
 

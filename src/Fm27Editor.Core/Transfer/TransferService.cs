@@ -24,7 +24,8 @@ public sealed record TransferPlan(
 /// before/after snapshots, then replayed on FM26 by hand and checked in game):
 /// <list type="bullet">
 /// <item>buyer: balance −fee, transfer spend this month +fee, spent this season +fee, transfer budget −fee (not below 0), wage bill +wage;</item>
-/// <item>seller: balance +fee, players sold +fee, transfer budget +fee, wage bill −wage;</item>
+/// <item>seller: balance +fee, players sold this month and this season +fee (the season figure is the FFP "Transfer Income"),
+/// transfer budget +fee, wage bill −wage;</item>
 /// <item>contract team and senior team → the buyer's first team; playing team → the selected buyer team;</item>
 /// <item>removed from the old team's squad vector, appended to the new one.</item>
 /// </list>
@@ -73,6 +74,7 @@ public sealed class TransferService(IProcessMemory memory, OffsetProfile profile
         AddMoney(writes, buyer, F.WageBill, wage, "buyer wage bill");
         AddMoney(writes, seller, F.Balance, fee, "seller balance");
         AddMoney(writes, seller, F.PlayersSold, fee, "seller players sold");
+        AddMoney(writes, seller, F.PlayersSoldSeason, fee, "seller players sold this season");
         AddMoney(writes, seller, F.TransferBudget, fee, "seller transfer budget");
         AddMoney(writes, seller, F.WageBill, -wage, "seller wage bill");
         writes.Add(Pointer(contract.Address + (ulong)C.Team, firstTeam.Address, "contract team"));

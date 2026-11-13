@@ -50,7 +50,18 @@ public sealed class GameSession : IDisposable
         (futureContract == 0 ? Contracts : FutureContract(futureContract)).AddTerm(player, snapshot, type, value, parameter, AllocateGameBlock);
 
     /// <summary>Applies a transfer, allocating a new squad buffer in the game process when the destination squad is full.</summary>
-    public void ApplyTransfer(Transfer.TransferPlan plan) => Transfers.Apply(plan, AllocateGameBlock);
+    public void ApplyTransfer(Transfer.TransferPlan plan)
+    {
+        var today = ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read");
+        ulong buyer = plan.Buyer.FirstTeam?.Address ?? throw new InvalidOperationException($"{plan.Buyer.DisplayName} has no first team");
+        ulong seller = plan.Seller.FirstTeam?.Address ?? throw new InvalidOperationException($"{plan.Seller.DisplayName} has no first team");
+        // Checked before anything is written, so a full offer list stops the move instead of leaving it half done.
+        var record = new Transfer.CompletedTransferRecord(_memory, Profile, Game.ModuleBase);
+        record.Plan(plan.Player.Address, buyer, seller, plan.Fee, today);
+        Transfers.Apply(plan, AllocateGameBlock);
+        // FM counts the buyer's FFP transfer expenditure from its finished-transfer records, not from the club finances.
+        record.Apply(record.Plan(plan.Player.Address, buyer, seller, plan.Fee, today), AllocateGameBlock);
+    }
 
     Presets.AcceleratedDevelopment? _accelerated;
 
@@ -264,8 +275,18 @@ public sealed class GameSession : IDisposable
         Profile.FutureTransfers is not null && Profile.Proposals is not null && Profile.Contract is not null && Profile.Team is not null;
 
     /// <summary>Checks a new future transfer against the live objects without writing anything.</summary>
-    public FutureTransferCreator.Plan PlanFutureTransfer(PlayerRecord player, ulong buyingTeam, int fee, DateOnly date, TransferTerms? terms = null) =>
-        new FutureTransferCreator(_memory, Profile, Game.ModuleBase).Prepare(player, buyingTeam, fee, ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), date, terms);
+    public FutureTransferCreator.Plan PlanFutureTransfer(PlayerRecord player, ulong buyingTeam, int fee, DateOnly date, TransferTerms? terms = null, int? freeAgentWage = null) =>
+        new FutureTransferCreator(_memory, Profile, Game.ModuleBase).Prepare(player, buyingTeam, fee, ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), date, terms, freeAgentWage);
+
+    /// <summary>Plans signing a free agent at once (FMRTE's Move now for a free player); nothing is written.</summary>
+    public Transfer.FreeAgentSigningPlan PlanFreeAgentSigning(PlayerRecord player, Clubs.ClubEntry buyer, Clubs.TeamEntry? team = null) =>
+        new Transfer.FreeAgentSigning(_memory, Profile, Game.ModuleBase).Plan(player, buyer, ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), team);
+
+    public void ApplyFreeAgentSigning(Transfer.FreeAgentSigningPlan plan)
+    {
+        if (ReadGameDate() != plan.Today) throw new StaleObjectException("The game date changed; nothing was written");
+        new Transfer.FreeAgentSigning(_memory, Profile, Game.ModuleBase).Apply(plan, AllocateGameBlock);
+    }
 
     /// <summary>Writes the planned future transfer, then reads it back; throws if the date or fee do not read back.</summary>
     public void ApplyFutureTransfer(FutureTransferCreator.Plan plan)

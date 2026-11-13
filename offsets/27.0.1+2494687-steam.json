@@ -558,7 +558,8 @@
       "wageSpend": "0x814",
       "wageBill": "0x810",
       "transferSpendMonth": "0x29C",
-      "playersSold": "0x32C"
+      "playersSold": "0x32C",
+      "playersSoldSeason": "0x55C"
     },
     "fields": {
       "ForegroundColour": {

@@ -170,6 +170,9 @@ public sealed class ClubFinanceOffsets
     public int? TransferSpendMonth { get; init; }
     /// <summary>Income from players sold this month.</summary>
     public int? PlayersSold { get; init; }
+    /// <summary>Income from players sold this season, the "Transfer Income" counted by the FFP squad cost rule. FM's own
+    /// transfer of Cole Palmer to Man Utd for £50M (14/11/2026) raised it by the fee together with the month figure.</summary>
+    public int? PlayersSoldSeason { get; init; }
 }
 
 /// <summary>

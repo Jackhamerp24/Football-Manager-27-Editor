@@ -314,7 +314,7 @@
       "nationContinent": "0xF0"
     },
     "proposals": {
-      "listRootRva": "0x56F4EF0",
+      "listRootRva": "0x580FF30",
       "listOffset": "0x8",
       "person": "0x38",
       "buyer": "0x40",
@@ -558,7 +558,8 @@
       "wageSpend": "0x814",
       "wageBill": "0x810",
       "transferSpendMonth": "0x29C",
-      "playersSold": "0x32C"
+      "playersSold": "0x32C",
+      "playersSoldSeason": "0x55C"
     },
     "fields": {
       "ForegroundColour": {

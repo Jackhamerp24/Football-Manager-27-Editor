@@ -16,9 +16,12 @@ public sealed class FutureTransferVectorSnapshot
     public int Count => items.Length / itemSize;
     public byte[] Items => (byte[])items.Clone();
 
-    public IReadOnlyList<PlannedWrite> Guards => items.Length == 0
+    public IReadOnlyList<PlannedWrite> Guards => header == 0 ? [] : items.Length == 0
         ? [new(header, (byte[])headerBytes.Clone(), [], "vector header")]
         : [new(header, (byte[])headerBytes.Clone(), [], "vector header"), new(begin, (byte[])items.Clone(), [], "vector items")];
+
+    /// <summary>A vector that does not exist yet (a free agent has no contract, so no contract terms): no guards, nothing to read.</summary>
+    public static FutureTransferVectorSnapshot Empty(int itemSize) => new(0, 0, 0, 0, itemSize, new byte[24], []);
 
     public static FutureTransferVectorSnapshot Capture(IProcessMemory memory, ulong header, int itemSize, int maxItems)
     {
@@ -36,6 +39,7 @@ public sealed class FutureTransferVectorSnapshot
     /// <summary>Checks both the header and its contents, including items whose count has not changed.</summary>
     public void Validate(IProcessMemory memory)
     {
+        if (header == 0) return;
         if (!memory.Read(header, 24).AsSpan().SequenceEqual(headerBytes) ||
             (items.Length != 0 && !memory.Read(begin, items.Length).AsSpan().SequenceEqual(items)))
             throw new StaleObjectException("Future-transfer vector changed since it was read");

@@ -225,6 +225,7 @@ public sealed class OffsetProfile
                     WageBill = OptHex(fi, "wageBill"),
                     TransferSpendMonth = OptHex(fi, "transferSpendMonth"),
                     PlayersSold = OptHex(fi, "playersSold"),
+                    PlayersSoldSeason = OptHex(fi, "playersSoldSeason"),
                 } : null,
                 TransferClauses = k.TryGetProperty("transferClauses", out var tc) ? new TransferClauseOffsets
                 {
@@ -498,6 +499,7 @@ public sealed class OffsetProfile
                     if (fi.WageBill is { } wb) H("wageBill", wb);
                     if (fi.TransferSpendMonth is { } tsm) H("transferSpendMonth", tsm);
                     if (fi.PlayersSold is { } ps) H("playersSold", ps);
+                    if (fi.PlayersSoldSeason is { } pss) H("playersSoldSeason", pss);
                     w.WriteEndObject();
                 }
                 if (k.TransferClauses is { } tc)
