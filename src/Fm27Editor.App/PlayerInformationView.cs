@@ -28,8 +28,15 @@ public sealed partial class MainWindow
             Margin = new Thickness(0, 0, 0, 10),
         };
 
-        Grid.SetColumn(personal, 0);
-        host.Children.Add(personal);
+        var column0 = new StackPanel
+        {
+            Spacing = 8,
+            Width = 295,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Children = { personal, MiniScoutingCard(player) },
+        };
+        Grid.SetColumn(column0, 0);
+        host.Children.Add(column0);
 
         // FMRTE keeps the stat columns equal width and right-aligns the numbers.
         Control Column(string group, Control? header = null)
@@ -68,7 +75,24 @@ public sealed partial class MainWindow
                 Select(goalkeeperColumn.GetValueOrDefault(player.Address, player.Position(PlayerPosition.Goalkeeper) >= 15));
             }
             else column.Children.Add(Column(groups[i]));
-            if (groups[i] == "Mental") column.Children.Add(Column("Personality"));
+            if (groups[i] == "Mental")
+            {
+                var personality = PersonalityClassifier.Classify(player);
+                var persBadge = new TextBlock
+                {
+                    Text = personality.Name,
+                    FontSize = 11.5,
+                    FontWeight = personality.IsNegative ? FontWeight.Bold : FontWeight.SemiBold,
+                    Foreground = Brush(personality.IsNegative ? "#F87171" : "#94A3B8"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                if (personality.IsNegative)
+                    ToolTip.SetTip(persBadge, "Negative personality (regen/newgen classification)");
+                column.Children.Add(AttributeCard(
+                    "Personality",
+                    PlayerFields.All.Where(f => f.Group == "Personality").Select(f => FieldControl(f, player)),
+                    rightHeader: persBadge));
+            }
             if (groups[i] == "Physical") column.Children.Add(Column("Hidden"));
             Grid.SetColumn(column, i + 1);
             host.Children.Add(column);
