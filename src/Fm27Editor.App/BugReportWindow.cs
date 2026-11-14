@@ -22,7 +22,7 @@ public sealed partial class MainWindow
             Padding = new Thickness(0), MinWidth = 24, Width = 24, MinHeight = 20, Height = 20,
             Background = Brushes.Transparent, BorderThickness = new Thickness(0), VerticalAlignment = VerticalAlignment.Center,
         };
-        ToolTip.SetTip(button, "Report a problem");
+        ToolTip.SetTip(button, AppLanguage.Get("Common_Report_a_problem"));
         button.Click += (_, _) => ShowBugReport();
         return button;
     }
@@ -59,15 +59,15 @@ public sealed partial class MainWindow
         var description = new TextBox
         {
             AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 120, Width = 440, VerticalContentAlignment = VerticalAlignment.Top,
-            Watermark = "What happened? What were you doing?",
+            Watermark = AppLanguage.Get("Common_What_happened_What_were_you_doing"),
         };
         var result = new TextBlock { Foreground = UiKit.TextSecondary, TextWrapping = TextWrapping.Wrap, Width = 440 };
-        var create = new Button { Content = "Create report", Classes = { "accent" } };
-        var openFolder = new Button { Content = "Open folder", IsVisible = false };
+        var create = new Button { Content = AppLanguage.Get("Common_Create_report"), Classes = { "accent" } };
+        var openFolder = new Button { Content = AppLanguage.Get("Common_Open_folder"), IsVisible = false };
         string? folder = null;
         create.Click += async (_, _) =>
         {
-            if (FlightRecorder.Current is not { } recorder) { result.Text = "No log is available for this run."; return; }
+            if (FlightRecorder.Current is not { } recorder) { result.Text = AppLanguage.Get("Common_No_log_is_available_for_this_run"); return; }
             create.IsEnabled = false;
             try
             {
@@ -91,7 +91,7 @@ public sealed partial class MainWindow
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { create, openFolder } };
         var window = new Window
         {
-            Title = "Report a problem", SizeToContent = SizeToContent.WidthAndHeight, CanResize = false,
+            Title = AppLanguage.Get("Common_Report_a_problem"), SizeToContent = SizeToContent.WidthAndHeight, CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = UiKit.WindowBg,
             Content = new StackPanel { Margin = new Thickness(20), Spacing = 12, Children = { description, buttons, result } },
         };

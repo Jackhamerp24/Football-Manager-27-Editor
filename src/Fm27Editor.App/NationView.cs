@@ -66,7 +66,7 @@ internal sealed class NationDraft
 
 /// <summary>Nations: information, national teams, squads, kits and colours, relationships, transfer preferences and agreements.</summary>
 internal sealed class NationScreen(IScreenHost host)
-    : EntityScreen<NationRecord, NationRow, NationDraft>(host, "nation", "Nations", "nations", "Search nation or ID...")
+    : EntityScreen<NationRecord, NationRow, NationDraft>(host, "nation", "Nations", "nations", AppLanguage.T("Search nation or ID..."))
 {
     static readonly string[] TransferValueRanges = ["50 – 549", "550 – 1,049", "1,050 – 1,549", "1,550 – 2,049", "2,050 – 2,549",
         "2,550 – 3,049", "3,050 – 3,549", "3,550 – 4,049", "4,050 – 4,549", "4,550 – 5,049",
@@ -84,8 +84,8 @@ internal sealed class NationScreen(IScreenHost host)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Nation", Binding = new Binding(nameof(NationRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        foreach (var (header, property) in new[] { ("ID", nameof(NationRow.Id)), ("FIFA", nameof(NationRow.Fifa)), ("Youth", nameof(NationRow.Youth)), ("Economy", nameof(NationRow.Economy)) })
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Nation"), Binding = new Binding(nameof(NationRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        foreach (var (header, property) in new[] { (AppLanguage.T("ID"), nameof(NationRow.Id)), (AppLanguage.T("FIFA"), nameof(NationRow.Fifa)), (AppLanguage.T("Youth"), nameof(NationRow.Youth)), (AppLanguage.T("Economy"), nameof(NationRow.Economy)) })
         {
             var column = new DataGridTextColumn { Header = header, Binding = new Binding(property), Width = new DataGridLength(header == "Economy" ? 94 : 84) };
             column.CellStyleClasses.Add("numeric");
@@ -213,9 +213,9 @@ internal sealed class NationScreen(IScreenHost host)
         continents = links.Continents(nations);
         var locationItems = new List<(string Label, Control Control)>();
         if (links.Capital(n.Address) is { } capital)
-            locationItems.Add(("Capital", new TextBlock { Text = capital.Name, FontSize = 13, FontWeight = FontWeight.Medium, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center }));
+            locationItems.Add((AppLanguage.T("Capital"), new TextBlock { Text = capital.Name, FontSize = 13, FontWeight = FontWeight.Medium, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center }));
         if (links.Stadium(n.Address) is { } stadium)
-            locationItems.Add(("Stadium", new TextBlock { Text = stadium.DisplayName, FontSize = 13, FontWeight = FontWeight.Medium, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center }));
+            locationItems.Add((AppLanguage.T("Stadium"), new TextBlock { Text = stadium.DisplayName, FontSize = 13, FontWeight = FontWeight.Medium, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center }));
         if (continents.Any(c => c.Address == continentNow))
         {
             var combo = new ComboBox { ItemsSource = continents.Select(c => c.Name).ToArray(), MinWidth = 152 };
@@ -227,7 +227,7 @@ internal sealed class NationScreen(IScreenHost host)
                 draft.Continent = chosen == continentNow ? null : chosen;
                 changed();
             };
-            locationItems.Add(("Continent", combo));
+            locationItems.Add((AppLanguage.T("Continent"), combo));
         }
 
         for (int g = 0; g < NationLabels.Groups.Length; g++)
@@ -246,7 +246,7 @@ internal sealed class NationScreen(IScreenHost host)
         RivalNations(n, draft, changed, nations, pages[4]);
         Preferences(n, draft, changed, nations, pages[5]);
         StaffPage(n, pages[6]);
-        pages[0].Children.Add(UiKit.Card("Agreements", AgreementsPanel(n, draft, changed, nations)));
+            pages[0].Children.Add(UiKit.Card(AppLanguage.T("Agreements"), AgreementsPanel(n, draft, changed, nations)));
 
         var coefficients = session.NationEuroCoefficients.Read(n.Address);
         if (coefficients.Count > 0)
@@ -255,11 +255,11 @@ internal sealed class NationScreen(IScreenHost host)
             var labels = NationEuroCoefficients.Labels(season, coefficients.Count);
             var rows = Enumerable.Range(0, coefficients.Count)
                 .Select(i => (labels[i], (Control)new TextBlock { Text = coefficients[i].ToString("0.###", Inv), FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = UiKit.TextPrimary, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }));
-            team[0].Children.Add(RowsCard("Euro Coefficients", rows));
+            team[0].Children.Add(RowsCard(AppLanguage.T("Euro Coefficients"), rows));
         }
 
         string[] tabNames = ["Information", "National Teams", "Squads", "Kits and Colours", "Relationships", "Transfer Preferences", "Staff"];
-        var sections = tabNames.Select((name, index) => new SectionHost.Section(name, name, pages[index])).ToArray();
+        var sections = tabNames.Select((name, index) => new SectionHost.Section(name, AppLanguage.T(name), pages[index])).ToArray();
         Editor.Children.Add(SectionHost.Build("nation", sections, tabNames[Math.Clamp(selectedPage, 0, tabNames.Length - 1)], key => selectedPage = Array.IndexOf(tabNames, key), RailHost));
 
         var badges = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -300,7 +300,7 @@ internal sealed class NationScreen(IScreenHost host)
                 };
                 rows.Add((title, ColourInputControl.Create(box)));
             }
-            var card = RowsCard("Colours", rows);
+            var card = RowsCard(AppLanguage.T("Colours"), rows);
             card.VerticalAlignment = VerticalAlignment.Top;
             card.Margin = new Thickness(0, 0, 0, 10);
             page.Children.Add(card);
@@ -335,7 +335,7 @@ internal sealed class NationScreen(IScreenHost host)
             if (session.ReadGameDate() is { } today) foreach (var p in list) p.GameDate = today;
             return list;
         }
-        page.Children.Add(UiKit.Card("Squads", new StackPanel { Spacing = 6, Children = { Host.BuildSquad(GetSquad) } }, rightHeader: picker));
+        page.Children.Add(UiKit.Card(AppLanguage.T("Squads"), new StackPanel { Spacing = 6, Children = { Host.BuildSquad(GetSquad) } }, rightHeader: picker));
     }
 
     // Staff: the national appointments (managers, coaches, medical); the table and its Tools act on the national contract only.
@@ -350,7 +350,7 @@ internal sealed class NationScreen(IScreenHost host)
         var today = session.ReadGameDate();
         var lines = staff.Select(s => new StaffListRow(s.Staff, s.JobName, n.DisplayName + s.TeamSuffix, s.Staff.Nationality?.DisplayName ?? "",
             ClubStaffLabels.Age(s.Staff.DateOfBirth, today), s.Staff.CurrentAbility, s.Staff.PotentialAbility, scope.ExpiryText(s.Staff))).ToList();
-        page.Children.Add(UiKit.Card("Staff", Host.BuildStaffTable(lines, scope, Render)));
+        page.Children.Add(UiKit.Card(AppLanguage.T("Staff"), Host.BuildStaffTable(lines, scope, Render)));
     }
     // Teams Reputation
     void TeamReputations(NationRecord n, NationDraft draft, Action changed, Panel column)
@@ -362,7 +362,7 @@ internal sealed class NationScreen(IScreenHost host)
         int idx = 0;
         if (session.NationTeams.AllowLicensedKits(teams[0].Address) is { } kitNow)
         {
-            var kits = new CheckBox { Content = "Allow Licensed Kits", IsChecked = draft.LicensedKits ?? kitNow, FontSize = 13, Foreground = UiKit.TextSecondary };
+            var kits = new CheckBox { Content = AppLanguage.T("Allow Licensed Kits"), IsChecked = draft.LicensedKits ?? kitNow, FontSize = 13, Foreground = UiKit.TextSecondary };
             kits.IsCheckedChanged += (_, _) =>
             {
                 bool value = kits.IsChecked == true;
@@ -383,7 +383,7 @@ internal sealed class NationScreen(IScreenHost host)
             line.Children.Add(new TextBlock { Text = team.Index == 0 ? n.DisplayName : $"{n.DisplayName} {team.Index + 1}", FontSize = 13, Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
             stack.Children.Add(new Border { Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent, Padding = new Thickness(10, 2), Child = line });
         }
-        column.Children.Add(UiKit.Card("Teams Reputation", stack));
+        column.Children.Add(UiKit.Card(AppLanguage.T("Teams Reputation"), stack));
     }
 
     // Rival Nations
@@ -399,7 +399,7 @@ internal sealed class NationScreen(IScreenHost host)
             input.TextChanged += (_, _) => { draft.Rivalry.Set(rival, input.Text ?? ""); changed(); };
             rows.Add((rival.Opponent, input));
         }
-        var card = RowsCard("Rival Nations", rows);
+        var card = RowsCard(AppLanguage.T("Rival Nations"), rows);
         card.MaxWidth = 540;
         card.HorizontalAlignment = HorizontalAlignment.Left;
         page.Children.Add(card);
@@ -413,10 +413,10 @@ internal sealed class NationScreen(IScreenHost host)
         Control? transferCard = null;
         if (draft.TransferValuesSnapshot is { } transferValues)
         {
-            var fields = new List<(string, Control)> { ("Reputation", Heading("Transfer Value", true)) };
+            var fields = new List<(string, Control)> { (AppLanguage.T("Reputation"), Heading(AppLanguage.T("Transfer Value"), true)) };
             fields.AddRange(Enumerable.Range(0, NationTransferValuesReader.Count).Select(i =>
                 (TransferValueRanges[i], (Control)FieldBox(draft.TransferValues, i, transferValues.Values[i].ToString(Inv), 128, changed))));
-            transferCard = CardRows("Transfer Values", fields);
+            transferCard = CardRows(AppLanguage.T("Transfer Values"), fields);
         }
         int nationVector = session.Profile.Nation?.Preferences?.Vector ?? 0xF0;
         var targets = draft.TargetsIn(nationVector);
@@ -465,7 +465,7 @@ internal sealed class NationScreen(IScreenHost host)
             }
             var add = new Button { Content = "+", Width = 24, Height = 21, MinHeight = 21, Padding = new Thickness(0) };
             add.Click += (_, _) => { draft.PreferenceAdds[nationVector] = draft.PreferenceAdds.GetValueOrDefault(nationVector) + 1; Render(); };
-            var preferenceCard = UiKit.Card("Transfer Preferences", list, rightHeader: add);
+            var preferenceCard = UiKit.Card(AppLanguage.T("Transfer Preferences"), list, rightHeader: add);
             page.Children.Add(transferCard is null ? preferenceCard : TwoColumns(preferenceCard, transferCard));
         }
 
@@ -514,7 +514,7 @@ internal sealed class NationScreen(IScreenHost host)
             }
             var add = new Button { Content = "+", Width = 24, Height = 21, MinHeight = 21, Padding = new Thickness(0) };
             add.Click += (_, _) => { draft.PreferenceAdds[continentVector] = draft.PreferenceAdds.GetValueOrDefault(continentVector) + 1; Render(); };
-            page.Children.Add(UiKit.Card("Continents", list, rightHeader: add));
+            page.Children.Add(UiKit.Card(AppLanguage.T("Continents"), list, rightHeader: add));
         }
     }
 
@@ -616,7 +616,8 @@ internal sealed class NationScreen(IScreenHost host)
                 var pendingTarget = draft.AgreementTargets.GetValueOrDefault(row.Address);
                 var chosenKind = pendingTarget.Row is null ? row.Kind : pendingTarget.Kind;
                 ulong chosenTarget = pendingTarget.Row is null ? row.Target : pendingTarget.Target;
-                var typeBox = new ComboBox { ItemsSource = types, SelectedItem = types.First(x => x.Kind == chosenKind), MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch };
+                var typeBox = new ComboBox { ItemsSource = types, SelectedItem = types.First(x => x.Kind == chosenKind), MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch,
+                    ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<AgreementTypeOption>((option, _) => new TextBlock { Text = option is null ? "" : AppLanguage.T(option.Name) }) };
                 var targetBox = new ComboBox { MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch };
                 IReadOnlyList<AgreementTargetOption> Choices(AgreementKind kind)
                 {
@@ -659,8 +660,8 @@ internal sealed class NationScreen(IScreenHost host)
                 string fromOriginal = DateSetting.Format(row.From);
                 string untilOriginal = DateSetting.Format(row.Until);
                 var pendingDates = draft.AgreementDates.GetValueOrDefault(row.Address);
-                var fromBox = new DateBox { Text = pendingDates.Row is null ? fromOriginal : pendingDates.From, Watermark = "No limit", MinHeight = 24 };
-                var untilBox = new DateBox { Text = pendingDates.Row is null ? untilOriginal : pendingDates.Until, Watermark = "No limit", MinHeight = 24 };
+                var fromBox = new DateBox { Text = pendingDates.Row is null ? fromOriginal : pendingDates.From, Watermark = AppLanguage.Get("Common_No_limit"), MinHeight = 24 };
+                var untilBox = new DateBox { Text = pendingDates.Row is null ? untilOriginal : pendingDates.Until, Watermark = AppLanguage.Get("Common_No_limit"), MinHeight = 24 };
                 void DatesChanged()
                 {
                     string from = fromBox.Text ?? "", until = untilBox.Text ?? "";
@@ -689,7 +690,8 @@ internal sealed class NationScreen(IScreenHost host)
                     int index = list.RowDefinitions.Count;
                     list.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                     var kinds = TypeOptions(regionOptions.Length > 0, addition.Kind);
-                    var type = new ComboBox { ItemsSource = kinds, SelectedItem = kinds.First(x => x.Kind == addition.Kind), MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch };
+                    var type = new ComboBox { ItemsSource = kinds, SelectedItem = kinds.First(x => x.Kind == addition.Kind), MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch,
+                        ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<AgreementTypeOption>((option, _) => new TextBlock { Text = option is null ? "" : AppLanguage.T(option.Name) }) };
                     var target = new ComboBox { MinHeight = 24, HorizontalAlignment = HorizontalAlignment.Stretch };
                     void SelectTargets(AgreementKind kind, ulong selected)
                     {
@@ -712,8 +714,8 @@ internal sealed class NationScreen(IScreenHost host)
                     SelectTargets(addition.Kind, addition.Target);
                     type.SelectionChanged += (_, _) => { if (type.SelectedItem is AgreementTypeOption chosen) { addition.Kind = chosen.Kind; SelectTargets(chosen.Kind, 0); if (target.SelectedItem is AgreementTargetOption item) addition.Target = item.Address; } };
                     target.SelectionChanged += (_, _) => { if (target.SelectedItem is AgreementTargetOption chosen) addition.Target = chosen.Address; };
-                    var from = new DateBox { Text = addition.From, Watermark = "No limit", MinHeight = 24 };
-                    var until = new DateBox { Text = addition.Until, Watermark = "No limit", MinHeight = 24 };
+                    var from = new DateBox { Text = addition.From, Watermark = AppLanguage.Get("Common_No_limit"), MinHeight = 24 };
+                    var until = new DateBox { Text = addition.Until, Watermark = AppLanguage.Get("Common_No_limit"), MinHeight = 24 };
                     from.TextChanged += (_, _) => addition.From = from.Text ?? "";
                     until.TextChanged += (_, _) => addition.Until = until.Text ?? "";
                     Control[] cells = [type, target, from, until];

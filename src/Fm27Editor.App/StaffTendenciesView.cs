@@ -59,7 +59,7 @@ public sealed partial class MainWindow
             var changes = new List<(StaffTendency Row, byte Type, int Level)>();
             foreach (var (row, type, box) in fields)
             {
-                if (!int.TryParse(box.Text, out int value) || value is < 0 or > 20) { status.Text = "Tendency level must be between 0 and 20"; return; }
+                if (!int.TryParse(box.Text, out int value) || value is < 0 or > 20) { status.Text = AppLanguage.Get("Ui_Tendency_level_must_be_between_0_and_20"); return; }
                 if (value != row.Level || Code(type) != row.Type) changes.Add((row, Code(type), value));
             }
             int written = 0;
@@ -76,7 +76,7 @@ public sealed partial class MainWindow
                         written++;
                     }
                 }, StaffChangeLabels.ForTendencies(changes.Select(c => c.Row)));
-                RenderStaffEditor(); status.Text = "Saved tendencies. Continue in FM to see updates.";
+                RenderStaffEditor(); status.Text = AppLanguage.Get("Ui_Saved_tendencies_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }
         };

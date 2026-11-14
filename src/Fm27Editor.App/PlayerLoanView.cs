@@ -30,23 +30,23 @@ public sealed partial class MainWindow
             return box;
         }
 
-        form.AddRow(0, "Borrowing Club", new TextBox { Text = borrowingClub, Width = 196, IsReadOnly = true });
+        form.AddRow(0, AppLanguage.T("Borrowing Club"), new TextBox { Text = borrowingClub, Width = 196, IsReadOnly = true });
         var wage = Field(terms.Wage.ToString(Inv), true);
         var started = Field(Day(terms.Started), false, date: true);
         var signed = Field(Day(terms.Signed), false, date: true);
         var expires = Field(Day(terms.Expires), false, date: true);
-        form.AddRow(0, "Wages (per week)", wage);
-        form.AddRow(0, "Started", started);
-        form.AddRow(0, "Signed", signed);
-        form.AddRow(0, "Expires", expires);
+        form.AddRow(0, AppLanguage.T("Wages (per week)"), wage);
+        form.AddRow(0, AppLanguage.T("Started"), started);
+        form.AddRow(0, AppLanguage.T("Signed"), signed);
+        form.AddRow(0, AppLanguage.T("Expires"), expires);
         var price = Field(Money(terms.AgreedPrice), true);
         var buyBack = Field(Money(terms.BuyBackFee), true);
         var monthly = Field(Money(terms.MonthlyFee), true);
         var unused = Field(Money(terms.UnusedMonthlyFee), true);
-        form.AddRow(1, "Agreed Price", price);
-        form.AddRow(1, "Buy Back Fee", buyBack);
-        form.AddRow(1, "Monthly Fee", monthly);
-        form.AddRow(1, "Unused Monthly Fee", unused);
+        form.AddRow(1, AppLanguage.T("Agreed Price"), price);
+        form.AddRow(1, AppLanguage.T("Buy Back Fee"), buyBack);
+        form.AddRow(1, AppLanguage.T("Monthly Fee"), monthly);
+        form.AddRow(1, AppLanguage.T("Unused Monthly Fee"), unused);
         panel.Children.Add(form.BuildCard("Loan Details"));
 
         bool Changed(TextBox box) => fields.First(f => ReferenceEquals(f.Box, box)).Box.Text != fields.First(f => ReferenceEquals(f.Box, box)).Original;
@@ -59,22 +59,22 @@ public sealed partial class MainWindow
                 {
                     if (!Changed(box)) return null;
                     if (!DateSetting.TryParse((box.Text ?? "").Trim(), out var d))
-                        throw new FormatException($"{label}: enter a date like 2027-06-30");
+                        throw new FormatException(string.Format(AppLanguage.T("{0}: enter a date like 2027-06-30"), AppLanguage.T(label)));
                     return d;
                 }
                 int? Amount(TextBox box, string label, bool none)
                 {
                     if (!Changed(box)) return null;
                     string text = (box.Text ?? "").Trim();
-                    if (text.Length == 0) return none ? -1 : throw new FormatException($"{label}: enter an amount");
-                    return int.TryParse(text, NumberStyles.Integer, Inv, out int v) && v >= 0 ? v : throw new FormatException($"{label}: enter a whole number of 0 or more");
+                    if (text.Length == 0) return none ? -1 : throw new FormatException(string.Format(AppLanguage.T("{0}: enter an amount"), AppLanguage.T(label)));
+                    return int.TryParse(text, NumberStyles.Integer, Inv, out int v) && v >= 0 ? v : throw new FormatException(string.Format(AppLanguage.T("{0}: enter a whole number of 0 or more"), AppLanguage.T(label)));
                 }
                 var edit = new LoanTermsEdit(
                     Wage: Amount(wage, "Wages", false), Started: Date(started, "Started"), Expires: Date(expires, "Expires"), Signed: Date(signed, "Signed"),
                     AgreedPrice: Amount(price, "Agreed Buy Price", true), BuyBackFee: Amount(buyBack, "Buy-Back Fee", true),
                     MonthlyFee: Amount(monthly, "Monthly Fee", true), UnusedMonthlyFee: Amount(unused, "Unused Monthly Fee", true));
                 backend.Edits.Execute("Player", player.DisplayName, "Loan", () => backend.Session.SetLoanTerms(loan, edit));
-                status.Text = $"Saved {player.DisplayName}'s loan. Continue in FM to see updates.";
+                status.Text = string.Format(AppLanguage.T("Saved {0}'s loan. Continue in FM to see updates."), player.DisplayName);
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
@@ -90,7 +90,7 @@ public sealed partial class MainWindow
                 clubCache = null;
                 selected = backend.Players.Reload(player.Address);
                 if (selected is not null) { selected.GameDate = backend.GameDate; ReplaceRow(selected); }
-                status.Text = $"Recalled {player.DisplayName} to {parent}. Continue in FM to see updates.";
+                status.Text = string.Format(AppLanguage.T("Recalled {0} to {1}. Continue in FM to see updates."), player.DisplayName, parent);
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }

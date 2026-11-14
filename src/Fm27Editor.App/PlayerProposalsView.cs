@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Clubs;
@@ -38,7 +38,7 @@ public sealed partial class MainWindow
         var e = new OfferContractEditor
         {
             Contract = contract,
-            Type = new ComboBox { Width = 170, ItemsSource = OfferContractTypes.Select(ContractLabels.Of).ToArray(), SelectedIndex = ti },
+            Type = new ComboBox { Width = 170, ItemsSource = OfferContractTypes.Select(ContractLabels.Of).ToArray(), SelectedIndex = ti, ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }) },
             Wages = new TextBox { Width = 110, Text = contract.Wage.ToString("N0", Inv), HorizontalContentAlignment = HorizontalAlignment.Right },
             Started = new DateBox { Width = 130, Text = D(contract.Started) },
             Expires = new DateBox { Width = 130, Text = D(contract.Expires) },
@@ -57,7 +57,7 @@ public sealed partial class MainWindow
         for (int r = 0; r < rows.Length; r++)
         {
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var label = new TextBlock { Text = rows[r].Label, VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { Text = AppLanguage.T(rows[r].Label), VerticalAlignment = VerticalAlignment.Center };
             rows[r].Value.HorizontalAlignment = HorizontalAlignment.Left;
             Grid.SetRow(label, r); Grid.SetRow(rows[r].Value, r); Grid.SetColumn(rows[r].Value, 1);
             grid.Children.Add(label); grid.Children.Add(rows[r].Value);
@@ -85,7 +85,7 @@ public sealed partial class MainWindow
         var host = new Border { Margin = new Thickness(0, 4) };
         var loading = new TextBlock
         {
-            Text = "Loading transfer proposals...",
+            Text = AppLanguage.T("Loading transfer proposals..."),
             Foreground = Brush("#94A3B8"),
             FontSize = 13.5,
             Margin = new Thickness(4),
@@ -126,7 +126,7 @@ public sealed partial class MainWindow
             }
             catch (Exception ex)
             {
-                Show(new TextBlock { Text = $"Transfer proposals could not be read: {UserMessage.For(ex)}", Foreground = Brush("#F87171"), FontSize = 13.5, Margin = new Thickness(4), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+                Show(new TextBlock { Text = string.Format(AppLanguage.T("Transfer proposals could not be read: {0}"), UserMessage.For(ex)), Foreground = Brush("#F87171"), FontSize = 13.5, Margin = new Thickness(4), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
                 return;
             }
             var firstView = BuildOnUi(proposals, contracts, liveDeal);
@@ -181,19 +181,19 @@ public sealed partial class MainWindow
                 Text = deal.Fee.ToString("N0", Inv),
                 HorizontalContentAlignment = HorizontalAlignment.Right,
             };
-            var applyFee = new Button { Content = "Apply Fee" };
+            var applyFee = new Button { Content = AppLanguage.T("Apply Fee") };
             applyFee.Click += (_, _) =>
             {
                 if (!int.TryParse(feeBox.Text, System.Globalization.NumberStyles.AllowThousands, Inv, out var v) || v < 0)
                 {
-                    status.Text = "Transfer Fee: enter a fee of 0 or more.";
+                    status.Text = AppLanguage.T("Transfer Fee: enter a fee of 0 or more.");
                     return;
                 }
                 try
                 {
                     backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.TransferDealWriter.SetFee(deal, deal.Fee, v));
                     lock (dealCandidateLock) { cachedDealCandidates = null; }
-                    status.Text = "Saved transfer fee. Continue in FM to see updates.";
+                    status.Text = AppLanguage.T("Saved transfer fee. Continue in FM to see updates.");
                     RenderEditor();
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
@@ -205,7 +205,7 @@ public sealed partial class MainWindow
                 Spacing = 8,
                 Children =
                 {
-                    new TextBlock { Text = "Transfer Fee (£)", Width = 120, VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = AppLanguage.T("Transfer Fee (£)"), Width = 120, VerticalAlignment = VerticalAlignment.Center },
                     feeBox,
                     applyFee
                 }
@@ -226,10 +226,10 @@ public sealed partial class MainWindow
             var statusCombo = new ComboBox
             {
                 Width = 170,
-                ItemsSource = statusOptions.Select(s => s.Label).ToArray(),
+                ItemsSource = statusOptions.Select(s => s.Label).ToArray(), ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }),
                 SelectedIndex = selStatusIdx,
             };
-            var applyStatus = new Button { Content = "Apply Status" };
+            var applyStatus = new Button { Content = AppLanguage.T("Apply Status") };
             applyStatus.Click += (_, _) =>
             {
                 if (statusCombo.SelectedIndex < 0 || statusCombo.SelectedIndex >= statusOptions.Length) return;
@@ -238,7 +238,7 @@ public sealed partial class MainWindow
                 {
                     backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.TransferDealWriter.SetStatus(deal, deal.StatusRaw, newStatus));
                     lock (dealCandidateLock) { cachedDealCandidates = null; }
-                    status.Text = "Saved deal status. Continue in FM to see updates.";
+                    status.Text = AppLanguage.T("Saved deal status. Continue in FM to see updates.");
                     RenderEditor();
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
@@ -250,7 +250,7 @@ public sealed partial class MainWindow
                 Spacing = 8,
                 Children =
                 {
-                    new TextBlock { Text = "Status", Width = 120, VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = AppLanguage.T("Status"), Width = 120, VerticalAlignment = VerticalAlignment.Center },
                     statusCombo,
                     applyStatus
                 }
@@ -258,14 +258,14 @@ public sealed partial class MainWindow
 
             if (deal.IsOpen)
             {
-                var acceptBtn = new Button { Content = "Accept Offer", Classes = { "accent" } };
+                var acceptBtn = new Button { Content = AppLanguage.T("Accept Offer"), Classes = { "accent" } };
                 acceptBtn.Click += (_, _) =>
                 {
                     try
                     {
                         backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.TransferDealWriter.AcceptOffer(deal));
                         lock (dealCandidateLock) { cachedDealCandidates = null; }
-                        status.Text = "Offer accepted. Continue in FM to see updates.";
+                        status.Text = AppLanguage.T("Offer accepted. Continue in FM to see updates.");
                         RenderEditor();
                     }
                     catch (Exception ex) { status.Text = UserMessage.For(ex); }
@@ -279,7 +279,7 @@ public sealed partial class MainWindow
 
         if (liveDeal is null && proposals.Count == 0)
         {
-            panel.Children.Add(new TextBlock { Text = "No active transfer proposals.", Foreground = Brush("#94A3B8"), FontSize = 13.5, Margin = new Thickness(4) });
+            panel.Children.Add(new TextBlock { Text = AppLanguage.T("No active transfer proposals."), Foreground = Brush("#94A3B8"), FontSize = 13.5, Margin = new Thickness(4) });
             return panel;
         }
 
@@ -297,7 +297,7 @@ public sealed partial class MainWindow
             fee.TextChanged += (_, _) => Refresh();
             fees.Add((p, fee));
             var body = new StackPanel { Spacing = 8 };
-            body.Children.Add(new TextBlock { Text = $"{ProposalLabels.Type(p.Type)} · {p.From} → {p.To} · {ProposalLabels.Status(p.Status)}", FontWeight = Avalonia.Media.FontWeight.SemiBold });
+            body.Children.Add(new TextBlock { Text = $"{AppLanguage.T(ProposalLabels.Type(p.Type))} · {p.From} → {p.To} · {AppLanguage.T(ProposalLabels.Status(p.Status))}", FontWeight = Avalonia.Media.FontWeight.SemiBold });
             body.Children.Add(Pairs(("Transfer Fee (£)", fee)));
             if (contracts.TryGetValue(p.Id, out var contract))
             {
@@ -311,13 +311,13 @@ public sealed partial class MainWindow
             var feeChanges = new List<(TransferProposal Proposal, int Value)>();
             foreach (var f in fees)
             {
-                if (!int.TryParse(f.Fee.Text, System.Globalization.NumberStyles.AllowThousands, Inv, out var v) || v < 0) { status.Text = "Transfer Proposals: enter a fee of 0 or more"; return; }
+                if (!int.TryParse(f.Fee.Text, System.Globalization.NumberStyles.AllowThousands, Inv, out var v) || v < 0) { status.Text = AppLanguage.T("Transfer Proposals: enter a fee of 0 or more"); return; }
                 if (v != f.Proposal.Value) feeChanges.Add((f.Proposal, v));
             }
             var contractChanges = new List<(OfferContract Contract, OfferContractFields Fields)>();
             foreach (var e in editors.Where(e => e.Changed()))
             {
-                if (e.Parse() is not { } fields) { status.Text = "Contract: enter wages from 0 to 3,500,000 and dates like 2027-06-30, expiry after start"; return; }
+                if (e.Parse() is not { } fields) { status.Text = AppLanguage.T("Contract: enter wages from 0 to 3,500,000 and dates like 2027-06-30, expiry after start"); return; }
                 contractChanges.Add((e.Contract, fields));
             }
             try
@@ -328,7 +328,7 @@ public sealed partial class MainWindow
                     foreach (var c in contractChanges) session.FutureTransferWriter.SetContract(c.Contract, c.Fields);
                 });
                 lock (dealCandidateLock) { cachedDealCandidates = null; }
-                status.Text = "Saved transfer proposals. Continue in FM to see updates.";
+                status.Text = AppLanguage.T("Saved transfer proposals. Continue in FM to see updates.");
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = ex.Message; }
@@ -362,25 +362,25 @@ public sealed partial class MainWindow
             return box;
         }
 
-        form.AddRow(0, "Borrowing Club", Text(borrowingClub, 196));
+        form.AddRow(0, AppLanguage.T("Borrowing Club"), Text(borrowingClub, 196));
         if (loan.Contract is { } c)
         {
-            form.AddRow(0, "Wages (per week)", Text(c.Wage.ToString("N0", Inv), 140, rightAlign: true));
-            form.AddRow(0, "Started", Text(D(c.Started), 140));
-            form.AddRow(0, "Signed", Text(D(loan.Signed), 140));
-            form.AddRow(0, "Expires", Text(D(c.Expires), 140));
+            form.AddRow(0, AppLanguage.T("Wages (per week)"), Text(c.Wage.ToString("N0", Inv), 140, rightAlign: true));
+            form.AddRow(0, AppLanguage.T("Started"), Text(D(c.Started), 140));
+            form.AddRow(0, AppLanguage.T("Signed"), Text(D(loan.Signed), 140));
+            form.AddRow(0, AppLanguage.T("Expires"), Text(D(c.Expires), 140));
         }
         else if (loan.Signed is { } signed)
         {
-            form.AddRow(0, "Signed", Text(D(signed), 140));
+            form.AddRow(0, AppLanguage.T("Signed"), Text(D(signed), 140));
         }
 
         if (loan.Amounts is { } a)
         {
-            form.AddRow(1, "Agreed Buy Price", Text(a.AgreedPrice >= 0 ? a.AgreedPrice.ToString("N0", Inv) : "None", 140, rightAlign: true));
-            form.AddRow(1, "Buy-Back Fee", Text(a.BuyBackFee >= 0 ? a.BuyBackFee.ToString("N0", Inv) : "None", 140, rightAlign: true));
-            form.AddRow(1, "Monthly Fee", Text(a.MonthlyFee >= 0 ? a.MonthlyFee.ToString("N0", Inv) : "None", 140, rightAlign: true));
-            form.AddRow(1, "Unused Monthly Fee", Text(a.UnusedMonthlyFee >= 0 ? a.UnusedMonthlyFee.ToString("N0", Inv) : "None", 140, rightAlign: true));
+            form.AddRow(1, AppLanguage.T("Agreed Buy Price"), Text(a.AgreedPrice >= 0 ? a.AgreedPrice.ToString("N0", Inv) : "None", 140, rightAlign: true));
+            form.AddRow(1, AppLanguage.T("Buy-Back Fee"), Text(a.BuyBackFee >= 0 ? a.BuyBackFee.ToString("N0", Inv) : "None", 140, rightAlign: true));
+            form.AddRow(1, AppLanguage.T("Monthly Fee"), Text(a.MonthlyFee >= 0 ? a.MonthlyFee.ToString("N0", Inv) : "None", 140, rightAlign: true));
+            form.AddRow(1, AppLanguage.T("Unused Monthly Fee"), Text(a.UnusedMonthlyFee >= 0 ? a.UnusedMonthlyFee.ToString("N0", Inv) : "None", 140, rightAlign: true));
         }
 
         panel.Children.Add(form.BuildCard("Loan Details"));
@@ -505,7 +505,7 @@ public sealed partial class MainWindow
                 body.Children.Add(view);
             }
             // Takes the agreed transfer back out of the game (both builds): the offer, its date and the player's two lists.
-            var remove = new Button { Content = "Remove future transfer", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+            var remove = new Button { Content = AppLanguage.T("Remove future transfer"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
             var removing = t;
             remove.Click += (_, _) =>
             {
@@ -514,9 +514,9 @@ public sealed partial class MainWindow
                     backend.Edits.Execute("Player", player.DisplayName, "Remove future transfer", () => session.RemoveFutureTransfer(player, removing));
                     selected = backend.Players.Reload(player.Address); if (selected is not null) ReplaceRow(selected);
                     pendingSection = "Contract"; RenderEditor();
-                    status.Text = $"Removed the future transfer to {removing.Offer.To}. Continue in FM to see it.";
+                    status.Text = string.Format(AppLanguage.T("Removed the future transfer to {0}. Continue in FM to see it."), removing.Offer.To);
                 }
-                catch (Exception ex) { status.Text = $"Remove stopped: {UserMessage.For(ex)}"; }
+                catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Remove stopped: {0}"), UserMessage.For(ex)); }
             };
             body.Children.Add(remove);
             rowsOf.Add((t, date, fee, editor));
@@ -529,20 +529,20 @@ public sealed partial class MainWindow
             {
                 if (!DateSetting.TryParse(r.Date.Text, out var d)
                     || !int.TryParse(r.Fee.Text, System.Globalization.NumberStyles.AllowThousands, Inv, out var v) || v < 0)
-                { status.Text = "Future Transfer: enter a date like 2027-07-01 and a fee of 0 or more"; return; }
+                { status.Text = AppLanguage.T("Future Transfer: enter a date like 2027-07-01 and a fee of 0 or more"); return; }
                 var t = r.Transfer;
                 if (d != t.Date) writes.Add(() => session.FutureTransferWriter.SetDate(t, d));
                 if (v != t.Offer.Value) writes.Add(() => session.ProposalWriter.SetValue(t.Offer, v));
                 if (r.Contract is { } e && e.Changed())
                 {
-                    if (e.Parse() is not { } fields) { status.Text = "Contract: enter wages from 0 to 3,500,000 and dates like 2027-06-30, expiry after start"; return; }
+                    if (e.Parse() is not { } fields) { status.Text = AppLanguage.T("Contract: enter wages from 0 to 3,500,000 and dates like 2027-06-30, expiry after start"); return; }
                     writes.Add(() => session.FutureTransferWriter.SetContract(e.Contract, fields));
                 }
             }
             try
             {
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () => { foreach (var w in writes) w(); });
-                status.Text = "Saved future transfer. Continue in FM to see updates.";
+                status.Text = AppLanguage.T("Saved future transfer. Continue in FM to see updates.");
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = ex.Message; }

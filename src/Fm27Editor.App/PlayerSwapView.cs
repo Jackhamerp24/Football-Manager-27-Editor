@@ -17,7 +17,7 @@ public sealed partial class MainWindow
     /// <summary>Swap Player: pick another player and both go to the other's club and team for no fee.</summary>
     Control SwapPlayerPanel(PlayerRecord player)
     {
-        var search = new TextBox { Watermark = "Search player or ID…", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var search = new TextBox { Watermark = AppLanguage.Get("Ui_Search_player_or_ID"), HorizontalAlignment = HorizontalAlignment.Stretch };
         var list = new ListBox
         {
             Height = 220, HorizontalAlignment = HorizontalAlignment.Stretch, Background = UiKit.SurfaceInput,
@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         };
         var preview = new TextBlock { FontSize = 13.5, Foreground = UiKit.TextPrimary, TextWrapping = TextWrapping.Wrap, IsVisible = false };
         var warning = new TextBlock { Foreground = Brush("#F59E0B"), FontSize = 13, TextWrapping = TextWrapping.Wrap, IsVisible = false };
-        var apply = new Button { Content = "Confirm swap", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Height = 28, Classes = { "accent" } };
+        var apply = new Button { Content = AppLanguage.Get("Ui_Confirm_swap"), IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Height = 28, Classes = { "accent" } };
         var all = Players();
 
         void Filter()
@@ -33,7 +33,7 @@ public sealed partial class MainWindow
             if (player.Gender == Fm27Editor.Core.Offsets.Gender.Women || player.Club?.Gender == Fm27Editor.Core.Offsets.Gender.Women)
             {
                 list.ItemsSource = Array.Empty<SwapOption>();
-                warning.Text = "Only male players and men's clubs are supported.";
+                warning.Text = AppLanguage.Get("Common_Only_male_players_and_men_s_clubs_are_supported");
                 warning.IsVisible = true;
                 return;
             }
@@ -65,7 +65,7 @@ public sealed partial class MainWindow
             catch (Exception ex)
             {
                 warning.Text = UserMessage.For(ex); warning.IsVisible = true; apply.IsEnabled = true;
-                status.Text = $"Swap stopped: {UserMessage.For(ex)}";
+                status.Text = string.Format(AppLanguage.T("Swap stopped: {0}"), UserMessage.For(ex));
                 return;
             }
             clubCache = null;
@@ -73,7 +73,7 @@ public sealed partial class MainWindow
             foreach (var address in new[] { player.Address, other.Player.Address })
                 if (backend.Players.Reload(address) is { } fresh) { fresh.GameDate = backend.GameDate; ReplaceRow(fresh); if (address == player.Address) selected = fresh; }
             RenderEditor();
-            status.Text = $"Swapped {player.DisplayName} and {other.Player.DisplayName}. Club finances show after Continue in FM.";
+            status.Text = string.Format(AppLanguage.T("Swapped {0} and {1}. Club finances show after Continue in FM."), player.DisplayName, other.Player.DisplayName);
         };
         Filter();
 

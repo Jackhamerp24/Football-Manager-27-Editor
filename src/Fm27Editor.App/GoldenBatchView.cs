@@ -39,14 +39,14 @@ public sealed partial class MainWindow
         var wonderkid = new ComboBox { ItemsSource = wonderkidOptions, SelectedIndex = 0 };
         var maxAge = new NumericUpDown { Minimum = 0, Maximum = 60, Value = 0, Height = 24, MinHeight = 24, FontSize = 12.5, FormatString = "0" };
         ToolTip.SetTip(maxAge, "0 means no age limit");
-        var baselineLabel = new TextBlock { Text = "Baseline: none (everyone is treated as new)", Foreground = UiKit.TextSecondary, FontSize = 12 };
+        var baselineLabel = new TextBlock { Text = AppLanguage.Get("Ui_Baseline_none_everyone_is_treated_as_new"), Foreground = UiKit.TextSecondary, FontSize = 12 };
         List<PlayerRecord>? baseline = null;
         var ledger = GoldenGenerationLedger.Load(GoldenLedgerPath);
         var grid = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = false, RowHeight = 27, Height = 320 };
-        grid.Columns.Add(new DataGridTextColumn { Header = "Player", Binding = new Binding("Player.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "PA", Binding = new Binding("Change"), Width = new DataGridLength(110) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Reason", Binding = new Binding("Reason"), Width = new DataGridLength(130) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Detail", Binding = new Binding("Detail"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Player"), Binding = new Binding("Player.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_PA"), Binding = new Binding("Change"), Width = new DataGridLength(110) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Common_Reason"), Binding = new Binding("Reason"), Width = new DataGridLength(130) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Common_Detail"), Binding = new Binding("Detail"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         IReadOnlyList<GoldenGenerationEntry>? plan = null;
 
         GoldenGenerationRequest Request()
@@ -81,15 +81,15 @@ public sealed partial class MainWindow
             finally { busy = false; }
         }
 
-        var snapshot = new Button { Content = "Snapshot baseline" };
+        var snapshot = new Button { Content = AppLanguage.Get("Common_Snapshot_baseline") };
         snapshot.Click += (_, _) =>
         {
             baseline = getSquad().ToList();
             baselineLabel.Text = $"Baseline: {baseline.Count} players ({DateTime.Now:HH:mm})";
         };
-        var preview = new Button { Content = "Preview" };
+        var preview = new Button { Content = AppLanguage.Get("Common_Preview") };
         preview.Click += (_, _) => Preview();
-        var apply = new Button { Content = "Apply" };
+        var apply = new Button { Content = AppLanguage.Get("Label_Apply") };
         apply.Click += (_, _) =>
         {
             if (busy) return;
@@ -110,12 +110,12 @@ public sealed partial class MainWindow
         };
 
         var inputs = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 8, Margin = new Thickness(0, 0, 0, 8) };
-        inputs.Children.Add(new TextBlock { Text = "PA", VerticalAlignment = VerticalAlignment.Center });
+        inputs.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_PA"), VerticalAlignment = VerticalAlignment.Center });
         inputs.Children.Add(minPa);
         inputs.Children.Add(maxPa);
-        inputs.Children.Add(new TextBlock { Text = "Wonderkid", VerticalAlignment = VerticalAlignment.Center });
+        inputs.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Wonderkid"), VerticalAlignment = VerticalAlignment.Center });
         inputs.Children.Add(wonderkid);
-        inputs.Children.Add(new TextBlock { Text = "Max age", VerticalAlignment = VerticalAlignment.Center });
+        inputs.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Max_age"), VerticalAlignment = VerticalAlignment.Center });
         inputs.Children.Add(maxAge);
         inputs.Children.Add(snapshot);
         inputs.Children.Add(preview);
@@ -124,7 +124,7 @@ public sealed partial class MainWindow
         stack.Children.Add(inputs);
         stack.Children.Add(baselineLabel);
         stack.Children.Add(grid);
-        var window = new Window { Title = "Golden Batch — Preview", Width = 760, Height = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = stack };
+        var window = new Window { Title = AppLanguage.Get("Ui_Golden_Batch_Preview"), Width = 760, Height = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = stack };
         window.Show();
     }
 }

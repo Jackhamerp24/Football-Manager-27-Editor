@@ -10,7 +10,7 @@ namespace Fm27Editor.App;
 internal sealed record RefereeRow(RefereeRecord Referee, string Name, int CA, int PA, int Reputation, int Id);
 
 internal sealed class RefereeScreen(IScreenHost host)
-    : EntityScreen<RefereeRecord, RefereeRow, Dictionary<RefereeField, string>>(host, "referee", "Referees", "referees", "Search referee or ID...")
+    : EntityScreen<RefereeRecord, RefereeRow, Dictionary<RefereeField, string>>(host, "referee", "Referees", "referees", AppLanguage.T("Search referee or ID..."))
 {
     static readonly RefereeField[] Ability = [RefereeField.CurrentAbility, RefereeField.PotentialAbility, RefereeField.Reputation];
     static readonly RefereeField[] Skills = [RefereeField.AllowingFlow, RefereeField.Discipline, RefereeField.ImportantMatches,
@@ -19,9 +19,9 @@ internal sealed class RefereeScreen(IScreenHost host)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(RefereeRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Name"), Binding = new Binding(nameof(RefereeRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         foreach (var (title, property, width) in new[] { ("CA", nameof(RefereeRow.CA), 65), ("PA", nameof(RefereeRow.PA), 65),
-                     ("Reputation", nameof(RefereeRow.Reputation), 100), ("ID", nameof(RefereeRow.Id), 110) })
+                     (AppLanguage.T("Reputation"), nameof(RefereeRow.Reputation), 100), (AppLanguage.T("ID"), nameof(RefereeRow.Id), 110) })
         {
             var column = new DataGridTextColumn { Header = title, Binding = new Binding(property), Width = new DataGridLength(width) };
             column.CellStyleClasses.Add("numeric");
@@ -44,10 +44,10 @@ internal sealed class RefereeScreen(IScreenHost host)
 
     static string LabelFor(RefereeField field) => field switch
     {
-        RefereeField.CurrentAbility => "Current Ability", RefereeField.PotentialAbility => "Potential Ability",
-        RefereeField.AllowingFlow => "Allowing Flow", RefereeField.ImportantMatches => "Important Matches",
-        RefereeField.RunningLine => "Running Line", RefereeField.TimeKeeping => "Time Keeping",
-        RefereeField.EliteList => "Elite List", RefereeField.EuropeanCategory => "European Category", _ => field.ToString(),
+        RefereeField.CurrentAbility => AppLanguage.T("Current Ability"), RefereeField.PotentialAbility => AppLanguage.T("Potential Ability"),
+        RefereeField.AllowingFlow => AppLanguage.T("Allowing Flow"), RefereeField.ImportantMatches => AppLanguage.T("Important Matches"),
+        RefereeField.RunningLine => AppLanguage.T("Running Line"), RefereeField.TimeKeeping => AppLanguage.T("Time Keeping"),
+        RefereeField.EliteList => AppLanguage.T("Elite List"), RefereeField.EuropeanCategory => AppLanguage.T("European Category"), _ => field.ToString(),
     };
 
     static int Value(RefereeRecord r, RefereeField f) => f switch
@@ -64,12 +64,12 @@ internal sealed class RefereeScreen(IScreenHost host)
     protected override void BuildEditor(RefereeRecord r, Dictionary<RefereeField, string> draft, Action changed)
     {
         HeaderHost.Content = UiKit.EntityBanner(r.DisplayName, new TextBlock { Text = $"ID {r.UniqueId.ToString(Inv)}" }, null);
-        var info = CardRows("Information", [("ID", Label(r.UniqueId.ToString(Inv), "#F1F5F9")),
-            ("Date of Birth", Label(DateSetting.Format(r.DateOfBirth), "#F1F5F9"))]);
+        var info = CardRows(AppLanguage.T("Information"), [(AppLanguage.T("ID"), Label(r.UniqueId.ToString(Inv), "#F1F5F9")),
+            (AppLanguage.T("Date of Birth"), Label(DateSetting.Format(r.DateOfBirth), "#F1F5F9"))]);
         Control Card(string title, RefereeField[] fields) => CardRows(title, fields.Select(f =>
             (LabelFor(f), (Control)FieldBox(draft, f, Value(r, f).ToString(Inv), 96, changed))));
-        var left = new StackPanel { Spacing = 8, Children = { info, Card("Ability", Ability) } };
-        var right = new StackPanel { Spacing = 8, Children = { Card("Skills", Skills), Card("Flags", Flags) } };
+        var left = new StackPanel { Spacing = 8, Children = { info, Card(AppLanguage.T("Ability"), Ability) } };
+        var right = new StackPanel { Spacing = 8, Children = { Card(AppLanguage.T("Skills"), Skills), Card(AppLanguage.T("Flags"), Flags) } };
         Editor.Children.Add(TwoColumns(left, right));
     }
 

@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -54,7 +55,7 @@ internal sealed class CompetitionState
 
 /// <summary>Competitions: reputation, colours, winter ball, VAR, prize money, squad rules and standings.</summary>
 internal sealed class CompetitionScreen(IScreenHost host)
-    : EntityScreen<CompetitionRecord, CompetitionRow, CompetitionState>(host, "competition", "Competitions", "competitions", "Search competition or ID...")
+    : EntityScreen<CompetitionRecord, CompetitionRow, CompetitionState>(host, "competition", "Competitions", "competitions", AppLanguage.T("Search competition or ID..."))
 {
     static readonly IReadOnlyDictionary<int, string> CommonRuleLabels = new Dictionary<int, string>
     {
@@ -144,11 +145,11 @@ internal sealed class CompetitionScreen(IScreenHost host)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Competition", Binding = new Binding(nameof(CompetitionRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        var reputation = new DataGridTextColumn { Header = "Reputation", Binding = new Binding(nameof(CompetitionRow.Reputation)), Width = new DataGridLength(115) };
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Competition"), Binding = new Binding(nameof(CompetitionRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        var reputation = new DataGridTextColumn { Header = AppLanguage.T("Reputation"), Binding = new Binding(nameof(CompetitionRow.Reputation)), Width = new DataGridLength(115) };
         reputation.CellStyleClasses.Add("numeric");
         grid.Columns.Add(reputation);
-        var id = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(CompetitionRow.Id)), Width = new DataGridLength(110) };
+        var id = new DataGridTextColumn { Header = AppLanguage.T("ID"), Binding = new Binding(nameof(CompetitionRow.Id)), Width = new DataGridLength(110) };
         id.CellStyleClasses.Add("numeric");
         grid.Columns.Add(id);
     }
@@ -254,7 +255,8 @@ internal sealed class CompetitionScreen(IScreenHost host)
         var reputation = Field(draft.Reputation ?? c.Reputation.ToString(Inv), 76, true);
         var subsOptions = SubstitutionOptions(c.SubstitutionRules);
         byte currentSubs = byte.TryParse(draft.SubstitutionRules, out byte drafted) ? drafted : c.SubstitutionRules;
-        var subs = new ComboBox { Width = 196, ItemsSource = subsOptions, SelectedItem = subsOptions.First(o => o.Value == currentSubs) };
+        var subs = new ComboBox { Width = 196, ItemsSource = subsOptions, SelectedItem = subsOptions.First(o => o.Value == currentSubs),
+            ItemTemplate = new FuncDataTemplate<SubstitutionOption>((option, _) => new TextBlock { Text = AppLanguage.T(option.Label) }) };
 
         var colourFields = new List<(CompetitionColour Slot, uint Current, Border Swatch, TextBox Box)>();
         foreach (var (current, slot) in new (uint, CompetitionColour)[]
@@ -336,7 +338,8 @@ internal sealed class CompetitionScreen(IScreenHost host)
         }
         var varOptions = new List<SubstitutionOption> { new(1, "Referee Review"), new(2, "Remote Review"), new(3, "Referee And/Or Remote Review"), new(4, "Unknown VAR Type"), new(5, "No VAR") };
         if (varSettings is not null && varOptions.All(o => o.Value != varSettings.Type)) varOptions.Insert(0, new(varSettings.Type, $"Value 0x{varSettings.Type:X2}"));
-        var varType = varSettings is null ? null : new ComboBox { Width = 198, ItemsSource = varOptions, SelectedItem = varOptions.First(o => o.Value == (draft.VarType ?? varSettings.Type)) };
+        var varType = varSettings is null ? null : new ComboBox { Width = 198, ItemsSource = varOptions, SelectedItem = varOptions.First(o => o.Value == (draft.VarType ?? varSettings.Type)),
+            ItemTemplate = new FuncDataTemplate<SubstitutionOption>((option, _) => new TextBlock { Text = AppLanguage.T(option.Label) }) };
         var varTvOnly = varSettings is null ? null : new CheckBox { IsChecked = draft.VarTvOnly ?? (varSettings.TvOnly != 0) };
         var varEnabled = varSettings is null ? null : new CheckBox { IsChecked = draft.VarEnabled ?? (varSettings.Enabled != 0) };
         var varFromDate = varSettings is null ? null : DateEntry(draft.VarFromDate ?? Date(varSettings.FromDate), 130);
@@ -420,11 +423,11 @@ internal sealed class CompetitionScreen(IScreenHost host)
 
         // Overview
         var overviewLeft = new StackPanel { Spacing = 12 };
-        overviewLeft.Children.Add(CardRows("Competition", [("Reputation", reputation), ("Substitution Rules", subs)]));
+        overviewLeft.Children.Add(CardRows(AppLanguage.T("Competition"), [(AppLanguage.T("Reputation"), reputation), (AppLanguage.T("Substitution Rules"), subs)]));
         if (details is not null)
-            overviewLeft.Children.Add(CardRows("Details", DetailRows(details, state, changed)));
+            overviewLeft.Children.Add(CardRows(AppLanguage.T("Details"), DetailRows(details, state, changed)));
         if (varSettings is not null)
-            overviewLeft.Children.Add(CardRows("VAR Settings", [
+            overviewLeft.Children.Add(CardRows(AppLanguage.T("VAR Settings"), [
                 ("Enable custom VAR settings", varEnabled!), ("VAR", varType!), ("From date", varFromDate!), ("VAR - TV Matches Only", varTvOnly!),
             ]));
         var colourRows = new List<(string Label, Control Value)>();
@@ -438,20 +441,20 @@ internal sealed class CompetitionScreen(IScreenHost host)
             }, ColourInputControl.Create(box)));
         colourRows.Add(("Winter Ball Start Date", start));
         colourRows.Add(("Winter Ball End Date", end));
-        var overviewRight = CardRows("Colours & Winter Ball", colourRows);
+        var overviewRight = CardRows(AppLanguage.T("Colours & Winter Ball"), colourRows);
         var overview = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
         Grid.SetColumn(overviewLeft, 0);
         Grid.SetColumn(overviewRight, 2);
         overview.Children.Add(overviewLeft);
         overview.Children.Add(overviewRight);
-        var sections = new List<SectionHost.Section> { new("Overview", "Overview", overview) };
+        var sections = new List<SectionHost.Section> { new("Overview", AppLanguage.T("Overview"), overview) };
 
         // Prize Money
         if (prize is not null || classificationEnabled is not null)
         {
-            Border? matchCard = prize is null ? null : CardRows("Match Prize Money", [("Per Win", prizeWin!), ("Per Draw", prizeDraw!), ("Per Defeat", prizeDefeat!)]);
-            Border? classCard = classificationEnabled is null ? null : CardRows("Classification Prize Money",
-                new[] { ("Enabled", (Control)classificationEnabled) }.Concat(positionFields.Select((box, index) => ($"Position {index + 1}", (Control)box))));
+            Border? matchCard = prize is null ? null : CardRows(AppLanguage.T("Match Prize Money"), [(AppLanguage.T("Per Win"), prizeWin!), (AppLanguage.T("Per Draw"), prizeDraw!), (AppLanguage.T("Per Defeat"), prizeDefeat!)]);
+            Border? classCard = classificationEnabled is null ? null : CardRows(AppLanguage.T("Classification Prize Money"),
+                new[] { (AppLanguage.T("Enabled"), (Control)classificationEnabled) }.Concat(positionFields.Select((box, index) => ($"Position {index + 1}", (Control)box))));
             Control body;
             if (matchCard is not null && classCard is not null)
             {
@@ -465,7 +468,7 @@ internal sealed class CompetitionScreen(IScreenHost host)
                 single.HorizontalAlignment = HorizontalAlignment.Left;
                 body = single;
             }
-            sections.Add(new("Prize Money", "Prize Money", body));
+            sections.Add(new("Prize Money", AppLanguage.T("Prize Money"), body));
         }
 
         // Rule presets: stage a planner's values into the draft boxes; Save applies them through the guarded writer.
@@ -489,11 +492,11 @@ internal sealed class CompetitionScreen(IScreenHost host)
                 Host.SetStatus(string.Join("; ", notes));
             }
             var access = session.CompetitionSquadRules;
-            var nationality = new Button { Content = "Lift nationality limits" };
+            var nationality = new Button { Content = AppLanguage.T("Lift nationality limits") };
             nationality.Click += (_, _) => StagePreset(() => CompetitionRulePresets.LiftNationality(c, access, peers));
-            var loans = new Button { Content = "Lift loan limits" };
+            var loans = new Button { Content = AppLanguage.T("Lift loan limits") };
             loans.Click += (_, _) => StagePreset(() => CompetitionRulePresets.LiftLoans(c, access, peers));
-            sections.Add(new("Rule Presets", "Rule Presets",
+            sections.Add(new("Rule Presets", AppLanguage.T("Rule Presets"),
                 new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 8, Children = { nationality, loans } }));
         }
 
@@ -519,28 +522,28 @@ internal sealed class CompetitionScreen(IScreenHost host)
                 new TextBlock { Text = string.Join("\n", sharedNames), Foreground = UiKit.TextSecondary, TextAlignment = TextAlignment.Right }));
         if (primaryFields.Count > 0)
         {
-            var squadCard = CardRows("Squad Registration", primaryFields);
+            var squadCard = CardRows(AppLanguage.T("Squad Registration"), primaryFields);
             squadCard.MaxWidth = 760;
             squadCard.HorizontalAlignment = HorizontalAlignment.Left;
-            sections.Add(new("Squad Rules", "Squad Rules", squadCard));
+            sections.Add(new("Squad Rules", AppLanguage.T("Squad Rules"), squadCard));
         }
         if (matchFields.Count > 0)
         {
-            var matchCard = CardRows("Match Rules", matchFields);
+            var matchCard = CardRows(AppLanguage.T("Match Rules"), matchFields);
             matchCard.MaxWidth = 760;
             matchCard.HorizontalAlignment = HorizontalAlignment.Left;
-            sections.Add(new("Match Rules", "Match Rules", matchCard));
+            sections.Add(new("Match Rules", AppLanguage.T("Match Rules"), matchCard));
         }
         if (otherFields.Count > 0)
         {
-            var otherCard = CardRows("Other Rules", otherFields);
+            var otherCard = CardRows(AppLanguage.T("Other Rules"), otherFields);
             otherCard.MaxWidth = 760;
             otherCard.HorizontalAlignment = HorizontalAlignment.Left;
-            sections.Add(new("Other Rules", "Other Rules", otherCard));
+            sections.Add(new("Other Rules", AppLanguage.T("Other Rules"), otherCard));
         }
 
         // Standings
-        if (standingFields.Length > 0) sections.Add(new("Standings", "Standings", UiKit.Card("League Table", StandingsTable(standings!, standingFields, standingColumns))));
+        if (standingFields.Length > 0) sections.Add(new("Standings", AppLanguage.T("Standings"), UiKit.Card(AppLanguage.T("League Table"), StandingsTable(standings!, standingFields, standingColumns))));
 
         string chosen = sections.Any(s => s.Key == sectionKey) ? sectionKey : sections[0].Key;
         sectionKey = chosen;

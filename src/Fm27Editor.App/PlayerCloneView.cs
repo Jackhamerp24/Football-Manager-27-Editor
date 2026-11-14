@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -27,7 +27,7 @@ public sealed partial class MainWindow
         var list = new StackPanel { Spacing = 4 };
         foreach (var t in targets.Select(a => all.FirstOrDefault(p => p.Address == a)).OfType<PlayerRecord>())
         {
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.T("Remove") };
             remove.Click += (_, _) => { targets.Remove(t.Address); RenderEditor(); };
             list.Children.Add(new DockPanel
             {
@@ -36,13 +36,13 @@ public sealed partial class MainWindow
             });
             DockPanel.SetDock(remove, Dock.Right);
         }
-        var pick = new Button { Width = 340, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose player…" };
+        var pick = new Button { Width = 340, HorizontalContentAlignment = HorizontalAlignment.Left, Content = AppLanguage.T("Choose player…") };
         pick.Click += async (_, _) =>
         {
             var choices = all.Where(p => p.Address != player.Address && !targets.Contains(p.Address)
                 && p.Gender != Fm27Editor.Core.Offsets.Gender.Women && p.Club?.Gender != Fm27Editor.Core.Offsets.Gender.Women)
                 .Select(p => new RelationTarget($"{p.DisplayName} ({p.ClubName})", p.Address)).ToList();
-            var chosen = await PickerDialog.Show<RelationTarget>(this, "Choose player to clone into", q => choices.Where(t => PickerSearch.Hit(q, t.Label)).Select(t => (t.Label, t)).ToList());
+            var chosen = await PickerDialog.Show<RelationTarget>(this, AppLanguage.T("Choose player to clone into"), q => choices.Where(t => PickerSearch.Hit(q, t.Label)).Select(t => (t.Label, t)).ToList());
             if (chosen is null) return;
             targets.Add(chosen.Address);
             RenderEditor();
@@ -57,7 +57,7 @@ public sealed partial class MainWindow
             what.Children.Add(box);
         }
 
-        var clone = new Button { Content = "Clone", Classes = { "accent" }, IsEnabled = targets.Count > 0 };
+        var clone = new Button { Content = AppLanguage.T("Clone"), Classes = { "accent" }, IsEnabled = targets.Count > 0 };
         clone.Click += (_, _) =>
         {
             int fields = 0, done = 0;
@@ -73,8 +73,8 @@ public sealed partial class MainWindow
                 catch (Exception ex) { failed.Add($"{t.DisplayName}: {ex.Message}"); }
             }
             status.Text = failed.Count == 0
-                ? $"Cloned {player.DisplayName} onto {done} player(s), {fields} field(s). Continue in FM to see updates."
-                : $"Cloned onto {done}, {failed.Count} failed ({string.Join(", ", failed.Take(2))}).";
+                ? string.Format(AppLanguage.T("Cloned {0} onto {1} player(s), {2} field(s). Continue in FM to see updates."), player.DisplayName, done, fields)
+                : string.Format(AppLanguage.T("Cloned onto {0}, {1} failed ({2})."), done, failed.Count, string.Join(", ", failed.Take(2)));
         };
 
         list.Margin = new Thickness(12, 10);
@@ -87,7 +87,7 @@ public sealed partial class MainWindow
                 new Grid
                 {
                     ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10,
-                    Children = { UiKit.Card("Players to Replace", list), WhatToCopy(what) },
+                    Children = { UiKit.Card(AppLanguage.T("Players to Replace"), list), WhatToCopy(what) },
                 },
                 clone,
             },
@@ -96,7 +96,7 @@ public sealed partial class MainWindow
 
     static Control WhatToCopy(Control what)
     {
-        var card = UiKit.Card("What to Copy", what);
+        var card = UiKit.Card(AppLanguage.T("What to Copy"), what);
         card.Width = 220;
         Grid.SetColumn(card, 1);
         return card;

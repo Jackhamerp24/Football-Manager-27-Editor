@@ -1,4 +1,4 @@
-﻿using Avalonia.Platform.Storage;
+using Avalonia.Platform.Storage;
 using Fm27Editor.Core.Players;
 using System.Text;
 
@@ -15,7 +15,7 @@ public sealed partial class MainWindow
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "Export attributes", SuggestedFileName = $"{player.Id}-attributes.json", DefaultExtension = "json",
+                Title = AppLanguage.Get("Ui_Export_attributes"), SuggestedFileName = $"{player.Id}-attributes.json", DefaultExtension = "json",
                 FileTypeChoices = [AttributeJson, AttributeCsv]
             });
             if (file is null) return;
@@ -24,16 +24,16 @@ public sealed partial class MainWindow
             stream.SetLength(0);
             await using var writer = new StreamWriter(stream, Encoding.UTF8);
             await writer.WriteAsync(content);
-            status.Text = "Attributes exported";
+            status.Text = AppLanguage.T("Attributes exported");
         }
-        catch (Exception ex) { status.Text = $"Export failed: {ex.Message}"; }
+        catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Export failed: {0}"), ex.Message); }
     }
 
     async Task ImportPlayerAttributesAsync(PlayerRecord player)
     {
         try
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Import attributes", AllowMultiple = false, FileTypeFilter = [AttributeJson, AttributeCsv] });
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = AppLanguage.Get("Ui_Import_attributes"), AllowMultiple = false, FileTypeFilter = [AttributeJson, AttributeCsv] });
             if (files.Count == 0) return;
             await using var stream = await files[0].OpenReadAsync();
             if (stream.CanSeek && stream.Length > 100_000) throw new FormatException("File too large");
@@ -48,7 +48,7 @@ public sealed partial class MainWindow
             status.Text = unknown == 0 ? $"{draft.Count} unsaved change(s)" : $"{draft.Count} unsaved change(s); {unknown} unknown personality value(s) skipped";
         if (draft.Count > 0) SetActiveTabDirty(true);
         }
-        catch (Exception ex) { status.Text = $"Import failed: {ex.Message}"; }
+        catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Import failed: {0}"), ex.Message); }
     }
 
     async Task ExportPlayersAsync(bool json)
@@ -60,7 +60,7 @@ public sealed partial class MainWindow
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "Export players",
+                Title = AppLanguage.Get("Ui_Export_players"),
                 SuggestedFileName = $"players-{backend.GameDate?.ToString("yyyy-MM-dd") ?? "export"}.{extension}",
                 DefaultExtension = extension,
                 FileTypeChoices = [new FilePickerFileType(extension.ToUpperInvariant()) { Patterns = [$"*.{extension}"] }]
@@ -72,8 +72,8 @@ public sealed partial class MainWindow
                 if (json) PlayerExport.WriteJson(stream, players);
                 else PlayerExport.WriteCsv(stream, players);
             });
-            status.Text = $"Exported {players.Length:N0} players";
+            status.Text = string.Format(AppLanguage.T("Exported {0:N0} players"), players.Length);
         }
-        catch (Exception ex) { status.Text = $"Export failed: {ex.Message}"; }
+        catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Export failed: {0}"), ex.Message); }
     }
 }

@@ -26,9 +26,9 @@ internal sealed class StaffFilterPanel : UserControl
     readonly List<(ComboBox Kind, TextBox Min, TextBox Max, Border Card)> relationRows = [];
     readonly StackPanel relationStack = new() { Spacing = 8 };
 
-    readonly TextBox nameBox = new() { Watermark = "Name", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly TextBox nameBox = new() { Watermark = AppLanguage.T("Name"), Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
     readonly ComboBox genderCombo = new() { Width = 140, MinWidth = 140, MaxWidth = 140, ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, MaxDropDownHeight = 260, HorizontalAlignment = HorizontalAlignment.Left };
-    readonly TextBox clubBox = new() { Watermark = "Team", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly TextBox clubBox = new() { Watermark = AppLanguage.T("Team"), Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
     readonly ComboBox nationCombo = new() { Width = 320, MinWidth = 320, MaxWidth = 320, Height = 28, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left };
     readonly ComboBox jobCombo = new() { Width = 320, MinWidth = 320, MaxWidth = 320, Height = 28, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left };
     readonly TextBox minAge = Num("Min"), maxAge = Num("Max");
@@ -42,6 +42,7 @@ internal sealed class StaffFilterPanel : UserControl
 
     public StaffFilterPanel(IReadOnlyList<StaffRecord> source, DateOnly today, Func<StaffRecord, IReadOnlyList<RelationEntry>>? relations = null)
     {
+        genderCombo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         this.source = source;
         this.today = today;
         this.relations = relations;
@@ -61,7 +62,7 @@ internal sealed class StaffFilterPanel : UserControl
         jobCombo.SelectedIndex = 0;
         jobCombo.ItemTemplate = new FuncDataTemplate<JobChoice>((choice, _) => new TextBlock
         {
-            Text = choice.Name, MaxWidth = 284, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
+            Text = AppLanguage.T(choice.Name), MaxWidth = 284, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
         });
         jobCombo.SelectionChanged += (_, _) => Raise();
 
@@ -135,14 +136,14 @@ internal sealed class StaffFilterPanel : UserControl
             Spacing = 10,
             Children =
             {
-                UiKit.Card("Ability", ability),
-                UiKit.Card("Reputation", reputation),
-                UiKit.Card("Training Rating", TrainingRows()),
+                UiKit.Card(AppLanguage.T("Ability"), ability),
+                UiKit.Card(AppLanguage.T("Reputation"), reputation),
+                UiKit.Card(AppLanguage.T("Training Rating"), TrainingRows()),
             }
         };
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 10, Margin = new Thickness(14, 10) };
-        var leftCard = UiKit.Card("Personal Details", personal);
+        var leftCard = UiKit.Card(AppLanguage.T("Personal Details"), personal);
         leftCard.VerticalAlignment = VerticalAlignment.Top;
         right.VerticalAlignment = VerticalAlignment.Top;
         Grid.SetColumn(leftCard, 0);
@@ -165,7 +166,7 @@ internal sealed class StaffFilterPanel : UserControl
             var dash = new TextBlock { Text = "-", Margin = new Thickness(6, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextMuted };
             DockPanel.SetDock(dash, Dock.Right); row.Children.Add(dash);
             DockPanel.SetDock(min, Dock.Right); row.Children.Add(min);
-            row.Children.Add(new TextBlock { Text = TrainingRatings.Label(category), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            row.Children.Add(new TextBlock { Text = AppLanguage.T(TrainingRatings.Label(category)), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
             rows.Children.Add(row);
         }
         return rows;
@@ -219,7 +220,7 @@ internal sealed class StaffFilterPanel : UserControl
 
     Control BuildRelationships()
     {
-        var add = new Button { Content = "Add" };
+        var add = new Button { Content = AppLanguage.T("Add") };
         add.Click += (_, _) => AddRelationRow();
         var header = new StackPanel
         {
@@ -228,7 +229,7 @@ internal sealed class StaffFilterPanel : UserControl
             Margin = new Thickness(14, 10, 14, 4),
             Children =
             {
-                new TextBlock { Text = "Add a relation", Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = AppLanguage.T("Add a relation"), Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center },
                 add,
             }
         };
@@ -245,17 +246,17 @@ internal sealed class StaffFilterPanel : UserControl
         {
             ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(),
             SelectedIndex = -1,
-            PlaceholderText = "Select type...",
+            PlaceholderText = AppLanguage.T("Select type..."),
             MaxDropDownHeight = 260,
             Width = 320,
             MinWidth = 320,
             MaxWidth = 320,
             HorizontalAlignment = HorizontalAlignment.Left,
-            ItemTemplate = TextItem(320),
+            ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }),
         };
         var min = new TextBox { Text = "0", Width = 80, HorizontalContentAlignment = HorizontalAlignment.Right };
         var max = new TextBox { Text = "100", Width = 80, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var remove = new Button { Content = "Remove", Width = 80, Padding = new Thickness(0) };
+        var remove = new Button { Content = AppLanguage.T("Remove"), Width = 80, Padding = new Thickness(0) };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("320,*,80,80,80"), ColumnSpacing = 8, Margin = new Thickness(0) };
         Grid.SetColumn(kind, 0); grid.Children.Add(kind);
         Grid.SetColumn(min, 2); grid.Children.Add(min);
@@ -289,12 +290,12 @@ internal sealed class StaffFilterPanel : UserControl
         Orientation = Orientation.Horizontal,
         Spacing = 8,
         VerticalAlignment = VerticalAlignment.Center,
-        Children = { new TextBlock { Text = label, Width = 90, VerticalAlignment = VerticalAlignment.Center }, min, new TextBlock { Text = "to", VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextMuted }, max }
+        Children = { new TextBlock { Text = AppLanguage.T(label), Width = 90, VerticalAlignment = VerticalAlignment.Center }, min, new TextBlock { Text = AppLanguage.T("to"), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextMuted }, max }
     };
 
     static TextBlock Label(string text) => new()
     {
-        Text = text,
+        Text = AppLanguage.T(text),
         FontSize = 11,
         FontWeight = FontWeight.SemiBold,
         Foreground = UiKit.TextMuted,
@@ -414,19 +415,20 @@ internal sealed class StaffFilterPanel : UserControl
         int count = FilterCount();
         var gender = SelectedGender();
         bool hasRelations = relationRows.Any(r => r.Kind.SelectedIndex >= 0);
+        string genderSuffix = gender is { } active ? string.Format(AppLanguage.T(" (Gender: {0})"), AppLanguage.T(active.ToString())) : "";
         if (hasRelations || Criteria() is null)
-            return count == 0 ? "No filters set" : $"{count} filter(s) set{(gender is { } g ? $" (Gender: {g})" : "")}";
+            return count == 0 ? AppLanguage.T("No filters set") : string.Format(AppLanguage.T("{0} filter(s) set{1}"), count, genderSuffix);
 
         int shown = Matched().Count;
         int total = source.Count;
         if (count == 0)
-            return total > 0 ? $"All {total:N0} staff" : "No filters set";
+            return total > 0 ? string.Format(AppLanguage.T("All {0} {1}"), total.ToString("N0"), AppLanguage.T("staff")) : AppLanguage.T("No filters set");
 
-        string prefix = gender is { } activeGender ? $"{count} filter(s) (Gender: {activeGender})" : $"{count} filter(s)";
+        string prefix = string.Format(AppLanguage.T("{0} filter(s){1}"), count, genderSuffix);
         if (total == 0) return prefix;
         return shown < total
-            ? $"{prefix} — {shown:N0} of {total:N0} staff shown ({total - shown:N0} hidden)"
-            : $"{prefix} — {shown:N0} staff";
+            ? string.Format(AppLanguage.T("{0} — {1} of {2} {3} shown ({4} hidden)"), prefix, shown.ToString("N0"), total.ToString("N0"), AppLanguage.T("staff"), (total - shown).ToString("N0"))
+            : string.Format(AppLanguage.T("{0} — {1} {2}"), prefix, shown.ToString("N0"), AppLanguage.T("staff"));
     }
 
     public void Clear()

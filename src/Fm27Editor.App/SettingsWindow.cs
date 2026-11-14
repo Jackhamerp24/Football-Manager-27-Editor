@@ -21,7 +21,7 @@ public sealed partial class MainWindow
             MinWidth = 34, Width = 34, MinHeight = 28, Height = 28,
             Background = Brush("#181C29"), BorderBrush = Brush("#272D42"), BorderThickness = new Thickness(1), Foreground = Brush("#DCE2EE"),
         };
-        ToolTip.SetTip(button, "Settings");
+        ToolTip.SetTip(button, AppLanguage.Get("Label_Settings"));
         button.Click += (_, _) => ShowSettings();
         return button;
     }
@@ -47,7 +47,7 @@ public sealed partial class MainWindow
             status.Text = $"Date format {DateSetting.Hint}";
         };
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*"), ColumnSpacing = 12 };
-        var label = new TextBlock { Text = "Date format", VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+        var label = new TextBlock { Text = AppLanguage.Get("Label_Date_format"), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
         Grid.SetColumn(combo, 1);
         row.Children.Add(label); row.Children.Add(combo);
 
@@ -79,14 +79,29 @@ public sealed partial class MainWindow
             status.Text = $"Currency {now.Code} - {now.Name}";
         };
         var currencyRow = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*"), ColumnSpacing = 12 };
-        var currencyLabel = new TextBlock { Text = "Currency", VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+        var currencyLabel = new TextBlock { Text = AppLanguage.Get("Label_Currency"), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
         Grid.SetColumn(currencyCombo, 1);
         currencyRow.Children.Add(currencyLabel); currencyRow.Children.Add(currencyCombo);
+        var languageCombo = new ComboBox { ItemsSource = new[] { "English", "Tiếng Việt" }, SelectedIndex = AppLanguage.Current == "vi" ? 1 : 0, Width = 230 };
+        var languageNotice = new TextBlock { Text = AppLanguage.Get("Label_Restart_the_application_to_apply_the_language"), TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextSecondary, IsVisible = false };
+        languageCombo.SelectionChanged += (_, _) =>
+        {
+            try
+            {
+                AppLanguage.Save(languageCombo.SelectedIndex == 1 ? "vi" : "en");
+                languageNotice.IsVisible = true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { languageNotice.Text = ex.Message; languageNotice.IsVisible = true; }
+        };
+        var languageRow = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*"), ColumnSpacing = 12 };
+        languageRow.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Language"), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
+        Grid.SetColumn(languageCombo, 1);
+        languageRow.Children.Add(languageCombo);
         var window = new Window
         {
-            Title = "Settings", Width = 420, SizeToContent = SizeToContent.Height, CanResize = false,
+            Title = AppLanguage.Get("Label_Settings"), Width = 420, SizeToContent = SizeToContent.Height, CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = UiKit.WindowBg,
-            Content = new StackPanel { Margin = new Thickness(20), Spacing = 14, Children = { row, currencyRow } },
+            Content = new StackPanel { Margin = new Thickness(20), Spacing = 14, Children = { languageRow, languageNotice, row, currencyRow } },
         };
         settingsWindow = window;
         window.Closed += (_, _) => settingsWindow = null;

@@ -24,8 +24,8 @@ internal sealed class InjuryTypeScreen(IScreenHost host)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(InjuryTypeRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Seriousness", Binding = new Binding(nameof(InjuryTypeRow.Seriousness)), Width = new DataGridLength(190) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Name"), Binding = new Binding(nameof(InjuryTypeRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Common_Seriousness"), Binding = new Binding(nameof(InjuryTypeRow.Seriousness)), Width = new DataGridLength(190) });
         foreach (var (title, property, width) in new[] { ("Min", nameof(InjuryTypeRow.MinimumDays), 64), ("Extra", nameof(InjuryTypeRow.ExtraDays), 64), ("ID", nameof(InjuryTypeRow.UniqueId), 64) })
         {
             var column = new DataGridTextColumn { Header = title, Binding = new Binding(property), Width = new DataGridLength(width) };

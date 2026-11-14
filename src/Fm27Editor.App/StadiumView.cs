@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
@@ -32,7 +32,7 @@ internal sealed class StadiumDraft
 
 /// <summary>Stadiums: information, pitch, and the eight stands.</summary>
 internal sealed class StadiumScreen(IScreenHost host)
-    : EntityScreen<StadiumRecord, StadiumRow, StadiumDraft>(host, "stadium", "Stadiums", "stadiums", "Search stadium, owner or ID...")
+    : EntityScreen<StadiumRecord, StadiumRow, StadiumDraft>(host, "stadium", "Stadiums", "stadiums", AppLanguage.T("Search stadium, owner or ID..."))
 {
     string sectionKey = "Information";
     IReadOnlyDictionary<StadiumField, long> snapshot = new Dictionary<StadiumField, long>();
@@ -41,12 +41,12 @@ internal sealed class StadiumScreen(IScreenHost host)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Stadium", Binding = new Binding(nameof(StadiumRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Owner", Binding = new Binding(nameof(StadiumRow.Owner)), Width = new DataGridLength(184) });
-        var capacity = new DataGridTextColumn { Header = "Capacity", Binding = new Binding(nameof(StadiumRow.Capacity)) { StringFormat = "N0" }, Width = new DataGridLength(115) };
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Stadium"), Binding = new Binding(nameof(StadiumRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Owner"), Binding = new Binding(nameof(StadiumRow.Owner)), Width = new DataGridLength(184) });
+        var capacity = new DataGridTextColumn { Header = AppLanguage.T("Capacity"), Binding = new Binding(nameof(StadiumRow.Capacity)) { StringFormat = "N0" }, Width = new DataGridLength(115) };
         capacity.CellStyleClasses.Add("numeric");
         grid.Columns.Add(capacity);
-        var id = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(StadiumRow.Id)), Width = new DataGridLength(110) };
+        var id = new DataGridTextColumn { Header = AppLanguage.T("ID"), Binding = new Binding(nameof(StadiumRow.Id)), Width = new DataGridLength(110) };
         id.CellStyleClasses.Add("numeric");
         grid.Columns.Add(id);
     }
@@ -83,7 +83,7 @@ internal sealed class StadiumScreen(IScreenHost host)
             var line = new DockPanel { MinHeight = 25, LastChildFill = true };
             DockPanel.SetDock(value, Dock.Right);
             line.Children.Add(value);
-            line.Children.Add(Label(label));
+            line.Children.Add(Label(AppLanguage.T(label)));
             stack.Children.Add(new Border
             {
                 Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent,
@@ -155,7 +155,8 @@ internal sealed class StadiumScreen(IScreenHost host)
             if (StadiumLabels.Choices.TryGetValue(f, out var choices))
             {
                 var codes = choices.Keys.Union([original]).OrderBy(c => c).ToArray();
-                var combo = new ComboBox { ItemsSource = codes.Select(c => StadiumLabels.Choice(f, c)).ToArray(), MinWidth = 156 };
+                var combo = new ComboBox { ItemsSource = codes.Select(c => StadiumLabels.Choice(f, c)).ToArray(), MinWidth = 156,
+                    ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((text, _) => new TextBlock { Text = AppLanguage.T(text ?? "") }) };
                 long current = draft.Fields.TryGetValue(f, out var d) ? long.Parse(d) : original;
                 combo.SelectedIndex = Array.IndexOf(codes, current);
                 combo.SelectionChanged += (_, _) =>
@@ -196,21 +197,21 @@ internal sealed class StadiumScreen(IScreenHost host)
         // Section 1: Information
         var stadiumItems = new List<(string Label, Control Value)>
         {
-            ("Unique ID", Label(s.Id.ToString(Inv), "#F1F5F9")),
-            ("Name", Label(s.DisplayName, "#F1F5F9")),
+            (AppLanguage.T("Unique ID"), Label(s.Id.ToString(Inv), "#F1F5F9")),
+            (AppLanguage.T("Name"), Label(s.DisplayName, "#F1F5F9")),
         };
         if (values.ContainsKey(StadiumField.Environment))
-            stadiumItems.Add(("Environment", FieldControl(StadiumField.Environment, values[StadiumField.Environment])));
+            stadiumItems.Add((AppLanguage.T("Environment"), FieldControl(StadiumField.Environment, values[StadiumField.Environment])));
         var stadiums = Host.Backend.Session.Stadiums;
         ulong locationNow = stadiums.LocationPointer(s.Address);
-        stadiumItems.Add(("Location", PickerRow(draft.Location?.Name ?? stadiums.LocationOf(s.Address)?.Name ?? "", locationNow != 0 && draft.Location is null ? () => Host.OpenCity(locationNow) : null, draft.Location is not null, async () =>
+        stadiumItems.Add((AppLanguage.T("Location"), PickerRow(draft.Location?.Name ?? stadiums.LocationOf(s.Address)?.Name ?? "", locationNow != 0 && draft.Location is null ? () => Host.OpenCity(locationNow) : null, draft.Location is not null, async () =>
         {
             var city = await ChooseCityAsync();
             if (city is null) return;
             draft.Location = city.Address == stadiums.LocationPointer(s.Address) ? null : city;
             changed(); Reopen();
         })));
-        stadiumItems.Add(("Owner", PickerRow(draft.Owner?.DisplayName ?? s.Owner?.DisplayName ?? "", s.Owner is { } stadiumOwner && draft.Owner is null ? () => _ = Host.OpenClubAsync(stadiumOwner.Address) : null, draft.Owner is not null, async () =>
+        stadiumItems.Add((AppLanguage.T("Owner"), PickerRow(draft.Owner?.DisplayName ?? s.Owner?.DisplayName ?? "", s.Owner is { } stadiumOwner && draft.Owner is null ? () => _ = Host.OpenClubAsync(stadiumOwner.Address) : null, draft.Owner is not null, async () =>
         {
             var club = await ChooseClubAsync();
             if (club is null) return;
@@ -218,29 +219,29 @@ internal sealed class StadiumScreen(IScreenHost host)
             changed(); Reopen();
         })));
         if (values.ContainsKey(StadiumField.OwnerType))
-            stadiumItems.Add(("Owner Type", FieldControl(StadiumField.OwnerType, values[StadiumField.OwnerType])));
+            stadiumItems.Add((AppLanguage.T("Owner Type"), FieldControl(StadiumField.OwnerType, values[StadiumField.OwnerType])));
         ulong nearbyNow = stadiums.NearbyPointer(s.Address);
-        stadiumItems.Add(("Nearby Stadium", PickerRow(draft.Nearby?.DisplayName ?? s.NearbyStadium ?? "", nearbyNow != 0 && draft.Nearby is null ? () => Host.OpenStadium(nearbyNow) : null, draft.Nearby is not null, async () =>
+        stadiumItems.Add((AppLanguage.T("Nearby Stadium"), PickerRow(draft.Nearby?.DisplayName ?? s.NearbyStadium ?? "", nearbyNow != 0 && draft.Nearby is null ? () => Host.OpenStadium(nearbyNow) : null, draft.Nearby is not null, async () =>
         {
             var other = await ChooseStadiumAsync(s);
             if (other is null) return;
             draft.Nearby = other.Address == nearbyNow ? null : other;
             changed(); Reopen();
         })));
-        stadiumItems.Add(("Seat Colour", SeatColourControl()));
+        stadiumItems.Add((AppLanguage.T("Seat Colour"), SeatColourControl()));
         if (values.ContainsKey(StadiumField.Decay))
-            stadiumItems.Add(("Decay", FieldControl(StadiumField.Decay, values[StadiumField.Decay])));
+            stadiumItems.Add((AppLanguage.T("Decay"), FieldControl(StadiumField.Decay, values[StadiumField.Decay])));
         if (values.ContainsKey(StadiumField.BuildDate))
-            stadiumItems.Add(("Build Date", FieldControl(StadiumField.BuildDate, values[StadiumField.BuildDate])));
+            stadiumItems.Add((AppLanguage.T("Build Date"), FieldControl(StadiumField.BuildDate, values[StadiumField.BuildDate])));
         if (values.ContainsKey(StadiumField.RebuildDate))
-            stadiumItems.Add(("Re-Build Date", FieldControl(StadiumField.RebuildDate, values[StadiumField.RebuildDate])));
+            stadiumItems.Add((AppLanguage.T("Re-Build Date"), FieldControl(StadiumField.RebuildDate, values[StadiumField.RebuildDate])));
         TextBox CoordinateBox(string original, Func<string?> get, Action<string?> set)
         {
             var box = new TextBox { Text = get() ?? original, Width = 110, MinHeight = 24, Padding = new Thickness(5, 1), HorizontalContentAlignment = HorizontalAlignment.Right, VerticalContentAlignment = VerticalAlignment.Center };
             box.TextChanged += (_, _) => { string t = box.Text ?? ""; set(t == original ? null : t); changed(); };
             return box;
         }
-        stadiumItems.Add(("Latitude / Longitude", new StackPanel
+        stadiumItems.Add((AppLanguage.T("Latitude / Longitude"), new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 6,
             Children =
@@ -254,7 +255,7 @@ internal sealed class StadiumScreen(IScreenHost host)
             bool original = StadiumLabels.FlagOn(s, offsets, flag);
             var box = new CheckBox { IsChecked = draft.Flags.GetValueOrDefault(flag, original) };
             box.IsCheckedChanged += (_, _) => { bool on = box.IsChecked == true; if (on == original) draft.Flags.Remove(flag); else draft.Flags[flag] = on; changed(); };
-            stadiumItems.Add((flagLabel, box));
+            stadiumItems.Add((AppLanguage.T(flagLabel), box));
         }
 
         var pitchItems = StadiumLabels.Groups[2].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))).ToList();
@@ -266,13 +267,13 @@ internal sealed class StadiumScreen(IScreenHost host)
         Grid.SetColumn(columns[1], 2);
         informationPanel.Children.Add(columns[0]);
         informationPanel.Children.Add(columns[1]);
-        columns[0].Children.Add(UiKit.Card("Stadium", ItemRows(stadiumItems)));
-        columns[1].Children.Add(UiKit.Card(StadiumLabels.Groups[1].Title, ItemRows(StadiumLabels.Groups[1].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))))));
-        columns[1].Children.Add(UiKit.Card(StadiumLabels.Groups[2].Title, ItemRows(pitchItems)));
+        columns[0].Children.Add(UiKit.Card(AppLanguage.T("Stadium"), ItemRows(stadiumItems)));
+        columns[1].Children.Add(UiKit.Card(AppLanguage.T(StadiumLabels.Groups[1].Title), ItemRows(StadiumLabels.Groups[1].Items.Where(i => values.ContainsKey(i.Field)).Select(i => (i.Label, FieldControl(i.Field, values[i.Field]))))));
+        columns[1].Children.Add(UiKit.Card(AppLanguage.T(StadiumLabels.Groups[2].Title), ItemRows(pitchItems)));
 
         // Section 2: Stadium Details
-        var detailsCard = UiKit.Card("Stadium Details", ItemRows([
-            ("Capacity", FieldControl(StadiumField.Capacity, values.TryGetValue(StadiumField.Capacity, out var capacity) ? capacity : s.StandsTotal)),
+        var detailsCard = UiKit.Card(AppLanguage.T("Stadium Details"), ItemRows([
+            (AppLanguage.T("Capacity"), FieldControl(StadiumField.Capacity, values.TryGetValue(StadiumField.Capacity, out var capacity) ? capacity : s.StandsTotal)),
         ]));
 
         Control StandCard(int index, bool horizontal = false)
@@ -303,17 +304,17 @@ internal sealed class StadiumScreen(IScreenHost host)
                     Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Spacing = 6,
                     Children =
                     {
-                        new TextBlock { Text = StadiumLabels.Stands[index], FontSize = 12.5, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#FFFFFF"), VerticalAlignment = VerticalAlignment.Center },
+                        new TextBlock { Text = AppLanguage.T(StadiumLabels.Stands[index]), FontSize = 12.5, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#FFFFFF"), VerticalAlignment = VerticalAlignment.Center },
                         capacityBox,
                     },
                 },
             };
 
-            var roof = new CheckBox { Content = "Has Roof", IsChecked = current.Item2, FontSize = 12.5 };
+            var roof = new CheckBox { Content = AppLanguage.T("Has Roof"), IsChecked = current.Item2, FontSize = 12.5 };
             roof.IsCheckedChanged += (_, _) => { current.Item2 = roof.IsChecked == true; Update(current); };
-            var seats = new CheckBox { Content = "Has seats", IsChecked = current.Item3, FontSize = 12.5 };
+            var seats = new CheckBox { Content = AppLanguage.T("Has seats"), IsChecked = current.Item3, FontSize = 12.5 };
             seats.IsCheckedChanged += (_, _) => { current.Item3 = seats.IsChecked == true; Update(current); };
-            var tunnel = new CheckBox { Content = "Has Tunnel", IsChecked = current.Item4, FontSize = 12.5 };
+            var tunnel = new CheckBox { Content = AppLanguage.T("Has Tunnel"), IsChecked = current.Item4, FontSize = 12.5 };
             tunnel.IsCheckedChanged += (_, _) => { current.Item4 = tunnel.IsChecked == true; Update(current); };
 
             Control checks = horizontal
@@ -348,11 +349,11 @@ internal sealed class StadiumScreen(IScreenHost host)
         var bottom = StandCard(0, horizontal: true); bottom.HorizontalAlignment = HorizontalAlignment.Center; Place(bottom, 2, 1);
         Place(StandCard(7), 2, 2);
 
-        var detailsPanel = new StackPanel { Spacing = 12, Children = { detailsCard, UiKit.Card("Stands", layout) } };
+        var detailsPanel = new StackPanel { Spacing = 12, Children = { detailsCard, UiKit.Card(AppLanguage.T("Stands"), layout) } };
         var sections = new SectionHost.Section[]
         {
-            new("Information", "Information", informationPanel),
-            new("Stadium Details", "Stadium Details", detailsPanel),
+            new("Information", AppLanguage.T("Information"), informationPanel),
+            new("Stadium Details", AppLanguage.T("Stadium Details"), detailsPanel),
         };
         Editor.Children.Add(SectionHost.Build("stadium", sections, sectionKey, key => sectionKey = key, RailHost));
     }
@@ -364,7 +365,7 @@ internal sealed class StadiumScreen(IScreenHost host)
             ? new TextBlock { Text = text, FontSize = 13, Foreground = UiKit.Brush(pending ? "#C4B5FD" : "#F1F5F9"), VerticalAlignment = VerticalAlignment.Center }
             : UiKit.MetaLinkButton(text, highlight: true);
         if (open is not null && value is Button link) link.Click += (_, _) => open();
-        var button = new Button { Content = "Change", Margin = new Thickness(8, 0, 0, 0) };
+        var button = new Button { Content = AppLanguage.T("Change"), Margin = new Thickness(8, 0, 0, 0) };
         button.Click += (_, _) => change();
         return new StackPanel { Orientation = Orientation.Horizontal, Children = { value, button } };
     }

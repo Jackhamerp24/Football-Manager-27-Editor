@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         // Add and Remove write at once, like FMRTE's +/−; they refuse while edits are pending since the list moves.
         void Change(Action change, string done)
         {
-            if (Pending()) { status.Text = "Save the knowledge edits first"; return; }
+            if (Pending()) { status.Text = AppLanguage.Get("Ui_Save_the_knowledge_edits_first"); return; }
             try { backend.Edits.Execute("Staff", staff.DisplayName, "Knowledge: Add/Remove", change, StaffChangeLabels.ForKnowledge(rows)); status.Text = done; RenderStaffEditor(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
@@ -39,7 +39,7 @@ public sealed partial class MainWindow
         foreach (var row in rows)
         {
             var line = new DockPanel { LastChildFill = true, MinHeight = 26 };
-            var remove = new Button { Content = "Remove", Margin = new Thickness(8, 0, 0, 0) };
+            var remove = new Button { Content = AppLanguage.Get("Label_Remove"), Margin = new Thickness(8, 0, 0, 0) };
             remove.Click += (_, _) => Change(() => session.StaffKnowledge.Remove(staff, rows, row), $"Removed {row.Nation}. Continue in FM to see updates.");
             var box = new TextBox { Width = 68, Text = row.Value.ToString(Inv), HorizontalContentAlignment = HorizontalAlignment.Right };
             DockPanel.SetDock(remove, Dock.Right); line.Children.Add(remove);
@@ -63,17 +63,17 @@ public sealed partial class MainWindow
             var targets = session.StaffKnowledge.Catalogue(nationCatalogue).Where(t => !listed.Contains(t.Name)).Select(t => new KnowledgeTarget(t.Team, t.Name)).ToArray();
             var nation = new AutoCompleteBox
             {
-                Width = 220, Watermark = "Add nation...", MinimumPrefixLength = 2,
+                Width = 220, Watermark = AppLanguage.Get("Ui_Add_nation"), MinimumPrefixLength = 2,
                 FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300, ItemsSource = targets,
                 ItemFilter = (q, o) => o is KnowledgeTarget t && Matches(t.Name, q ?? ""),
             };
             var value = new TextBox { Width = 68, Text = "100", HorizontalContentAlignment = HorizontalAlignment.Right };
-            var add = new Button { Content = "Add", IsEnabled = false };
+            var add = new Button { Content = AppLanguage.Get("Label_Add"), IsEnabled = false };
             nation.SelectionChanged += (_, _) => add.IsEnabled = nation.SelectedItem is KnowledgeTarget;
             add.Click += (_, _) =>
             {
                 if (nation.SelectedItem is not KnowledgeTarget t) return;
-                if (!int.TryParse(value.Text, out int v) || v is < 0 or > 100) { status.Text = "Knowledge must be between 0 and 100"; return; }
+                if (!int.TryParse(value.Text, out int v) || v is < 0 or > 100) { status.Text = AppLanguage.Get("Common_Knowledge_must_be_between_0_and_100"); return; }
                 Change(() => session.AddStaffKnowledge(staff, rows, t.Team, v),
                     $"Added {t.Name}. Its record lives outside the game's allocator; keep a backup of the save. Continue in FM to see updates.");
             };
@@ -99,14 +99,14 @@ public sealed partial class MainWindow
             var changes = new List<(StaffKnowledgeRow Row, int Value)>();
             foreach (var (row, box) in fields)
             {
-                if (!int.TryParse(box.Text, out int value) || value is < 0 or > 100) { status.Text = "Knowledge must be between 0 and 100"; return; }
+                if (!int.TryParse(box.Text, out int value) || value is < 0 or > 100) { status.Text = AppLanguage.Get("Common_Knowledge_must_be_between_0_and_100"); return; }
                 if (value != row.Value) changes.Add((row, value));
             }
             int written = 0;
             try
             {
                 backend.Edits.Execute("Staff", staff.DisplayName, "Knowledge", () => { foreach (var (row, value) in changes) { session.StaffKnowledge.SetValue(staff, row, value); written++; } }, StaffChangeLabels.ForKnowledge(rows));
-                RenderStaffEditor(); status.Text = "Saved knowledge. Continue in FM to see updates.";
+                RenderStaffEditor(); status.Text = AppLanguage.Get("Ui_Saved_knowledge_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { RenderStaffEditor(); status.Text = $"{written} saved; {ex.Message}"; }
         };

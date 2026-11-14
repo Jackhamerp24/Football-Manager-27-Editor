@@ -37,7 +37,8 @@ internal sealed class SectionNav : Grid
         for (int i = 0; i < pages.Count; i++)
         {
             int index = i;
-            var text = new TextBlock { Text = pages[i].Title, VerticalAlignment = VerticalAlignment.Center, FontSize = 13 };
+            var text = new TextBlock { Text = AppLanguage.T(pages[i].Title), VerticalAlignment = VerticalAlignment.Center, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = NavWidth - 30 };
+            ToolTip.SetTip(text, AppLanguage.T(pages[i].Title));
             var button = new Button
             {
                 Content = text,

@@ -116,17 +116,18 @@ internal sealed partial class MassEditWindow
     void AddNationPicker(StackPanel panel, Kind kind)
     {
         var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var pick = new Button { Content = "Unset", FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+        mode.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
+        var pick = new Button { Content = AppLanguage.Get("Common_Unset"), FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
         int picked = 0;
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(rowColumns), ColumnSpacing = 10, Margin = new Thickness(4, 1) };
         Grid.SetColumn(pick, 1);
         Grid.SetColumnSpan(pick, 2);
-        grid.Children.Add(new TextBlock { Text = "Nationality", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
+        grid.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Nationality"), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
         grid.Children.Add(pick);
         panel.Children.Add(grid);
         var row = new FieldRow(kind, DetailNationality, "Personal Details", "Nationality", int.MinValue, int.MaxValue, mode, pick,
             () => picked,
-            () => { picked = 0; pick.Content = "Unset"; mode.SelectedIndex = ModeNone; });
+            () => { picked = 0; pick.Content = AppLanguage.Get("Common_Unset"); mode.SelectedIndex = ModeNone; });
         fields.Add(row);
         mode.SelectionChanged += (_, _) => MarkDirty();
         pick.Click += async (_, _) =>
@@ -147,11 +148,12 @@ internal sealed partial class MassEditWindow
     void AddSelect(StackPanel panel, Kind kind, int index, string label, IReadOnlyList<(int Code, string Name)> options)
     {
         var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to" }, SelectedIndex = ModeNone };
+        mode.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         var names = new List<string> { "Unset" };
         names.AddRange(options.Select(o => o.Name));
         var choice = new ComboBox { ItemsSource = names, SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch, MaxDropDownHeight = 420 };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(rowColumns), ColumnSpacing = 10, Margin = new Thickness(4, 1) };
-        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+        var text = new TextBlock { Text = AppLanguage.T(label), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
         Grid.SetColumn(choice, 1);
         Grid.SetColumnSpan(choice, 2);
         grid.Children.Add(text);
@@ -168,6 +170,7 @@ internal sealed partial class MassEditWindow
     void AddStars(StackPanel panel, TrainingCategory category)
     {
         var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to", "Change by" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        mode.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         var value = new NumericUpDown { Minimum = -5, Maximum = 5, Increment = 0.5m, Value = 0, FontSize = 12.5, FormatString = "0.0", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch, ShowButtonSpinner = false, HorizontalContentAlignment = HorizontalAlignment.Right };
         panel.Children.Add(Row(TrainingRatings.Label(category), mode, value));
         var row = new FieldRow(Kind.StaffDetail, DetailTraining + (int)category, "Training Rating", TrainingRatings.Label(category), -10, 10, mode, value,

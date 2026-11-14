@@ -15,6 +15,7 @@ static class AvaloniaTestThread
     [ModuleInitializer]
     internal static void Start()
     {
+        AppLanguage.SettingPathOverride = Path.Combine(Path.GetTempPath(), "fm27-test-" + Guid.NewGuid().ToString("N"), "language.txt");
         using var ready = new ManualResetEventSlim();
         Exception? failure = null;
         var thread = new Thread(() =>

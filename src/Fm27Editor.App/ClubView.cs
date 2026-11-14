@@ -132,18 +132,23 @@ public sealed partial class MainWindow : IClubPanels
     void BuildClubSectionRail()
     {
         clubSectionList.ItemTemplate = new FuncDataTemplate<ClubSectionOption>((opt, _) =>
-            opt is null
-                ? null
-                : new TextBlock
-                {
-                    Text = clubDirtySections.Contains(opt.Section) ? opt.Title + " *" : opt.Title,
-                    FontSize = 13,
-                    FontWeight = FontWeight.Medium,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(2, 2, 8, 2),
-                });
+        {
+            if (opt is null) return null;
+            var label = new TextBlock
+            {
+                Text = clubDirtySections.Contains(opt.Section) ? opt.Title + " *" : opt.Title,
+                FontSize = 13,
+                FontWeight = FontWeight.Medium,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(2, 2, 8, 2),
+            };
+            ToolTip.SetTip(label, opt.Title);
+            return label;
+        });
         clubSectionList.ItemsSource = ClubFieldInfo.Sections
-            .Select(s => new ClubSectionOption(s, ClubFieldInfo.SectionTitle(s)))
+            .Select(s => new ClubSectionOption(s, AppLanguage.T(ClubFieldInfo.SectionTitle(s))))
             .ToArray();
         clubSectionList.SelectedIndex = 0;
         clubSectionList.SelectionChanged += (_, _) =>
@@ -216,7 +221,7 @@ public sealed partial class MainWindow : IClubPanels
         }
         if (supporterEdited && supporterTotal is not (0 or 100))
         {
-            status.Text = $"Supporter groups must add up to 100% (currently {supporterTotal}%).";
+            status.Text = string.Format(AppLanguage.T("Supporter groups must add up to 100% (currently {0}%)."), supporterTotal);
             return 0;
         }
         clubSaveInScalar = false;
@@ -264,7 +269,7 @@ public sealed partial class MainWindow : IClubPanels
             kitDrafts.Remove(club.Address);
             pendingAffiliationRemovals.Remove(club.Address);
             RenderClubEditor();
-            status.Text = $"Some changes may have been saved. {UserMessage.For(error)}";
+            status.Text = string.Format(AppLanguage.T("Some changes may have been saved. {0}"), UserMessage.For(error));
             return;
         }
         ulong teamAddr = ResolveSelectedTeam(club)?.Address ?? 0;
@@ -276,7 +281,7 @@ public sealed partial class MainWindow : IClubPanels
             if (fresh.Count == 0 && !IsClubObjectValid(club.Address))
             {
                 clubDrafts.Remove(club.Address);
-                status.Text = "Club no longer available; reloading";
+                status.Text = AppLanguage.Get("Ui_Club_no_longer_available_reloading");
                 _ = LoadClubsScreenAsync(forceReloadPlayers: true);
                 return;
             }
@@ -288,7 +293,7 @@ public sealed partial class MainWindow : IClubPanels
         }
         catch (Exception reloadError)
         {
-            status.Text = $"{saved} saved. {ClubUserMessage(reloadError)}";
+            status.Text = string.Format(AppLanguage.T("{0} saved. {1}"), saved, ClubUserMessage(reloadError));
         }
     }
 
@@ -303,7 +308,7 @@ public sealed partial class MainWindow : IClubPanels
             if (!ok && clubsActive && selectedClub?.Address == addr)
             {
                 clubDrafts.Clear();
-                status.Text = "Club no longer available; reloading";
+                status.Text = AppLanguage.Get("Ui_Club_no_longer_available_reloading");
                 await LoadClubsScreenAsync(forceReloadPlayers: true);
             }
         }
@@ -364,8 +369,8 @@ public sealed partial class MainWindow : IClubPanels
         int kitChanges = kitDrafts.TryGetValue(club.Address, out var kits) ? kits.Values.Count(k => k.Colours.Count > 0 || k.Style is not null) : 0;
         int total = scalarChanges + youthChanges + visionChanges + affiliationChanges + kitChanges;
 
-        if (draft.InvalidCount > 0) status.Text = $"{draft.InvalidCount} invalid value(s)";
-        else if (total > 0) status.Text = $"{total} unsaved change(s)";
+        if (draft.InvalidCount > 0) status.Text = string.Format(AppLanguage.T("{0} invalid value(s)"), draft.InvalidCount);
+        else if (total > 0) status.Text = string.Format(AppLanguage.T("{0} unsaved change(s)"), total);
         else status.Text = "";
 
         if (scalarChanges == 0) clubScalarSections.Clear();
@@ -385,7 +390,7 @@ public sealed partial class MainWindow : IClubPanels
             foreach (var section in dirty) clubDirtySections.Add(section);
             clubUpdating = true;
             int railIndex = clubSectionList.SelectedIndex;
-            clubSectionList.ItemsSource = ClubFieldInfo.Sections.Select(s => new ClubSectionOption(s, ClubFieldInfo.SectionTitle(s))).ToArray();
+            clubSectionList.ItemsSource = ClubFieldInfo.Sections.Select(s => new ClubSectionOption(s, AppLanguage.T(ClubFieldInfo.SectionTitle(s)))).ToArray();
             clubSectionList.SelectedIndex = railIndex;
             clubUpdating = false;
         }
@@ -551,7 +556,7 @@ public sealed partial class MainWindow : IClubPanels
         {
             if (orderedTeams.Count > 1) clubEditorPanel.Children.Add(BuildClubTeamSelector(club, orderedTeams, teamAddr));
             // FMRTE: the Tactical Understanding card has a Max button that sets every bar to 100; Team Cohesion has its own.
-            var max = new Button { Content = "Max", Classes = { "accent" }, HorizontalAlignment = HorizontalAlignment.Left };
+            var max = new Button { Content = AppLanguage.T("Max"), Classes = { "accent" }, HorizontalAlignment = HorizontalAlignment.Left };
             max.Click += (_, _) =>
             {
                 foreach (var g in groups) foreach (var f in g.Fields) draft.Stage(f, 100);
@@ -572,7 +577,7 @@ public sealed partial class MainWindow : IClubPanels
     Control BuildTeamCohesionCard(GameSession session, ClubEntry club, TeamEntry? team)
     {
         var average = new TextBlock { FontSize = 13, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
-        var max = new Button { Content = "Max", Classes = { "accent" } };
+        var max = new Button { Content = AppLanguage.T("Max"), Classes = { "accent" } };
         IReadOnlyList<PlayerRecord> squad = [];
         if (team is not null)
         {
@@ -600,8 +605,8 @@ public sealed partial class MainWindow : IClubPanels
         var row = new DockPanel { Margin = new Thickness(12, 8) };
         DockPanel.SetDock(max, Dock.Right);
         row.Children.Add(max);
-        row.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { new TextBlock { Text = "Squad average", FontSize = 13, Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center }, average } });
-        return UiKit.Card("Team Cohesion", row);
+        row.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { new TextBlock { Text = AppLanguage.Get("Common_Squad_average"), FontSize = 13, Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center }, average } });
+        return UiKit.Card(AppLanguage.T("Team Cohesion"), row);
     }
 
     void RenderClubFinancesSection(
@@ -747,30 +752,30 @@ public sealed partial class MainWindow : IClubPanels
             fields.Add(new StatementFieldOption(false, key, StatementFieldLabel(key, false)));
         var fieldBox = new ComboBox { ItemsSource = fields, SelectedIndex = 0, Width = 240 };
         var valueBox = new TextBox { Text = "0", Width = 140, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var apply = new Button { Content = "Write value" };
+        var apply = new Button { Content = AppLanguage.T("Write value") };
         apply.Click += (_, _) =>
         {
             if (periodBox.SelectedItem is not StatementPeriodOption periodOption
                 || fieldBox.SelectedItem is not StatementFieldOption field)
-            { status.Text = "Choose a period and a field."; return; }
-            if (!long.TryParse(valueBox.Text, out long value)) { status.Text = "Enter a whole number."; return; }
+            { status.Text = AppLanguage.Get("Common_Choose_a_period_and_a_field"); return; }
+            if (!long.TryParse(valueBox.Text, out long value)) { status.Text = AppLanguage.Get("Common_Enter_a_whole_number"); return; }
             var period = periods.FirstOrDefault(p => p.Index == periodOption.Index);
-            if (period is null) { status.Text = "That period is no longer listed."; return; }
+            if (period is null) { status.Text = AppLanguage.Get("Common_That_period_is_no_longer_listed"); return; }
             long expected = field.Income ? IncomeValue(period, field.Key) : ExpenditureValue(period, field.Key);
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Finances", () => session.FinancialStatements.Set(club.Address, period.Index, field.Income, field.Key, expected, value));
                 RenderClubEditor();
-                status.Text = "Saved. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
         var editor = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        editor.Children.Add(new TextBlock { Text = "Period", VerticalAlignment = VerticalAlignment.Center });
+        editor.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Period"), VerticalAlignment = VerticalAlignment.Center });
         editor.Children.Add(periodBox);
-        editor.Children.Add(new TextBlock { Text = "Field", VerticalAlignment = VerticalAlignment.Center });
+        editor.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Field"), VerticalAlignment = VerticalAlignment.Center });
         editor.Children.Add(fieldBox);
-        editor.Children.Add(new TextBlock { Text = "Value", VerticalAlignment = VerticalAlignment.Center });
+        editor.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Value"), VerticalAlignment = VerticalAlignment.Center });
         editor.Children.Add(valueBox);
         editor.Children.Add(apply);
         clubEditorPanel.Children.Add(editor);
@@ -869,7 +874,7 @@ public sealed partial class MainWindow : IClubPanels
             {
                 new TextBlock
                 {
-                    Text = "Team",
+                    Text = AppLanguage.Get("Label_Team"),
                     FontSize = 13,
                     Foreground = Brush("#CBD5E1"),
                     VerticalAlignment = VerticalAlignment.Center,
@@ -1105,7 +1110,7 @@ public sealed partial class MainWindow : IClubPanels
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Importance", Width = 90, VerticalAlignment = VerticalAlignment.Center }, box
+                new TextBlock { Text = AppLanguage.Get("Common_Importance"), Width = 90, VerticalAlignment = VerticalAlignment.Center }, box
             } });
 
             var types = ClubVisionTypes.All.Select(kv => (Code: kv.Key, Name: kv.Value)).ToList();
@@ -1116,6 +1121,7 @@ public sealed partial class MainWindow : IClubPanels
             {
                 Width = 380,
                 ItemsSource = types.Select(t => t.Name).ToArray(),
+                ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((name, _) => new TextBlock { Text = AppLanguage.T(name ?? "") }),
                 SelectedIndex = types.FindIndex(t => t.Code == curTypeCode),
             };
             typeCombo.SelectionChanged += (_, _) =>
@@ -1134,7 +1140,7 @@ public sealed partial class MainWindow : IClubPanels
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Objective", Width = 90, VerticalAlignment = VerticalAlignment.Center }, typeCombo
+                new TextBlock { Text = AppLanguage.Get("Common_Objective"), Width = 90, VerticalAlignment = VerticalAlignment.Center }, typeCombo
             } });
 
             var sourceOptions = new (int Code, string Name)[]
@@ -1161,7 +1167,7 @@ public sealed partial class MainWindow : IClubPanels
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Source", Width = 90, VerticalAlignment = VerticalAlignment.Center }, sourceCombo
+                new TextBlock { Text = AppLanguage.Get("Common_Source"), Width = 90, VerticalAlignment = VerticalAlignment.Center }, sourceCombo
             } });
 
             panel.Children.Add(targetHost);
@@ -1182,7 +1188,7 @@ public sealed partial class MainWindow : IClubPanels
                     string targetValue = rowDraft?.ItemTargetName ?? (sameType ? entry.ItemName ?? entry.ClubItem?.DisplayName : null)
                         ?? index?.ToString(Inv) ?? "";
                     var valueText = new TextBlock { Text = targetValue, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
-                    var search = new Button { Content = "Search", FontSize = 11, Padding = new Thickness(8, 0), MinHeight = 24 };
+                    var search = new Button { Content = AppLanguage.T("Search"), FontSize = 11, Padding = new Thickness(8, 0), MinHeight = 24 };
                     search.Click += async (_, _) =>
                     {
                         ClubVisionTargetChoice? picked = null;
@@ -1231,7 +1237,7 @@ public sealed partial class MainWindow : IClubPanels
                     };
                     targetHost.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                     {
-                        new TextBlock { Text = targetLabel, Width = 90, VerticalAlignment = VerticalAlignment.Center },
+                        new TextBlock { Text = AppLanguage.T(targetLabel), Width = 90, VerticalAlignment = VerticalAlignment.Center },
                         valueText, search
                     } };
                 }
@@ -1248,7 +1254,7 @@ public sealed partial class MainWindow : IClubPanels
                     };
                     targetHost.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                     {
-                        new TextBlock { Text = targetLabel, Width = 90, VerticalAlignment = VerticalAlignment.Center }, targetBox
+                        new TextBlock { Text = AppLanguage.T(targetLabel), Width = 90, VerticalAlignment = VerticalAlignment.Center }, targetBox
                     } };
                 }
             }
@@ -1270,8 +1276,8 @@ public sealed partial class MainWindow : IClubPanels
             endBox.TextChanged += (_, _) => OnDatesChanged();
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Start", VerticalAlignment = VerticalAlignment.Center }, startBox,
-                new TextBlock { Text = "End", VerticalAlignment = VerticalAlignment.Center }, endBox
+                new TextBlock { Text = AppLanguage.Get("Common_Start"), VerticalAlignment = VerticalAlignment.Center }, startBox,
+                new TextBlock { Text = AppLanguage.Get("Common_End"), VerticalAlignment = VerticalAlignment.Center }, endBox
             } });
 
             saveBtn = new Button { IsVisible = false, Content = "Save changes", Classes = { "accent" }, IsEnabled = drafts.Values.Any(r => r.HasChanges) };
@@ -1294,11 +1300,11 @@ public sealed partial class MainWindow : IClubPanels
                     backend.Edits.Execute("Club", club.DisplayName, "Vision", () => { foreach (var act in actions) act(); });
                     drafts.Clear();
                     RenderClubEditor();
-                    status.Text = "Saved club vision. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Ui_Saved_club_vision_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
-            var duplicate = new Button { Content = "Duplicate row" };
+            var duplicate = new Button { Content = AppLanguage.T("Duplicate row") };
             duplicate.Click += (_, _) =>
             {
                 try
@@ -1307,11 +1313,11 @@ public sealed partial class MainWindow : IClubPanels
                     backend.Edits.Execute("Club", club.DisplayName, "Vision: Duplicate", () => session.ClubVisionWriter.Duplicate(teamAddr, entry, allocator));
                     drafts.Clear();
                     RenderClubEditor();
-                    status.Text = "Row added. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Row_added_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.T("Remove") };
             remove.Click += (_, _) =>
             {
                 try
@@ -1319,11 +1325,11 @@ public sealed partial class MainWindow : IClubPanels
                     backend.Edits.Execute("Club", club.DisplayName, "Vision: Remove", () => session.ClubVisionWriter.Remove(teamAddr, entry));
                     drafts.Clear();
                     RenderClubEditor();
-                    status.Text = "Removed. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Removed_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
-            var addBtn = new Button { Content = "Add objective" };
+            var addBtn = new Button { Content = AppLanguage.T("Add objective") };
             addBtn.Click += async (_, _) =>
             {
                 await ShowAddClubVisionObjectiveDialogAsync(session, teamAddr, entries[0]);
@@ -1341,11 +1347,12 @@ public sealed partial class MainWindow : IClubPanels
     async Task ShowAddClubVisionObjectiveDialogAsync(GameSession session, ulong teamAddr, ClubVisionEntry template)
     {
         var types = ClubVisionTypes.All.Select(kv => (Code: kv.Key, Name: kv.Value)).ToList();
-        var typeCombo = new ComboBox { ItemsSource = types.Select(t => t.Name).ToArray(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var typeCombo = new ComboBox { ItemsSource = types.Select(t => t.Name).ToArray(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((name, _) => new TextBlock { Text = AppLanguage.T(name ?? "") }) };
         var importanceBox = new TextBox { Text = "5", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right, HorizontalAlignment = HorizontalAlignment.Left };
         var targetBox = new TextBox { Text = "0", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right, HorizontalAlignment = HorizontalAlignment.Left };
         var targetNameText = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("#CBD5E1") };
-        var targetButton = new Button { Content = "Search", IsVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+        var targetButton = new Button { Content = AppLanguage.Get("Label_Search"), IsVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
         var targetContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Children = { targetBox, targetNameText, targetButton } };
         ushort? targetIndex = null;
         string? targetName = null;
@@ -1355,7 +1362,7 @@ public sealed partial class MainWindow : IClubPanels
 
         var dialog = new Window
         {
-            Title = "Add Club Vision Objective",
+            Title = AppLanguage.Get("Ui_Add_Club_Vision_Objective"),
             Width = 560,
             Height = 320,
             CanResize = false,
@@ -1452,15 +1459,15 @@ public sealed partial class MainWindow : IClubPanels
             targetNameText.Text = picked.Name;
         };
 
-        var createBtn = new Button { Content = "Create objective", Classes = { "accent" } };
-        var cancelBtn = new Button { Content = "Cancel" };
+            var createBtn = new Button { Content = AppLanguage.T("Create objective"), Classes = { "accent" } };
+            var cancelBtn = new Button { Content = AppLanguage.T("Cancel") };
         cancelBtn.Click += (_, _) => dialog.Close();
 
         createBtn.Click += (_, _) =>
         {
             if (typeCombo.SelectedIndex < 0 || typeCombo.SelectedIndex >= types.Count) return;
             byte typeCode = types[typeCombo.SelectedIndex].Code;
-            if (!byte.TryParse(importanceBox.Text, out byte imp)) { status.Text = "Importance must be a whole number."; return; }
+            if (!byte.TryParse(importanceBox.Text, out byte imp)) { status.Text = AppLanguage.Get("Common_Importance_must_be_a_whole_number"); return; }
             imp = Math.Min((byte)10, imp);   // FMRTE docs: importance 0 to 10
             var kind = ClubVisionTypes.TargetItemKind(typeCode);
             int tgt = 0;
@@ -1470,11 +1477,11 @@ public sealed partial class MainWindow : IClubPanels
             }
             else if (ClubVisionTypes.TargetLabel(typeCode) is not null)
             {
-                if (!int.TryParse(targetBox.Text, out tgt)) { status.Text = "Target must be a whole number."; return; }
+                if (!int.TryParse(targetBox.Text, out tgt)) { status.Text = AppLanguage.Get("Common_Target_must_be_a_whole_number"); return; }
             }
             if (!DateSetting.TryParse(startBox.Text, out var start)
                 || !DateSetting.TryParse(endBox.Text, out var end))
-            { status.Text = $"Dates must be in {DateSetting.Hint} format."; return; }
+            { status.Text = string.Format(AppLanguage.T("Dates must be in {0} format."), DateSetting.Hint); return; }
 
             try
             {
@@ -1482,7 +1489,7 @@ public sealed partial class MainWindow : IClubPanels
                 backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Vision: Add", () =>
                     session.ClubVisionWriter.Create(teamAddr, template, typeCode, imp, tgt, start, end, allocator, targetIndex, kind));
                 RenderClubEditor();
-                status.Text = "Objective added. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Objective_added_Continue_in_FM_to_see_updates");
                 dialog.Close();
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
@@ -1549,7 +1556,7 @@ public sealed partial class MainWindow : IClubPanels
             if (entry.ScoutingShared is not null)
             {
                 bool cur = d?.ScoutingShared ?? entry.ScoutingShared.Value;
-                var cb = new CheckBox { Content = "Scouting Knowledge Shared", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                var cb = new CheckBox { Content = AppLanguage.T("Scouting Knowledge Shared"), IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
                 cb.IsCheckedChanged += (_, _) =>
                 {
                     if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
@@ -1561,7 +1568,7 @@ public sealed partial class MainWindow : IClubPanels
             if (entry.PlayersOnLoan is not null)
             {
                 bool cur = d?.PlayersOnLoan ?? entry.PlayersOnLoan.Value;
-                var cb = new CheckBox { Content = "Players Go On Loan", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                var cb = new CheckBox { Content = AppLanguage.T("Players Go On Loan"), IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
                 cb.IsCheckedChanged += (_, _) =>
                 {
                     if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
@@ -1573,7 +1580,7 @@ public sealed partial class MainWindow : IClubPanels
             if (entry.FirstOption is not null)
             {
                 bool cur = d?.FirstOption ?? entry.FirstOption.Value;
-                var cb = new CheckBox { Content = "First Option To Buy", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                var cb = new CheckBox { Content = AppLanguage.T("First Option To Buy"), IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
                 cb.IsCheckedChanged += (_, _) =>
                 {
                     if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
@@ -1585,7 +1592,7 @@ public sealed partial class MainWindow : IClubPanels
             if (entry.PlayFriendlies is not null)
             {
                 bool cur = d?.PlayFriendlies ?? entry.PlayFriendlies.Value;
-                var cb = new CheckBox { Content = "Play Friendlies", IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
+                var cb = new CheckBox { Content = AppLanguage.T("Play Friendlies"), IsChecked = cur, VerticalAlignment = VerticalAlignment.Center };
                 cb.IsCheckedChanged += (_, _) =>
                 {
                     if (!drafts.TryGetValue(entry.Address, out var rowDraft)) drafts[entry.Address] = rowDraft = new();
@@ -1613,7 +1620,7 @@ public sealed partial class MainWindow : IClubPanels
                 };
                 inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                 {
-                    new TextBlock { Text = "% Loan Wage Paid By Parent", VerticalAlignment = VerticalAlignment.Center }, box
+                    new TextBlock { Text = AppLanguage.Get("Common_Loan_Wage_Paid_By_Parent"), VerticalAlignment = VerticalAlignment.Center }, box
                 } });
             }
             if (entry.FriendlyChance is not null)
@@ -1631,7 +1638,7 @@ public sealed partial class MainWindow : IClubPanels
                 };
                 inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                 {
-                    new TextBlock { Text = "% Chance Of Friendly", VerticalAlignment = VerticalAlignment.Center }, box
+                    new TextBlock { Text = AppLanguage.Get("Common_Chance_Of_Friendly"), VerticalAlignment = VerticalAlignment.Center }, box
                 } });
             }
             if (session.Profile.Club?.Lists?.AffiliationStartEditable == true && entry.StartDate is not null)
@@ -1649,7 +1656,7 @@ public sealed partial class MainWindow : IClubPanels
                 };
                 inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                 {
-                    new TextBlock { Text = "Start Date", VerticalAlignment = VerticalAlignment.Center }, box
+                    new TextBlock { Text = AppLanguage.Get("Common_Start_Date"), VerticalAlignment = VerticalAlignment.Center }, box
                 } });
             }
             if (entry.EndDate is not null)
@@ -1667,7 +1674,7 @@ public sealed partial class MainWindow : IClubPanels
                 };
                 inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                 {
-                    new TextBlock { Text = "End Date", VerticalAlignment = VerticalAlignment.Center }, box
+                    new TextBlock { Text = AppLanguage.Get("Common_End_Date"), VerticalAlignment = VerticalAlignment.Center }, box
                 } });
             }
             if (entry.AnnualFee is not null)
@@ -1685,7 +1692,7 @@ public sealed partial class MainWindow : IClubPanels
                 };
                 inputRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
                 {
-                    new TextBlock { Text = "Annual Fee", VerticalAlignment = VerticalAlignment.Center }, box
+                    new TextBlock { Text = AppLanguage.Get("Common_Annual_Fee"), VerticalAlignment = VerticalAlignment.Center }, box
                 } });
             }
             if (inputRow.Children.Count > 0) panel.Children.Add(inputRow);
@@ -1726,7 +1733,7 @@ public sealed partial class MainWindow : IClubPanels
                         drafts.Clear();
                         pendingAffiliationRemovals.Remove(club.Address);
                         RenderClubEditor();
-                        status.Text = "Saved affiliation changes. Continue in FM to see updates.";
+                        status.Text = AppLanguage.Get("Ui_Saved_affiliation_changes_Continue_in_FM_to_see_updates");
                     }
                     catch (Exception ex) { status.Text = UserMessage.For(ex); }
                 }
@@ -1789,7 +1796,7 @@ public sealed partial class MainWindow : IClubPanels
         if (rows.Count == 0) return;
         if (regionalCompetitionNames is null)
         {
-            clubEditorPanel.Children.Add(new TextBlock { Text = "Reading competitions…", Margin = new Thickness(6) });
+            clubEditorPanel.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Reading_competitions"), Margin = new Thickness(6) });
             if (!regionalCompetitionsLoading)
             {
                 regionalCompetitionsLoading = true;
@@ -1822,17 +1829,17 @@ public sealed partial class MainWindow : IClubPanels
             };
             var level = new NumericUpDown { Minimum = 0, Maximum = 100, Value = Math.Clamp((int)row.Level, 0, 100), Width = 110, FormatString = "0" };   // in-game editor: 0-100
             var year = new NumericUpDown { Minimum = 0, Maximum = 100, Value = Math.Clamp((int)(row.Year ?? 0), 0, 100), Width = 110, FormatString = "0" };   // in-game editor: 0-100
-            var apply = new Button { Content = "Apply" };
+            var apply = new Button { Content = AppLanguage.T("Apply") };
             apply.Click += (_, _) =>
             {
                 var chosen = options.FirstOrDefault(o => string.Equals(o.Name, competition.Text?.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (chosen is null) { status.Text = "Choose a competition from the list."; return; }
+                if (chosen is null) { status.Text = AppLanguage.Get("Common_Choose_a_competition_from_the_list"); return; }
                 try
                 {
                     backend.Edits.Execute("Club", club.DisplayName, "Regional division", () =>
                         session.RegionalDivisionWriter.Set(row, chosen.Id, (byte)(level.Value ?? row.Level), (short)(year.Value ?? 0)));
                     RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
@@ -1868,23 +1875,23 @@ public sealed partial class MainWindow : IClubPanels
                 .Select(pair => new SponsorIncomeOption(pair.Key, pair.Value)).ToArray(),
         };
         newType.SelectedIndex = 0;
-        var add = new Button { Content = "Add sponsor" };
+        var add = new Button { Content = AppLanguage.T("Add sponsor") };
         add.Click += (_, _) =>
         {
-            if (newType.SelectedItem is not SponsorIncomeOption chosen) { status.Text = "Choose an income type."; return; }
-            if (!int.TryParse(newTotal.Text, out int value)) { status.Text = "Enter a whole number for the sponsor value."; return; }
+            if (newType.SelectedItem is not SponsorIncomeOption chosen) { status.Text = AppLanguage.Get("Common_Choose_an_income_type"); return; }
+            if (!int.TryParse(newTotal.Text, out int value)) { status.Text = AppLanguage.Get("Ui_Enter_a_whole_number_for_the_sponsor_value"); return; }
             if (!DateSetting.TryParse(newStart.Text, out var start)
                 || !DateSetting.TryParse(newEnd.Text, out var end))
-            { status.Text = $"Enter dates as {DateSetting.Hint}."; return; }
+            { status.Text = string.Format(AppLanguage.T("Enter dates as {0}."), DateSetting.Hint); return; }
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Add", () => session.SponsorWriter.Add(club.Address, chosen.Code, value, start, end));
                 RenderClubEditor();
-                status.Text = "Sponsor added. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Sponsor_added_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
-        var remove = new Button { Content = "Remove selected" };
+        var remove = new Button { Content = AppLanguage.T("Remove selected") };
         remove.Click += (_, _) =>
         {
             int index = clubListSelectedRow.TryGetValue((club.Address, ClubSection.Sponsors), out int saved) ? saved : 0;
@@ -1894,17 +1901,17 @@ public sealed partial class MainWindow : IClubPanels
                 var entry = sponsors[index];
                 backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Remove", () => session.SponsorWriter.Remove(club.Address, entry));
                 RenderClubEditor();
-                status.Text = "Sponsor removed. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Sponsor_removed_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
-        addBar.Children.Add(new TextBlock { Text = "Income Type", VerticalAlignment = VerticalAlignment.Center });
+        addBar.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Income_Type"), VerticalAlignment = VerticalAlignment.Center });
         addBar.Children.Add(newType);
-        addBar.Children.Add(new TextBlock { Text = "Value", VerticalAlignment = VerticalAlignment.Center });
+        addBar.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Value"), VerticalAlignment = VerticalAlignment.Center });
         addBar.Children.Add(newTotal);
-        addBar.Children.Add(new TextBlock { Text = "Start", VerticalAlignment = VerticalAlignment.Center });
+        addBar.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Start"), VerticalAlignment = VerticalAlignment.Center });
         addBar.Children.Add(newStart);
-        addBar.Children.Add(new TextBlock { Text = "End", VerticalAlignment = VerticalAlignment.Center });
+        addBar.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_End"), VerticalAlignment = VerticalAlignment.Center });
         addBar.Children.Add(newEnd);
         addBar.Children.Add(add);
         addBar.Children.Add(remove);
@@ -1924,7 +1931,7 @@ public sealed partial class MainWindow : IClubPanels
                     .OrderBy(pair => pair.Value, StringComparer.Ordinal)
                     .Select(pair => new SponsorIncomeOption(pair.Key, pair.Value)).ToArray();
                 var income = new ComboBox { ItemsSource = options, SelectedItem = options.First(o => o.Code == sponsor.IncomeTypeCode), Width = 230 };
-                var applyIncome = new Button { Content = "Apply" };
+                var applyIncome = new Button { Content = AppLanguage.T("Apply") };
                 applyIncome.Click += (_, _) =>
                 {
                     if (income.SelectedItem is not SponsorIncomeOption chosen) return;
@@ -1932,7 +1939,7 @@ public sealed partial class MainWindow : IClubPanels
                     {
                         backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Income Type", () => session.SetSponsorIncomeType(club.Address, sponsor, chosen.Code));
                         RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
+                        status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                     }
                     catch (Exception ex) { status.Text = UserMessage.For(ex); }
                 };
@@ -1940,20 +1947,20 @@ public sealed partial class MainWindow : IClubPanels
                 {
                     Orientation = Orientation.Horizontal, Spacing = 8, Children =
                     {
-                        new TextBlock { Text = "Income Type", VerticalAlignment = VerticalAlignment.Center }, income, applyIncome
+                        new TextBlock { Text = AppLanguage.Get("Common_Income_Type"), VerticalAlignment = VerticalAlignment.Center }, income, applyIncome
                     }
                 });
             }
             var totalBox = new TextBox { Text = sponsor.TotalValue.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
-            var applyTotal = new Button { Content = "Apply" };
+            var applyTotal = new Button { Content = AppLanguage.T("Apply") };
             applyTotal.Click += (_, _) =>
             {
-                if (!int.TryParse(totalBox.Text, out int value)) { status.Text = "Enter a whole number for the sponsor value."; return; }
+                if (!int.TryParse(totalBox.Text, out int value)) { status.Text = AppLanguage.Get("Ui_Enter_a_whole_number_for_the_sponsor_value"); return; }
                 try
                 {
                     backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Total", () => session.SetSponsorTotal(club.Address, sponsor, value));
                     RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
@@ -1961,24 +1968,24 @@ public sealed partial class MainWindow : IClubPanels
             {
                 Orientation = Orientation.Horizontal, Spacing = 8, Children =
                 {
-                    new TextBlock { Text = "Total Value", VerticalAlignment = VerticalAlignment.Center }, totalBox, applyTotal
+                    new TextBlock { Text = AppLanguage.Get("Common_Total_Value"), VerticalAlignment = VerticalAlignment.Center }, totalBox, applyTotal
                 }
             });
             if (sponsor.StartDate is { } started && sponsor.EndDate is { } ended)
             {
                 var startBox = new DateBox { Text = DateSetting.Format(started), Width = 140 };
                 var endBox = new DateBox { Text = DateSetting.Format(ended), Width = 140 };
-                var applyDates = new Button { Content = "Apply" };
+                var applyDates = new Button { Content = AppLanguage.T("Apply") };
                 applyDates.Click += (_, _) =>
                 {
                     if (!DateSetting.TryParse(startBox.Text, out var start)
                         || !DateSetting.TryParse(endBox.Text, out var end))
-                    { status.Text = $"Enter dates as {DateSetting.Hint}."; return; }
+                    { status.Text = string.Format(AppLanguage.T("Enter dates as {0}."), DateSetting.Hint); return; }
                     try
                     {
                         backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Dates", () => session.SetSponsorDates(club.Address, sponsor, start, end));
                         RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
+                        status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                     }
                     catch (Exception ex) { status.Text = UserMessage.For(ex); }
                 };
@@ -1986,23 +1993,23 @@ public sealed partial class MainWindow : IClubPanels
                 {
                     Orientation = Orientation.Horizontal, Spacing = 8, Children =
                     {
-                        new TextBlock { Text = "Start", VerticalAlignment = VerticalAlignment.Center }, startBox,
-                        new TextBlock { Text = "End", VerticalAlignment = VerticalAlignment.Center }, endBox, applyDates
+                        new TextBlock { Text = AppLanguage.Get("Common_Start"), VerticalAlignment = VerticalAlignment.Center }, startBox,
+                        new TextBlock { Text = AppLanguage.Get("Common_End"), VerticalAlignment = VerticalAlignment.Center }, endBox, applyDates
                     }
                 });
             }
             if (sponsor.RenewIncome is { } renewIncome && sponsor.FixedValue is { } fixedValue)
             {
-                var renewBox = new CheckBox { Content = "Renew Income", IsChecked = renewIncome, VerticalAlignment = VerticalAlignment.Center };
-                var fixedBox = new CheckBox { Content = "Fixed Value", IsChecked = fixedValue, VerticalAlignment = VerticalAlignment.Center };
-                var applyFlags = new Button { Content = "Apply" };
+                var renewBox = new CheckBox { Content = AppLanguage.T("Renew Income"), IsChecked = renewIncome, VerticalAlignment = VerticalAlignment.Center };
+                var fixedBox = new CheckBox { Content = AppLanguage.T("Fixed Value"), IsChecked = fixedValue, VerticalAlignment = VerticalAlignment.Center };
+                var applyFlags = new Button { Content = AppLanguage.T("Apply") };
                 applyFlags.Click += (_, _) =>
                 {
                     try
                     {
                         backend.Edits.Execute("Club", club.DisplayName, "Sponsor: Renew / Fixed", () => session.SetSponsorFlags(club.Address, sponsor, renewBox.IsChecked == true, fixedBox.IsChecked == true));
                         RenderClubEditor();
-                        status.Text = "Saved. Continue in FM to see updates.";
+                        status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                     }
                     catch (Exception ex) { status.Text = UserMessage.For(ex); }
                 };
@@ -2045,14 +2052,14 @@ public sealed partial class MainWindow : IClubPanels
             detail.Child = BuildClubDebtDetail(session, club, debts[index]);
         }), detail);
 
-        var clearAll = new Button { Content = "Clear all debts" };
+        var clearAll = new Button { Content = AppLanguage.T("Clear all debts") };
         clearAll.Click += (_, _) =>
         {
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Debts: Remove All", () => session.RemoveAllDebts(club.Address));
                 RenderClubEditor();
-                status.Text = "All debts cleared. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_All_debts_cleared_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
@@ -2069,16 +2076,16 @@ public sealed partial class MainWindow : IClubPanels
         if (debt.MonthlyRepayment is not { } amount || debt.MonthlyInterestRepayment is not { } interest) return new Border();
         var repaymentBox = new TextBox { Text = amount.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
         var interestBox = new TextBox { Text = interest.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var save = new Button { Content = "Apply" };
+        var save = new Button { Content = AppLanguage.T("Apply") };
         save.Click += (_, _) =>
         {
             if (!int.TryParse(repaymentBox.Text, out int repayment) || !int.TryParse(interestBox.Text, out int interestValue))
-            { status.Text = "Enter whole numbers for debt payments."; return; }
+            { status.Text = AppLanguage.Get("Ui_Enter_whole_numbers_for_debt_payments"); return; }
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Debt: Repayment / Interest", () => session.SetDebtPayments(club.Address, debt, repayment, interestValue));
                 RenderClubEditor();
-                status.Text = "Saved. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
@@ -2086,52 +2093,52 @@ public sealed partial class MainWindow : IClubPanels
         if (session.Profile.Club?.FinanceLists?.DebtOriginalEditable == true)
         {
             var originalBox = new TextBox { Text = debt.OriginalDebt.ToString(Inv), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right };
-            var applyOriginal = new Button { Content = "Apply" };
+            var applyOriginal = new Button { Content = AppLanguage.T("Apply") };
             applyOriginal.Click += (_, _) =>
             {
-                if (!int.TryParse(originalBox.Text, out int value)) { status.Text = "Enter a whole number for original debt."; return; }
+                if (!int.TryParse(originalBox.Text, out int value)) { status.Text = AppLanguage.Get("Ui_Enter_a_whole_number_for_original_debt"); return; }
                 try
                 {
                     backend.Edits.Execute("Club", club.DisplayName, "Debt: Original Amount", () => session.SetOriginalDebt(club.Address, debt, value));
                     RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Original Debt", VerticalAlignment = VerticalAlignment.Center }, originalBox, applyOriginal
+                new TextBlock { Text = AppLanguage.Get("Common_Original_Debt"), VerticalAlignment = VerticalAlignment.Center }, originalBox, applyOriginal
             } });
         }
         if (session.Profile.Club?.FinanceLists?.DebtDatesEditable == true && debt.StartDate is { } started && debt.EndDate is { } ended)
         {
             var startBox = new DateBox { Text = DateSetting.Format(started), Width = 140 };
             var endBox = new DateBox { Text = DateSetting.Format(ended), Width = 140 };
-            var applyDates = new Button { Content = "Apply" };
+            var applyDates = new Button { Content = AppLanguage.T("Apply") };
             applyDates.Click += (_, _) =>
             {
                 if (!DateSetting.TryParse(startBox.Text, out var start)
                     || !DateSetting.TryParse(endBox.Text, out var end))
-                { status.Text = $"Enter dates as {DateSetting.Hint}."; return; }
+                { status.Text = string.Format(AppLanguage.T("Enter dates as {0}."), DateSetting.Hint); return; }
                 try
                 {
                     backend.Edits.Execute("Club", club.DisplayName, "Debt: Dates", () => session.SetDebtDates(club.Address, debt, start, end));
                     RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Start", VerticalAlignment = VerticalAlignment.Center }, startBox,
-                new TextBlock { Text = "End", VerticalAlignment = VerticalAlignment.Center }, endBox, applyDates
+                new TextBlock { Text = AppLanguage.Get("Common_Start"), VerticalAlignment = VerticalAlignment.Center }, startBox,
+                new TextBlock { Text = AppLanguage.Get("Common_End"), VerticalAlignment = VerticalAlignment.Center }, endBox, applyDates
             } });
         }
         if (session.Profile.Club?.FinanceLists?.DebtSourceEditable == true && ClubDebtWriter.SupportedSource(debt.SourceCode))
         {
             var options = ClubListLabels.DebtSources.Select(pair => new DebtSourceOption(pair.Key, pair.Value)).ToArray();
             var source = new ComboBox { ItemsSource = options, SelectedItem = options.First(o => o.Code == debt.SourceCode), Width = 300 };
-            var applySource = new Button { Content = "Apply" };
+            var applySource = new Button { Content = AppLanguage.T("Apply") };
             applySource.Click += (_, _) =>
             {
                 if (source.SelectedItem is not DebtSourceOption chosen) return;
@@ -2139,31 +2146,31 @@ public sealed partial class MainWindow : IClubPanels
                 {
                     backend.Edits.Execute("Club", club.DisplayName, "Debt: Source", () => session.SetDebtSource(club.Address, debt, chosen.Code));
                     RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
             panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
-                new TextBlock { Text = "Source", VerticalAlignment = VerticalAlignment.Center }, source, applySource
+                new TextBlock { Text = AppLanguage.Get("Common_Source"), VerticalAlignment = VerticalAlignment.Center }, source, applySource
             } });
         }
         panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
         {
-            new TextBlock { Text = "Monthly Repayment", VerticalAlignment = VerticalAlignment.Center }, repaymentBox,
-            new TextBlock { Text = "Monthly Interest Repayment", VerticalAlignment = VerticalAlignment.Center }, interestBox, save
+            new TextBlock { Text = AppLanguage.Get("Common_Monthly_Repayment"), VerticalAlignment = VerticalAlignment.Center }, repaymentBox,
+            new TextBlock { Text = AppLanguage.Get("Common_Monthly_Interest_Repayment"), VerticalAlignment = VerticalAlignment.Center }, interestBox, save
         } });
         if (debt.InterestOnly is { } interestOnly)
         {
-            var check = new CheckBox { Content = "Interest-only payment", IsChecked = interestOnly, VerticalAlignment = VerticalAlignment.Center };
-            var apply = new Button { Content = "Apply" };
+            var check = new CheckBox { Content = AppLanguage.T("Interest-only payment"), IsChecked = interestOnly, VerticalAlignment = VerticalAlignment.Center };
+            var apply = new Button { Content = AppLanguage.T("Apply") };
             apply.Click += (_, _) =>
             {
                 try
                 {
                     backend.Edits.Execute("Club", club.DisplayName, "Debt: Interest Only", () => session.SetDebtInterestOnly(club.Address, debt, check.IsChecked == true));
                     RenderClubEditor();
-                    status.Text = "Saved. Continue in FM to see updates.";
+                    status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
                 }
                 catch (Exception ex) { status.Text = UserMessage.For(ex); }
             };
@@ -2198,7 +2205,7 @@ public sealed partial class MainWindow : IClubPanels
         IReadOnlyList<ClubEntry> clubs;
         try { clubs = session.LoadClubs([]); } catch { clubs = []; }
         ClubEntry? chosenRival = null;
-        var pick = new Button { Width = 300, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose club…" };
+        var pick = new Button { Width = 300, HorizontalContentAlignment = HorizontalAlignment.Left, Content = AppLanguage.T("Choose club…") };
         pick.Click += async (_, _) =>
         {
             var choices = clubs.Where(c => c.Address != club.Address && c.Gender != Fm27Editor.Core.Offsets.Gender.Women)
@@ -2208,19 +2215,19 @@ public sealed partial class MainWindow : IClubPanels
             chosenRival = chosen;
             pick.Content = $"{chosen.Name} ({chosen.Id})";
         };
-        var add = new Button { Content = "Add rival" };
+        var add = new Button { Content = AppLanguage.T("Add rival") };
         add.Click += (_, _) =>
         {
-            if (chosenRival is not { } rival || rival.Address == club.Address) { status.Text = "Pick another club"; return; }
+            if (chosenRival is not { } rival || rival.Address == club.Address) { status.Text = AppLanguage.Get("Common_Pick_another_club"); return; }
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Relationships: Add Rival", () => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).AddRival(club.Address, rival.Address, 50, 2, null));
                 RenderClubEditor();
-                status.Text = "Added. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Added_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
-        row.Children.Add(new TextBlock { Text = "Rival", VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Rival"), VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(pick);
         row.Children.Add(add);
         return row;
@@ -2232,43 +2239,43 @@ public sealed partial class MainWindow : IClubPanels
         var value = new TextBox { Text = row.Value.ToString(Inv), Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right };
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         panel.Children.Add(new TextBlock { Text = row.Name ?? "Unknown", VerticalAlignment = VerticalAlignment.Center, MinWidth = 150 });
-        panel.Children.Add(new TextBlock { Text = "Value", VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(new TextBlock { Text = AppLanguage.Get("Label_Value"), VerticalAlignment = VerticalAlignment.Center });
         panel.Children.Add(value);
         ComboBox? reason = null;
         if (row.Kind != ClubRelationshipKind.DislikesPerson)
         {
-            reason = new ComboBox { ItemsSource = ClubRelationshipLabels.Reasons(row.Kind), SelectedIndex = Math.Min(row.Reason, ClubRelationshipLabels.Reasons(row.Kind).Count - 1), Width = 170 };
-            panel.Children.Add(new TextBlock { Text = "Reason", VerticalAlignment = VerticalAlignment.Center });
+            reason = new ComboBox { ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }), ItemsSource = ClubRelationshipLabels.Reasons(row.Kind), SelectedIndex = Math.Min(row.Reason, ClubRelationshipLabels.Reasons(row.Kind).Count - 1), Width = 170 };
+            panel.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Reason"), VerticalAlignment = VerticalAlignment.Center });
             panel.Children.Add(reason);
         }
         CheckBox? permanent = null;
         if (row.Kind != ClubRelationshipKind.Rival)
         {
-            permanent = new CheckBox { Content = "Permanent", IsChecked = row.Permanent, VerticalAlignment = VerticalAlignment.Center };
+            permanent = new CheckBox { Content = AppLanguage.T("Permanent"), IsChecked = row.Permanent, VerticalAlignment = VerticalAlignment.Center };
             panel.Children.Add(permanent);
         }
         var save = new Button { IsVisible = false, Content = "Save changes" };
         save.Click += (_, _) =>
         {
-            if (!int.TryParse(value.Text, out int v) || v is < 0 or > 100) { status.Text = "Value must be 0 to 100"; return; }
+            if (!int.TryParse(value.Text, out int v) || v is < 0 or > 100) { status.Text = AppLanguage.Get("Ui_Value_must_be_0_to_100"); return; }
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Relationships: Edit", () => session.SetClubRelationship(club.Address, row,
                     reason is { SelectedIndex: >= 0 } r ? r.SelectedIndex : null, permanent?.IsChecked, v));
                 RenderClubEditor();
-                status.Text = "Saved. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
         panel.Children.Add(save);
-        var remove = new Button { Content = "Remove" };
+        var remove = new Button { Content = AppLanguage.T("Remove") };
         remove.Click += (_, _) =>
         {
             try
             {
                 backend.Edits.Execute("Club", club.DisplayName, "Relationships: Remove", () => new Fm27Editor.Core.Clubs.ClubRelationshipWriter(session.Memory, session.Profile, session.Game.ModuleBase).Remove(club.Address, row));
                 RenderClubEditor();
-                status.Text = "Removed. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Common_Removed_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
@@ -2282,18 +2289,18 @@ public sealed partial class MainWindow : IClubPanels
         var save = new Button { IsVisible = false, Content = "Save changes" };
         save.Click += (_, _) =>
         {
-            if (!int.TryParse(value.Text, out int fee) || fee is < 0 or > 1_000_000_000) { status.Text = "Enter a transfer fee between 0 and 1,000,000,000"; return; }
+            if (!int.TryParse(value.Text, out int fee) || fee is < 0 or > 1_000_000_000) { status.Text = AppLanguage.Get("Ui_Enter_a_transfer_fee_between_0_and_1_000_000_000"); return; }
             try
             {
                 backend.Edits.Execute("Club", (selectedClub?.DisplayName ?? "Club"), "Transfer Offer: Fee", () => session.ProposalWriter.SetValue(offer.Proposal, fee));
                 RenderClubEditor();
-                status.Text = "Saved. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Common_Saved_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };
         return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
         {
-            new TextBlock { Text = "Value", VerticalAlignment = VerticalAlignment.Center }, value, save
+            new TextBlock { Text = AppLanguage.Get("Label_Value"), VerticalAlignment = VerticalAlignment.Center }, value, save
         } };
     }
 
@@ -2532,7 +2539,7 @@ public sealed partial class MainWindow : IClubPanels
             line.Children.Add(rightView);
             line.Children.Add(new TextBlock
             {
-                Text = field.Label,
+                Text = AppLanguage.T(field.Label),
                 FontSize = 13,
                 Foreground = Brush("#CBD5E1"),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -2548,7 +2555,7 @@ public sealed partial class MainWindow : IClubPanels
             });
         }
 
-        var detailCard = UiKit.Card("Details", panel);
+        var detailCard = UiKit.Card(AppLanguage.T("Details"), panel);
         detailCard.MaxWidth = 540;
         detailCard.HorizontalAlignment = HorizontalAlignment.Left;
         return detailCard;
@@ -2607,7 +2614,7 @@ public sealed partial class MainWindow : IClubPanels
             totalLine.Children.Add(distributionTotalText);
             totalLine.Children.Add(new TextBlock
             {
-                Text = "Total",
+                Text = AppLanguage.Get("Common_Total"),
                 FontSize = 13,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = Brush("#94A3B8"),
@@ -2631,7 +2638,7 @@ public sealed partial class MainWindow : IClubPanels
         var line = new DockPanel { MinHeight = 29, LastChildFill = true };
         var label = new TextBlock
         {
-            Text = field.Meta.Label,
+            Text = AppLanguage.T(field.Meta.Label),
             FontSize = 13,
             Foreground = Brush("#CBD5E1"),
             VerticalAlignment = VerticalAlignment.Center,

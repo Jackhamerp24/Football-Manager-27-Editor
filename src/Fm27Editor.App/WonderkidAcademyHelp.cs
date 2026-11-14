@@ -20,7 +20,7 @@ internal static class WonderkidAcademyHelp
 
         TextBlock Para(string text) => new()
         {
-            Text = text, FontSize = 13, TextWrapping = TextWrapping.Wrap, Foreground = UiKit.Brush("#CBD5E1"), LineHeight = 19,
+            Text = AppLanguage.T(text), FontSize = 13, TextWrapping = TextWrapping.Wrap, Foreground = UiKit.Brush("#CBD5E1"), LineHeight = 19,
         };
 
         Control Rows(params (string Term, string Text)[] rows)
@@ -31,7 +31,7 @@ internal static class WonderkidAcademyHelp
                 grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                 var term = new TextBlock
                 {
-                    Text = rows[i].Term, FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#F1F5F9"),
+                    Text = AppLanguage.T(rows[i].Term), FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#F1F5F9"),
                     Margin = new Thickness(8, 5, 8, 5), TextWrapping = TextWrapping.Wrap,
                 };
                 var text = Para(rows[i].Text);
@@ -51,7 +51,7 @@ internal static class WonderkidAcademyHelp
         {
             var stack = new StackPanel { Spacing = 6, Margin = new Thickness(10, 8) };
             foreach (var b in body) stack.Children.Add(b);
-            return UiKit.Card(title, stack);
+            return UiKit.Card(AppLanguage.T(title), stack);
         }
 
         var content = new StackPanel { Spacing = 12, Margin = new Thickness(16) };
@@ -82,7 +82,7 @@ internal static class WonderkidAcademyHelp
                  ("Undo", "Takes back your last change (up to 20)."),
                  ("Closing", "It keeps working after you close the editor, until you exit the game. It is not kept in your save: set it up again after restarting the game."))));
 
-        var close = new Button { Content = "Close", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(16, 0, 16, 12), Padding = new Thickness(16, 0), Height = 28, MinHeight = 28 };
+        var close = new Button { Content = AppLanguage.Get("Common_Close"), HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(16, 0, 16, 12), Padding = new Thickness(16, 0), Height = 28, MinHeight = 28 };
         var root = new DockPanel();
         DockPanel.SetDock(close, Dock.Bottom);
         root.Children.Add(close);
@@ -90,7 +90,7 @@ internal static class WonderkidAcademyHelp
 
         var window = new Window
         {
-            Title = "Wonderkid Academy: How to use", Width = 620, Height = 680, MinWidth = 480, MinHeight = 400,
+            Title = AppLanguage.T("Wonderkid Academy: How to use"), Width = 620, Height = 680, MinWidth = 480, MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = root,
         };
         close.Click += (_, _) => window.Close();

@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -103,7 +104,7 @@ public sealed partial class MainWindow
         void Run(string action, Action<StaffRecord, DateOnly> operation)
         {
             var chosen = rows.Where(r => !excluded.Contains(r.Staff.Address)).Select(r => r.Staff).ToList();
-            if (chosen.Count == 0) { status.Text = "No staff ticked"; return; }
+            if (chosen.Count == 0) { status.Text = AppLanguage.Get("Ui_No_staff_ticked"); return; }
             DateOnly today;
             try { today = backend.Session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"); }
             catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
@@ -124,10 +125,11 @@ public sealed partial class MainWindow
         {
             var b = new Button
             {
-                Content = text, FontSize = 12.5, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0),
+                Content = new TextBlock { Text = AppLanguage.T(text), TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center }, FontSize = 12.5, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0),
                 VerticalContentAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
             };
+            ToolTip.SetTip(b, AppLanguage.T(text));
             b.Click += (_, _) => Run(action, operation);
             return b;
         }

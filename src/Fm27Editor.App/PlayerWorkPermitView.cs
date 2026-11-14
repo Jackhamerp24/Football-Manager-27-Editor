@@ -37,7 +37,7 @@ public sealed partial class MainWindow
 
         Button RemoveToggle(HashSet<ulong> set, ulong key, Control line)
         {
-            var button = new Button { Content = "Remove" };
+            var button = new Button { Content = AppLanguage.Get("Label_Remove") };
             button.Click += (_, _) =>
             {
                 if (!set.Remove(key)) set.Add(key);
@@ -71,7 +71,7 @@ public sealed partial class MainWindow
                 {
                     int r = form.RowDefinitions.Count;
                     form.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                    var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
+                    var text = new TextBlock { Text = AppLanguage.T(label), VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary };
                     Grid.SetRow(text, r); Grid.SetRow(value, r); Grid.SetColumn(value, 1);
                     form.Children.Add(text); form.Children.Add(value);
                 }
@@ -93,7 +93,7 @@ public sealed partial class MainWindow
                 Button? make = null;
                 if (grant.Temporary)
                 {
-                    make = new Button { Content = "Make permanent", HorizontalAlignment = HorizontalAlignment.Left };
+                    make = new Button { Content = AppLanguage.Get("Ui_Make_permanent"), HorizontalAlignment = HorizontalAlignment.Left };
                     make.Click += (_, _) => { if (!permanent.Remove(grant.Record)) permanent.Add(grant.Record); make.Content = permanent.Contains(grant.Record) ? "Undo permanent" : "Make permanent"; Changed(); };
                 }
                 var card = new Border { Background = UiKit.SurfaceInput, BorderBrush = UiKit.BorderSubtle, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
@@ -134,7 +134,7 @@ public sealed partial class MainWindow
         void BuildDenied()
         {
             var rows = new StackPanel { Spacing = 4, Margin = new Thickness(12, 8) };
-            if (deniedLoaded && denied.Count == 0) rows.Children.Add(new TextBlock { Text = "None", Foreground = UiKit.TextSecondary });
+            if (deniedLoaded && denied.Count == 0) rows.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_None"), Foreground = UiKit.TextSecondary });
             foreach (var denial in denied)
             {
                 var line = new DockPanel();
@@ -167,7 +167,7 @@ public sealed partial class MainWindow
                 if (!int.TryParse(year.Text, out int y) || y is < 1901 || y > maxYear) { status.Text = YearMessage(); return; }
             foreach (var g in grants)
                 if (yearEdits.TryGetValue(g.Record, out var t) && (!int.TryParse(t.Text, out int y) || y is < 1901 || y > maxYear)) { status.Text = YearMessage(); return; }
-            if (!permitsLoaded && (additions.Count > 0 || removedGrants.Count > 0)) { status.Text = "The work permits are still loading"; return; }
+            if (!permitsLoaded && (additions.Count > 0 || removedGrants.Count > 0)) { status.Text = AppLanguage.Get("Ui_The_work_permits_are_still_loading"); return; }
             try
             {
                 backend.Edits.Execute("Player", player.DisplayName, "Work Permit", () =>
@@ -180,7 +180,7 @@ public sealed partial class MainWindow
                     foreach (var (nation, _, year) in additions) session.AddWorkPermit(player, nation, int.Parse(year.Text!));
                 });
                 RenderEditor();
-                status.Text = "Saved work permit changes. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Saved_work_permit_changes_Continue_in_FM_to_see_updates");
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }
         };

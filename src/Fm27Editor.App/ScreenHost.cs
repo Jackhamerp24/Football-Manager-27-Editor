@@ -59,11 +59,11 @@ public sealed partial class MainWindow : IScreenHost
     Task IScreenHost.OpenClubAsync(ulong address) => OpenPlayerClubAsync(address);
     void IScreenHost.OpenCity(ulong address)
     {
-        if (backend.Session.Cities.Read(address) is { } city) { openLinkedEntityInNewTab = true; cityScreen.Pick(city); } else status.Text = "City unavailable";
+        if (backend.Session.Cities.Read(address) is { } city) { openLinkedEntityInNewTab = true; cityScreen.Pick(city); } else status.Text = AppLanguage.Get("Ui_City_unavailable");
     }
     void IScreenHost.OpenStadium(ulong address)
     {
-        if (backend.Session.Stadiums.Reload(address) is { } stadium) { openLinkedEntityInNewTab = true; stadiumScreen.Pick(stadium); } else status.Text = "Stadium unavailable";
+        if (backend.Session.Stadiums.Reload(address) is { } stadium) { openLinkedEntityInNewTab = true; stadiumScreen.Pick(stadium); } else status.Text = AppLanguage.Get("Ui_Stadium_unavailable");
     }
     Avalonia.Controls.Window IScreenHost.Window => this;
     void IScreenHost.OpenStaff(Fm27Editor.Core.Staff.StaffRecord staff) { openLinkedEntityInNewTab = true; OpenClubStaff(staff); }

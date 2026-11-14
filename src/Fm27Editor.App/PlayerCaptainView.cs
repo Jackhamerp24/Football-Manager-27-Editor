@@ -28,10 +28,10 @@ public sealed partial class MainWindow
             busy = true;
             var plan = await Task.Run(() => writer.Plan(player, role));
             if (!ReferenceEquals(session, backend.Session)) return;
-            if (plan.Previous == plan.Person) { status.Text = $"{player.DisplayName} is already {label}."; return; }
+            if (plan.Previous == plan.Person) { status.Text = string.Format(AppLanguage.T("{0} is already {1}."), player.DisplayName, AppLanguage.T(label)); return; }
             await Task.Run(() => backend.Edits.Execute("Player", player.DisplayName, $"Make {label}", () => writer.Apply(plan)));
             captainUndo.Push(plan);
-            status.Text = $"{player.DisplayName} is now {label} of {player.ClubName}. Continue in FM to see updates.";
+            status.Text = string.Format(AppLanguage.T("{0} is now {1} of {2}. Continue in FM to see updates."), player.DisplayName, AppLanguage.T(label), player.ClubName);
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); return; }
         finally { busy = false; }
@@ -47,7 +47,7 @@ public sealed partial class MainWindow
             busy = true;
             await Task.Run(() => backend.Edits.Execute("Player", "Captain change", "Undo", () => CaptainWriter(session).Undo(plan)));
             captainUndo.Pop();
-            status.Text = $"Restored {TeamCaptainService.Label(plan.Role)} for {plan.Player.DisplayName}. Continue in FM to see updates.";
+            status.Text = string.Format(AppLanguage.T("Restored {0} for {1}. Continue in FM to see updates."), AppLanguage.T(TeamCaptainService.Label(plan.Role)), plan.Player.DisplayName);
             RenderEditor();
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }

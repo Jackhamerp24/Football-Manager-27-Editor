@@ -12,15 +12,15 @@ internal sealed record AwardRow(AwardRecord Award, string Name, int Reputation, 
 
 /// <summary>Awards: a reputation and what a winner's reputation becomes.</summary>
 internal sealed class AwardScreen(IScreenHost host)
-    : EntityScreen<AwardRecord, AwardRow, Dictionary<AwardField, string>>(host, "award", "Awards", "awards", "Search award or ID...")
+    : EntityScreen<AwardRecord, AwardRow, Dictionary<AwardField, string>>(host, "award", "Awards", "awards", AppLanguage.T("Search award or ID..."))
 {
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Award", Binding = new Binding(nameof(AwardRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        var rep = new DataGridTextColumn { Header = "Reputation", Binding = new Binding(nameof(AwardRow.Reputation)), Width = new DataGridLength(115) };
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Award"), Binding = new Binding(nameof(AwardRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        var rep = new DataGridTextColumn { Header = AppLanguage.T("Reputation"), Binding = new Binding(nameof(AwardRow.Reputation)), Width = new DataGridLength(115) };
         rep.CellStyleClasses.Add("numeric");
         grid.Columns.Add(rep);
-        var id = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(AwardRow.Id)), Width = new DataGridLength(115) };
+        var id = new DataGridTextColumn { Header = AppLanguage.T("ID"), Binding = new Binding(nameof(AwardRow.Id)), Width = new DataGridLength(115) };
         id.CellStyleClasses.Add("numeric");
         grid.Columns.Add(id);
     }
@@ -44,7 +44,7 @@ internal sealed class AwardScreen(IScreenHost host)
 
     static string FieldLabel(AwardField f) => f switch
     {
-        AwardField.Reputation => "Reputation", AwardField.WinnerHomeReputation => "Winner home reputation", _ => "Winner world reputation",
+        AwardField.Reputation => AppLanguage.T("Reputation"), AwardField.WinnerHomeReputation => AppLanguage.T("Winner home reputation"), _ => AppLanguage.T("Winner world reputation"),
     };
 
     static string FieldValue(AwardRecord a, AwardField f) => f switch
@@ -73,12 +73,12 @@ internal sealed class AwardScreen(IScreenHost host)
         };
         HeaderHost.Content = UiKit.EntityBanner(a.DisplayName, badges, actions, Host.Graphics.Image("award", a.Id, 72));
 
-        var identification = CardRows("Identification", [
-            ("Unique ID", Label(a.Id.ToString(Inv), "#F1F5F9")),
-            ("Full Name", Label(a.Name ?? a.DisplayName, "#F1F5F9")),
-            ("Short Name", Label(a.ShortName ?? "", "#F1F5F9")),
+        var identification = CardRows(AppLanguage.T("Identification"), [
+            (AppLanguage.T("Unique ID"), Label(a.Id.ToString(Inv), "#F1F5F9")),
+            (AppLanguage.T("Full Name"), Label(a.Name ?? a.DisplayName, "#F1F5F9")),
+            (AppLanguage.T("Short Name"), Label(a.ShortName ?? "", "#F1F5F9")),
         ]);
-        var reputation = CardRows("Reputation", Enum.GetValues<AwardField>()
+        var reputation = CardRows(AppLanguage.T("Reputation"), Enum.GetValues<AwardField>()
             .Select(f => (FieldLabel(f), (Control)FieldBox(draft, f, FieldValue(a, f), 96, changed))));
         Editor.Children.Add(TwoColumns(identification, reputation));
     }

@@ -56,7 +56,7 @@ public sealed partial class MainWindow
 
         void Change(Action change, string done)
         {
-            if (editors.Any(Pending)) { status.Text = "Save the promise edits first"; return; }
+            if (editors.Any(Pending)) { status.Text = AppLanguage.Get("Ui_Save_the_promise_edits_first"); return; }
             try { backend.Edits.Execute("Player", player.DisplayName, "Promises", change); status.Text = done; RenderEditor(); }
             catch (Exception ex) { status.Text = ex.Message; }
         }
@@ -64,13 +64,13 @@ public sealed partial class MainWindow
         Control Row(string label, Control value) => new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 8, MinHeight = 28,
-            Children = { new TextBlock { Text = label, Width = 100, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.Brush("#94A3B8") }, value },
+            Children = { new TextBlock { Text = AppLanguage.T(label), Width = 100, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.Brush("#94A3B8") }, value },
         };
 
         Control Picker(string title, string current, Func<Task<(string Name, int Id)?>> choose, Action<int> set)
         {
             var text = new TextBlock { Text = current, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.Brush("#F1F5F9") };
-            var change = new Button { Content = "Change", Margin = new Thickness(8, 0, 0, 0) };
+            var change = new Button { Content = AppLanguage.Get("Common_Change"), Margin = new Thickness(8, 0, 0, 0) };
             change.Click += async (_, _) =>
             {
                 if (await choose() is not { } picked) return;
@@ -128,7 +128,7 @@ public sealed partial class MainWindow
             e.Made.TextChanged += (_, _) => Refresh();
             e.Deadline.TextChanged += (_, _) => Refresh();
 
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.Get("Label_Remove") };
             remove.Click += (_, _) => Change(() => store.Remove(owner, record), "Removed the promise. Continue in FM to see updates.");
             var body = new StackPanel
             {
@@ -145,7 +145,7 @@ public sealed partial class MainWindow
             panel.Children.Add(UiKit.Card("Promise", body));
         }
 
-        var add = new Button { Content = "Add promise" };
+        var add = new Button { Content = AppLanguage.Get("Ui_Add_promise") };
         add.Click += (_, _) =>
         {
             ulong manager = promises.FirstOrDefault()?.Manager ?? 0, team = promises.FirstOrDefault()?.Team ?? 0;
@@ -158,8 +158,8 @@ public sealed partial class MainWindow
                     .FirstOrDefault()?.Address ?? 0;
                 team = entry?.FirstTeam?.Address ?? 0;
             }
-            if (manager == 0 || team == 0) { status.Text = $"{player.DisplayName} has no club manager to make the promise"; return; }
-            if (session.ReadGameDate() is not { } today) { status.Text = "The game date could not be read"; return; }
+            if (manager == 0 || team == 0) { status.Text = string.Format(AppLanguage.T("{0} has no club manager to make the promise"), player.DisplayName); return; }
+            if (session.ReadGameDate() is not { } today) { status.Text = AppLanguage.Get("Ui_The_game_date_could_not_be_read"); return; }
             var values = new PromiseValues(1, today, today.AddDays(91), -1, 0);
             Change(() => store.Add(owner, manager, team, values, session.Process.Allocate),
                 "Added a promise. Its record lives outside the game's allocator; keep a backup of the save. Continue in FM to see updates.");
@@ -171,13 +171,13 @@ public sealed partial class MainWindow
             var changes = new List<(PromiseEditor Editor, PromiseValues Values)>();
             foreach (var e in editors.Where(Pending))
             {
-                if (!DateBox.TryParse(e.Made.Text, out var made) || !DateBox.TryParse(e.Deadline.Text, out var deadline)) { status.Text = "Promises: enter dates like 2026-12-30"; return; }
+                if (!DateBox.TryParse(e.Made.Text, out var made) || !DateBox.TryParse(e.Deadline.Text, out var deadline)) { status.Text = AppLanguage.Get("Ui_Promises_enter_dates_like_2026_12_30"); return; }
                 changes.Add((e, new PromiseValues(e.TypeId, made, deadline, e.Parameter0, e.Parameter1)));
             }
             try
             {
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () => { foreach (var (e, v) in changes) store.Update(owner, e.Record, v); });
-                status.Text = "Saved promises. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Saved_promises_Continue_in_FM_to_see_updates");
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = ex.Message; }
@@ -208,7 +208,7 @@ public sealed partial class MainWindow
     static Control PlayingTimeBox(PromiseEditor e, Action refresh)
     {
         var values = Enum.GetValues<PlayingTime>().Where(v => v != PlayingTime.Unset && v <= PlayingTime.BTeamRegular).ToArray();
-        var box = new ComboBox { ItemsSource = values.Select(ContractLabels.Of).ToArray(), MinWidth = 220 };
+        var box = new ComboBox { ItemsSource = values.Select(ContractLabels.Of).ToArray(), MinWidth = 220, ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }) };
         box.SelectedIndex = Array.IndexOf(values, (PlayingTime)Math.Clamp(e.Parameter0, 0, 255));
         box.SelectionChanged += (_, _) => { if (box.SelectedIndex >= 0) { e.Parameter0 = (int)values[box.SelectedIndex]; refresh(); } };
         return box;

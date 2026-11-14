@@ -21,7 +21,7 @@ public sealed class EditHistoryWindow : Window
     readonly IProcessMemory memory;
     readonly Action<string> onStatus;
     readonly Action onUndone;
-    readonly TextBox search = new() { Watermark = "Search changes", HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly TextBox search = new() { Watermark = AppLanguage.Get("Common_Search_changes"), HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly StackPanel list = new() { Spacing = 8 };
     readonly TextBlock message = new() { Foreground = UiKit.Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center };
     readonly HashSet<string> collapsed = [];
@@ -32,16 +32,16 @@ public sealed class EditHistoryWindow : Window
         this.memory = memory;
         this.onStatus = onStatus;
         this.onUndone = onUndone;
-        Title = "Edit History";
+        Title = AppLanguage.Get("Common_Edit_History");
         Width = 760;
         Height = 620;
         MinWidth = 520;
         MinHeight = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        var clear = new Button { Content = "Clear history" };
+        var clear = new Button { Content = AppLanguage.Get("Common_Clear_history") };
         clear.Click += (_, _) => journal.Clear();
-        var undoEverything = new Button { Content = "Undo all", Margin = new Thickness(0, 0, 8, 0) };
+        var undoEverything = new Button { Content = AppLanguage.Get("Common_Undo_all"), Margin = new Thickness(0, 0, 8, 0) };
         undoEverything.Click += async (_, _) =>
         {
             int pending = journal.Groups.Sum(g => g.Entries.Count(e => !e.Undone));
@@ -61,7 +61,7 @@ public sealed class EditHistoryWindow : Window
         var top = new DockPanel { Margin = new Thickness(0, 0, 0, 8), LastChildFill = true, Children = { clear, undoEverything, search } };
         search.Margin = new Thickness(0, 0, 8, 0);
 
-        var close = new Button { Content = "Close", Classes = { "accent" } };
+        var close = new Button { Content = AppLanguage.Get("Common_Close"), Classes = { "accent" } };
         close.Click += (_, _) => Close();
         var footer = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = true };
         DockPanel.SetDock(close, Dock.Right);
@@ -204,11 +204,11 @@ public sealed class EditHistoryWindow : Window
     {
         var dialog = new Window
         {
-            Title = "Confirm", Width = 360, SizeToContent = SizeToContent.Height, CanResize = false,
+            Title = AppLanguage.Get("Common_Confirm"), Width = 360, SizeToContent = SizeToContent.Height, CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false,
         };
-        var yes = new Button { Content = "Yes", MinWidth = 72, Classes = { "accent" } };
-        var no = new Button { Content = "No", MinWidth = 72 };
+        var yes = new Button { Content = AppLanguage.Get("Label_Yes"), MinWidth = 72, Classes = { "accent" } };
+        var no = new Button { Content = AppLanguage.Get("Label_No"), MinWidth = 72 };
         yes.Click += (_, _) => dialog.Close(true);
         no.Click += (_, _) => dialog.Close(false);
         dialog.Content = new StackPanel

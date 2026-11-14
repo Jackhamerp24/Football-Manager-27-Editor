@@ -11,13 +11,13 @@ internal sealed record CityRow(CityRecord City, string Name, string Nation, int 
 
 /// <summary>Cities: inhabitants range, attraction and where on the map.</summary>
 internal sealed class CityScreen(IScreenHost host)
-    : EntityScreen<CityRecord, CityRow, Dictionary<CityField, string>>(host, "city", "Cities", "cities", "Search city, nation or ID...")
+    : EntityScreen<CityRecord, CityRow, Dictionary<CityField, string>>(host, "city", "Cities", "cities", AppLanguage.T("Search city, nation or ID..."))
 {
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "City", Binding = new Binding(nameof(CityRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Nation", Binding = new Binding(nameof(CityRow.Nation)), Width = new DataGridLength(184) });
-        var id = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(CityRow.Id)), Width = new DataGridLength(115) };
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("City"), Binding = new Binding(nameof(CityRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Nation"), Binding = new Binding(nameof(CityRow.Nation)), Width = new DataGridLength(184) });
+        var id = new DataGridTextColumn { Header = AppLanguage.T("ID"), Binding = new Binding(nameof(CityRow.Id)), Width = new DataGridLength(115) };
         id.CellStyleClasses.Add("numeric");
         grid.Columns.Add(id);
     }
@@ -50,7 +50,8 @@ internal sealed class CityScreen(IScreenHost host)
         TextBox Box(CityField f) => FieldBox(draft, f, CityLabels.Format(c, f), 110, changed);
         Control Range()
         {
-            var combo = new ComboBox { ItemsSource = CityLabels.InhabitantRanges, MinWidth = 176 };
+            var combo = new ComboBox { ItemsSource = CityLabels.InhabitantRanges, MinWidth = 176,
+                ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((text, _) => new TextBlock { Text = AppLanguage.T(text ?? "") }) };
             combo.SelectedIndex = draft.TryGetValue(CityField.Inhabitants, out var d) && int.TryParse(d, out int cur) ? cur : c.Inhabitants;
             combo.SelectionChanged += (_, _) =>
             {
@@ -86,22 +87,22 @@ internal sealed class CityScreen(IScreenHost host)
         HeaderHost.Content = UiKit.EntityBanner(c.Name, badges, null);
 
         bool links = Host.Backend.Session.CityLinks.Available;
-        var city = CardRows("City", [
-            ("Unique ID", Label(c.Id.ToString(Inv), "#F1F5F9")),
+        var city = CardRows(AppLanguage.T("City"), [
+            (AppLanguage.T("Unique ID"), Label(c.Id.ToString(Inv), "#F1F5F9")),
             .. links ? new (string, Control)[]
             {
-                ("Nation", LinkRow(c, draft, changed, CityLink.Nation)),
-                ("Local Region", LinkRow(c, draft, changed, CityLink.Region)),
-                ("Language", LinkRow(c, draft, changed, CityLink.Language)),
-                ("Weather", LinkRow(c, draft, changed, CityLink.Weather)),
+                (AppLanguage.T("Nation"), LinkRow(c, draft, changed, CityLink.Nation)),
+                (AppLanguage.T("Local Region"), LinkRow(c, draft, changed, CityLink.Region)),
+                (AppLanguage.T("Language"), LinkRow(c, draft, changed, CityLink.Language)),
+                (AppLanguage.T("Weather"), LinkRow(c, draft, changed, CityLink.Weather)),
             } : [],
-            ("Inhabitants Range", Range()),
-            ("Attraction", Box(CityField.Attraction)),
+            (AppLanguage.T("Inhabitants Range"), Range()),
+            (AppLanguage.T("Attraction"), Box(CityField.Attraction)),
         ]);
-        var location = CardRows("Location", [
-            ("Latitude", Box(CityField.Latitude)),
-            ("Longitude", Box(CityField.Longitude)),
-            ("Altitude", Box(CityField.Altitude)),
+        var location = CardRows(AppLanguage.T("Location"), [
+            (AppLanguage.T("Latitude"), Box(CityField.Latitude)),
+            (AppLanguage.T("Longitude"), Box(CityField.Longitude)),
+            (AppLanguage.T("Altitude"), Box(CityField.Altitude)),
         ]);
         Editor.Children.Add(TwoColumns(city, location));
     }
@@ -130,7 +131,7 @@ internal sealed class CityScreen(IScreenHost host)
             Text = LinkName(link, shown), FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
             Foreground = UiKit.Brush(shown != current ? "#C4B5FD" : "#F1F5F9"),
         };
-        var change = new Button { Content = "Change", Margin = new Thickness(8, 0, 0, 0) };
+        var change = new Button { Content = AppLanguage.T("Change"), Margin = new Thickness(8, 0, 0, 0) };
         change.Click += async (_, _) =>
         {
             ulong? chosen = await ChooseLinkAsync(link);

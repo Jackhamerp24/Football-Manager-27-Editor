@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -38,7 +39,7 @@ internal interface IStaffPanels
 
 /// <summary>Staff: the list with club and job filters, and a tab per member with attributes, contract, knowledge and the rest.</summary>
 internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
-    : EntityScreen<StaffRecord, StaffRow, StaffDraft>(host, "staff", "Staff", "staff", "Search staff name or ID...")
+    : EntityScreen<StaffRecord, StaffRow, StaffDraft>(host, "staff", "Staff", "staff", AppLanguage.T("Search staff name or ID..."))
 {
     const string AllClubs = "All clubs", AllJobs = "All jobs";
     readonly ComboBox genderFilter = new() { ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch, MaxDropDownHeight = 260 };
@@ -62,7 +63,10 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
     protected override Control BuildSearchHeader(TextBox searchBox)
     {
         searchBox.Margin = new Thickness(0, 0, 6, 0);
-        ToolTip.SetTip(genderFilter, "Gender filter");
+        ToolTip.SetTip(genderFilter, AppLanguage.T("Gender filter"));
+        genderFilter.ItemTemplate = new FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
+        clubFilter.ItemTemplate = new FuncDataTemplate<string>((item, _) => new TextBlock { Text = item == AllClubs ? AppLanguage.T(item) : item });
+        jobFilter.ItemTemplate = new FuncDataTemplate<string>((item, _) => new TextBlock { Text = item == AllJobs ? AppLanguage.T(item) : item });
         var searchControls = new DockPanel();
         searchControls.Children.Add(searchBox);
         var filters = new Grid { ColumnDefinitions = new ColumnDefinitions("104,*,*"), ColumnSpacing = 8 };
@@ -83,11 +87,11 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(StaffRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Job", Binding = new Binding(nameof(StaffRow.Job)), Width = new DataGridLength(156) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Club", Binding = new Binding(nameof(StaffRow.Club)), Width = new DataGridLength(150) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Nation", Binding = new Binding(nameof(StaffRow.Nation)), Width = new DataGridLength(126) });
-        foreach (var (h, p) in new[] { ("Age", nameof(StaffRow.Age)), ("CA", nameof(StaffRow.CA)), ("PA", nameof(StaffRow.PA)) })
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Name"), Binding = new Binding(nameof(StaffRow.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Job"), Binding = new Binding(nameof(StaffRow.Job)), Width = new DataGridLength(156) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Club"), Binding = new Binding(nameof(StaffRow.Club)), Width = new DataGridLength(150) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Nation"), Binding = new Binding(nameof(StaffRow.Nation)), Width = new DataGridLength(126) });
+        foreach (var (h, p) in new[] { (AppLanguage.T("Age"), nameof(StaffRow.Age)), ("CA", nameof(StaffRow.CA)), ("PA", nameof(StaffRow.PA)) })
         {
             var col = new DataGridTextColumn { Header = h, Binding = new Binding(p), Width = new DataGridLength(78) };
             col.CellStyleClasses.Add("numeric");
@@ -275,7 +279,10 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
                 var line = new DockPanel { MinHeight = 23, LastChildFill = true };
                 DockPanel.SetDock(value, Dock.Right);
                 line.Children.Add(value);
-                line.Children.Add(Text(label));
+                var labelText = Text(label);
+                labelText.TextTrimming = TextTrimming.CharacterEllipsis;
+                ToolTip.SetTip(labelText, label);
+                line.Children.Add(labelText);
                 stack.Children.Add(new Border { Background = idx++ % 2 == 1 ? UiKit.SurfaceZebra : Brushes.Transparent, Padding = new Thickness(8, 2, 7, 2), Child = line });
             }
             return stack;
@@ -322,8 +329,8 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
         // Freezer: the same Freeze / Unfreeze pair the player tools have; every attribute is frozen at its current value.
         if (Host.Backend.Freezer is { } freezer)
         {
-            var freeze = new Button { Content = "Freeze" };
-            var unfreeze = new Button { Content = "Unfreeze" };
+            var freeze = new Button { Content = AppLanguage.Get("Common_Freeze") };
+            var unfreeze = new Button { Content = AppLanguage.Get("Common_Unfreeze") };
             ToolTip.SetTip(freeze, "Keeps this staff member's attributes from changing while you play. Edits made here still apply.");
             ToolTip.SetTip(unfreeze, "Lets this staff member's attributes change again.");
             freeze.Click += (_, _) =>
@@ -346,20 +353,21 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
 
         var info = new List<(string, Control)>
         {
-            ("Unique ID", Text(s.Id.ToString(Inv), "#F1F5F9")),
-            ("Full Name", Text(s.FullName ?? "", "#F1F5F9", trim: true)),
-            ("Born", Text(DateSetting.Format(s.DateOfBirth), "#F1F5F9")),
+            (AppLanguage.T("Unique ID"), Text(s.Id.ToString(Inv), "#F1F5F9")),
+            (AppLanguage.T("Full Name"), Text(s.FullName ?? "", "#F1F5F9", trim: true)),
+            (AppLanguage.T("Born"), Text(DateSetting.Format(s.DateOfBirth), "#F1F5F9")),
         };
-        if (s.Caps is { } capsValue) info.Add(("Caps", Box("caps", capsValue.ToString(Inv), 58)));
-        if (s.Goals is { } goalsValue) info.Add(("Goals", Box("goals", goalsValue.ToString(Inv), 58)));
-        if (s.License is { } licenseValue) info.Add(("License", LicenseBox(licenseValue)));
-        col[0].Children.Add(UiKit.Card("Information", Rows(info)));
+        if (s.Caps is { } capsValue) info.Add((AppLanguage.T("Caps"), Box("caps", capsValue.ToString(Inv), 58)));
+        if (s.Goals is { } goalsValue) info.Add((AppLanguage.T("Goals"), Box("goals", goalsValue.ToString(Inv), 58)));
+        if (s.License is { } licenseValue) info.Add((AppLanguage.T("License"), LicenseBox(licenseValue)));
+        col[0].Children.Add(UiKit.Card(AppLanguage.T("Information"), Rows(info)));
 
         // FMRTE's licence dropdown; the draft keeps the chosen code like any other field.
         ComboBox LicenseBox(StaffLicense current)
         {
             var options = StaffDetailsMassEdit.Licenses;
-            var box = new ComboBox { ItemsSource = options.Select(o => o.Name).ToList(), Width = 196, Height = 22, MinHeight = 22, FontSize = 12.5, Padding = new Thickness(6, 0) };
+            var box = new ComboBox { ItemsSource = options.Select(o => o.Name).ToList(), Width = 196, Height = 22, MinHeight = 22, FontSize = 12.5, Padding = new Thickness(6, 0),
+                ItemTemplate = new FuncDataTemplate<string>((name, _) => new TextBlock { Text = AppLanguage.T(name ?? "") }) };
             string original = ((int)current).ToString(Inv);
             int at = Array.FindIndex(options, o => ((int)o.Value).ToString(Inv) == draft.Changes.GetValueOrDefault("license", original));
             box.SelectedIndex = at;
@@ -372,30 +380,30 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
             };
             return box;
         }
-        col[0].Children.Add(UiKit.Card("Ability", Rows([
+        col[0].Children.Add(UiKit.Card(AppLanguage.T("Ability"), Rows([
             ("CA", Box("CA", s.CurrentAbility.ToString(Inv), 58)),
             ("PA", Box("PA", s.PotentialAbility.ToString(Inv), 58)),
         ])));
-        col[0].Children.Add(UiKit.Card("Reputation", Rows([
+        col[0].Children.Add(UiKit.Card(AppLanguage.T("Reputation"), Rows([
             ("Home", Box("rep:Home", s.HomeReputation.ToString(Inv), 68)),
             ("Current", Box("rep:Current", s.CurrentReputation.ToString(Inv), 68)),
             ("World", Box("rep:World", s.WorldReputation.ToString(Inv), 68)),
         ])));
         if (s.ManagerAttributes is { } mgr)
-            col[0].Children.Add(UiKit.Card("Manager", Rows(StaffLabels.Manager
-                .Select(m => (m.Label, (Control)Box($"mgr:{m.Attribute}", mgr[(int)m.Attribute].ToString(Inv), 42))))));
-        col[0].Children.Add(UiKit.Card("Personality", Rows(Enum.GetValues<StaffPersonality>()
-            .Select(t => (t.ToString(), (Control)Box($"pers:{t}", s.Personality[(int)t].ToString(Inv)))))));
+            col[0].Children.Add(UiKit.Card(AppLanguage.T("Manager"), Rows(StaffLabels.Manager
+                .Select(m => (AppLanguage.T(m.Label), (Control)Box($"mgr:{m.Attribute}", mgr[(int)m.Attribute].ToString(Inv), 42))))));
+        col[0].Children.Add(UiKit.Card(AppLanguage.T("Personality"), Rows(Enum.GetValues<StaffPersonality>()
+            .Select(t => (AppLanguage.T(t.ToString()), (Control)Box($"pers:{t}", s.Personality[(int)t].ToString(Inv)))))));
 
         if (s.Roles is { } roles)
-            col[0].Children.Add(UiKit.Card("Roles", Rows(Enum.GetValues<StaffRole>().Where(r => (int)r < roles.Length)
-                .Select(r => (StaffDetailsMassEdit.RoleLabel(r), (Control)Box($"role:{r}", roles[(int)r].ToString(Inv)))))));
+            col[0].Children.Add(UiKit.Card(AppLanguage.T("Roles"), Rows(Enum.GetValues<StaffRole>().Where(r => (int)r < roles.Length)
+                .Select(r => (AppLanguage.T(StaffDetailsMassEdit.RoleLabel(r)), (Control)Box($"role:{r}", roles[(int)r].ToString(Inv)))))));
 
         int[] placement = [1, 2, 1, 1, 2, 2];
         for (int g = 0; g < StaffLabels.Groups.Length; g++)
         {
             var (title, items) = StaffLabels.Groups[g];
-            col[placement[g]].Children.Add(UiKit.Card(title, Rows(items.Select(it => (it.Label, (Control)Box($"attr:{it.Attribute}", s.Attribute(it.Attribute).ToString(Inv)))))));
+            col[placement[g]].Children.Add(UiKit.Card(AppLanguage.T(title), Rows(items.Select(it => (AppLanguage.T(it.Label), (Control)Box($"attr:{it.Attribute}", s.Attribute(it.Attribute).ToString(Inv)))))));
         }
 
         var moveHost = new ContentControl();
@@ -406,16 +414,16 @@ internal sealed partial class StaffScreen(IScreenHost host, IStaffPanels panels)
 
         var sections = new SectionHost.Section[]
         {
-            new("Information", "Information", columns),
-            new("Contract", "Contract", panels.Contract(s)),
-            new("Career Plans", "Career Plans", panels.CareerPlans(s)),
-            new("Training Rating", "Training Rating", TrainingRatingCard(s, draft, changed)),
-            new("Relationships", "Relationships", panels.Relationships(s)),
-            new("Languages", "Languages", panels.Languages(s)),
-            new("Knowledge", "Knowledge", panels.Knowledge(s)),
-            new("Formations", "Formations", panels.Formations(s)),
-            new("Tendencies", "Tendencies", panels.Tendencies(s)),
-            new("Move to club", "Move to club", moveHost),
+            new("Information", AppLanguage.T("Information"), columns),
+            new("Contract", AppLanguage.T("Contract"), panels.Contract(s)),
+            new("Career Plans", AppLanguage.T("Career Plans"), panels.CareerPlans(s)),
+            new("Training Rating", AppLanguage.T("Training Rating"), TrainingRatingCard(s, draft, changed)),
+            new("Relationships", AppLanguage.T("Relationships"), panels.Relationships(s)),
+            new("Languages", AppLanguage.T("Languages"), panels.Languages(s)),
+            new("Knowledge", AppLanguage.T("Knowledge"), panels.Knowledge(s)),
+            new("Formations", AppLanguage.T("Formations"), panels.Formations(s)),
+            new("Tendencies", AppLanguage.T("Tendencies"), panels.Tendencies(s)),
+            new("Move to club", AppLanguage.T("Move to club"), moveHost),
         };
         var hostContent = SectionHost.Build("staff", sections, sectionKey, key => { sectionKey = key; EnsureMoveLoaded(); }, RailHost);
         EnsureMoveLoaded();
@@ -458,7 +466,7 @@ internal sealed partial class StaffScreen
                 changed();
             };
             var line = new Grid { ColumnDefinitions = new ColumnDefinitions("210,*,Auto"), MinHeight = 28 };
-            var label = new TextBlock { Text = TrainingRatings.Label(c), FontSize = 13, Foreground = UiKit.Brush("#CBD5E1"), VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { Text = AppLanguage.T(TrainingRatings.Label(c)), FontSize = 13, Foreground = UiKit.Brush("#CBD5E1"), VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(slider, 1); Grid.SetColumn(number, 2);
             line.Children.Add(label); line.Children.Add(slider); line.Children.Add(number);
             return (Control)line;
@@ -536,7 +544,7 @@ public sealed partial class MainWindow : IStaffPanels
         panel.Children.Add(UiKit.Card(title, view));
         save.Click += (_, _) =>
         {
-            if (editor.Parse() is not { } fields) { status.Text = "Contract: enter wages of 0 or more and dates like 2027-06-30, expiry after start"; return; }
+            if (editor.Parse() is not { } fields) { status.Text = AppLanguage.Get("Ui_Contract_enter_wages_of_0_or_more_and_dates_like_2027_06_30_expiry_aft"); return; }
             try
             {
                 backend.Edits.Execute("Staff", s.DisplayName, $"{title}", () => write(fields));

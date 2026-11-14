@@ -21,10 +21,10 @@ public sealed partial class MainWindow
     /// </summary>
     Control BuildLoadingOverlay()
     {
-        loadingHeading = new TextBlock { Text = "Loading game data", FontSize = 16, FontWeight = FontWeight.SemiBold };
+        loadingHeading = new TextBlock { Text = AppLanguage.Get("Common_Loading_game_data"), FontSize = 16, FontWeight = FontWeight.SemiBold };
         loadingDetail = new TextBlock
         {
-            Text = "Connecting to the game…", FontSize = 12.5, Foreground = UiKit.TextSecondary,
+            Text = AppLanguage.Get("Common_Connecting_to_the_game"), FontSize = 12.5, Foreground = UiKit.TextSecondary,
             TextWrapping = TextWrapping.Wrap, MaxWidth = 420,
         };
         var bar = new ProgressBar
@@ -56,7 +56,7 @@ public sealed partial class MainWindow
         loadingDots.Tick += (_, _) =>
         {
             loadingDotCount = (loadingDotCount + 1) % 4;
-            if (loadingHeading is not null) loadingHeading.Text = "Loading game data" + new string('.', loadingDotCount);
+            if (loadingHeading is not null) loadingHeading.Text = AppLanguage.Get("Common_Loading_game_data") + new string('.', loadingDotCount);
         };
         return loadingOverlay;
     }
@@ -81,7 +81,7 @@ public sealed partial class MainWindow
     {
         loadingDots?.Stop();
         loadingDotCount = 0;
-        if (loadingHeading is not null) loadingHeading.Text = "Loading game data";
+        if (loadingHeading is not null) loadingHeading.Text = AppLanguage.Get("Common_Loading_game_data");
         if (loadingOverlay is not null) loadingOverlay.IsVisible = false;
     }
 }

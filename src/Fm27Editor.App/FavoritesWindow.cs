@@ -19,12 +19,12 @@ sealed class FavoritesWindow : Window
         SelectionMode = DataGridSelectionMode.Single, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
         HorizontalGridLinesBrush = UiKit.Brush("#1D2130"), RowHeight = 26, Background = UiKit.Brush("#11131C"), BorderThickness = new Thickness(0),
     };
-    readonly Button remove = new() { Content = "Remove", IsEnabled = false, MinWidth = 84, HorizontalContentAlignment = HorizontalAlignment.Center };
+    readonly Button remove = new() { Content = AppLanguage.Get("Label_Remove"), IsEnabled = false, MinWidth = 84, HorizontalContentAlignment = HorizontalAlignment.Center };
 
     public FavoritesWindow(IReadOnlyList<PlayerRecord> players, Action<PlayerRecord> open)
     {
         all = players;
-        Title = "Favourites";
+        Title = AppLanguage.Get("Common_Favourites");
         Width = 760; Height = 400; MinWidth = 520; MinHeight = 240;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = UiKit.WindowBg;

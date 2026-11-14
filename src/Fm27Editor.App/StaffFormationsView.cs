@@ -54,7 +54,7 @@ public sealed partial class MainWindow
         save.Click += (_, _) =>
         {
             var values = boxes.Select(b => ((FormationChoice)b.SelectedItem!).Code).ToArray();
-            try { backend.Edits.Execute("Staff", staff.DisplayName, "Formations", () => backend.Session.StaffFormations.Save(staff, snapshot, values)); RenderStaffEditor(); status.Text = "Saved formations. Continue in FM to see updates."; }
+            try { backend.Edits.Execute("Staff", staff.DisplayName, "Formations", () => backend.Session.StaffFormations.Save(staff, snapshot, values)); RenderStaffEditor(); status.Text = AppLanguage.Get("Ui_Saved_formations_Continue_in_FM_to_see_updates"); }
             catch (Exception ex) { status.Text = ex.Message; }
         };
         outer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save } });

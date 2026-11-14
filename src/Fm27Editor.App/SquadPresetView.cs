@@ -21,16 +21,16 @@ public sealed partial class MainWindow
 
     Control CreateSquadPresetBar(Func<IReadOnlyList<PlayerRecord>> getSquad, Action? onApplied = null)
     {
-        var fitness = new Button { Content = "Fitness" };
-        var morale = new Button { Content = "Morale" };
-        var heal = new Button { Content = "Heal all" };
-        var unhappiness = new Button { Content = "Remove unhappiness" };
-        var bans = new Button { Content = "Lift bans" };
-        var max = new Button { Content = "Max attributes" };
-        var retirement = new Button { Content = "Prevent retirement", IsEnabled = new PlannedRetirements(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase).IsSupported };
-        var freeze = new Button { Content = "Freeze squad" };
-        var unfreeze = new Button { Content = "Unfreeze squad" };
-        var undo = new Button { Content = "Undo preset", IsEnabled = squadPresetUndo.Count > 0 };
+        var fitness = new Button { Content = AppLanguage.Get("Label_Fitness") };
+        var morale = new Button { Content = AppLanguage.Get("Label_Morale") };
+        var heal = new Button { Content = AppLanguage.Get("Ui_Heal_all") };
+        var unhappiness = new Button { Content = AppLanguage.Get("Ui_Remove_unhappiness") };
+        var bans = new Button { Content = AppLanguage.Get("Ui_Lift_bans") };
+        var max = new Button { Content = AppLanguage.Get("Ui_Max_attributes") };
+        var retirement = new Button { Content = AppLanguage.Get("Ui_Prevent_retirement"), IsEnabled = new PlannedRetirements(backend.Session.Memory, backend.Session.Profile, backend.Session.ModuleBase).IsSupported };
+        var freeze = new Button { Content = AppLanguage.Get("Ui_Freeze_squad") };
+        var unfreeze = new Button { Content = AppLanguage.Get("Ui_Unfreeze_squad") };
+        var undo = new Button { Content = AppLanguage.Get("Ui_Undo_preset"), IsEnabled = squadPresetUndo.Count > 0 };
         fitness.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, false, false, false); onApplied?.Invoke(); };
         morale.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Morale, false, false, false, false); onApplied?.Invoke(); };
         heal.Click += async (_, _) => { await ShowSquadPresetAsync(getSquad(), PlayerPreset.Fitness, false, true, false, false); onApplied?.Invoke(); };
@@ -120,13 +120,13 @@ public sealed partial class MainWindow
             }
         }
         catch (Exception ex) { status.Text = $"Preset: {ex.Message}"; return; }
-        if (preventRetirement && !undoing && changes.Count == 0) { status.Text = "Nothing to change: already set to keep playing"; return; }
+        if (preventRetirement && !undoing && changes.Count == 0) { status.Text = AppLanguage.Get("Ui_Nothing_to_change_already_set_to_keep_playing"); return; }
         string? result = null;
         var window = new Window { Title = undoing ? "Undo preset" : $"{(preventRetirement ? "Prevent retirement" : maxAttributes ? "Max attributes" : heal ? "Heal" : removeUnhappiness ? "Remove unhappiness" : liftBans ? "Lift bans" : preset.ToString())} — Preview", Width = 600, Height = 500, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var table = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = false, ItemsSource = changes, RowHeight = 27 };
-        table.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Binding("Player.Id"), Width = new DataGridLength(103) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Player", Binding = new Binding("Player.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        table.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding("Field"), Width = new DataGridLength(138) });
+        table.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Ui_ID"), Binding = new Binding("Player.Id"), Width = new DataGridLength(103) });
+        table.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Player"), Binding = new Binding("Player.DisplayName"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        table.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Common_Field"), Binding = new Binding("Field"), Width = new DataGridLength(138) });
         table.Columns.Add(new DataGridTextColumn { Header = undoing ? "Restore" : "Before", Binding = new Binding("BeforeText"), Width = new DataGridLength(109) });
         table.Columns.Add(new DataGridTextColumn { Header = undoing ? "Current" : "After", Binding = new Binding("AfterText"), Width = new DataGridLength(109) });
         var apply = new Button { Content = undoing ? "Undo" : "Apply", IsEnabled = changes.Count > 0, Classes = { "accent" } };

@@ -21,14 +21,14 @@ public sealed partial class MainWindow
         for (int i = 0; i < boxes.Length; i++)
         {
             if (i % 2 == 0) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            boxes[i] = new CheckBox { Content = PreferredMovesLabels.Names[i], IsChecked = (current >> i & 1) != 0 };
+            boxes[i] = new CheckBox { Content = AppLanguage.T(PreferredMovesLabels.Names[i]), IsChecked = (current >> i & 1) != 0 };
             Grid.SetRow(boxes[i], i / 2); Grid.SetColumn(boxes[i], i % 2);
             grid.Children.Add(boxes[i]);
             boxes[i].IsCheckedChanged += (_, _) => Changed();
         }
-        panel.Children.Add(UiKit.Card("Preferred Moves", grid));
-        var all = new Button { Content = "Select All" };
-        var clear = new Button { Content = "Clear" };
+        panel.Children.Add(UiKit.Card(AppLanguage.T("Preferred Moves"), grid));
+        var all = new Button { Content = AppLanguage.T("Select All") };
+        var clear = new Button { Content = AppLanguage.T("Clear") };
         all.Click += (_, _) => { foreach (var b in boxes) b.IsChecked = true; };
         clear.Click += (_, _) => { foreach (var b in boxes) b.IsChecked = false; };
         save.Click += (_, _) =>
@@ -37,7 +37,7 @@ public sealed partial class MainWindow
             {
                 ulong moves = Moves();
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () => access.Set(player, current, moves));
-                status.Text = "Saved preferred moves. Continue in FM to see updates.";
+                status.Text = AppLanguage.T("Saved preferred moves. Continue in FM to see updates.");
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = ex.Message; }

@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -139,8 +139,8 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
     protected virtual void OnReconnected() { }
     /// <summary>Runs on the window thread before rows load in the background, to collect what the load needs from the window.</summary>
     protected virtual void BeforeLoad() { }
-    protected virtual string LoadedMessage(int count) => $"{count:N0} {plural}";
-    protected virtual string FilteredMessage(int shown, int total) => $"{shown:N0} of {total:N0} {plural} shown ({total - shown:N0} hidden by filter)";
+    protected virtual string LoadedMessage(int count) => string.Format(AppLanguage.T("{0:N0} {1}"), count, AppLanguage.T(plural));
+    protected virtual string FilteredMessage(int shown, int total) => string.Format(AppLanguage.T("{0:N0} of {1:N0} {2} shown ({3:N0} hidden by filter)"), shown, total, AppLanguage.T(plural), total - shown);
     protected string SearchText => (search.Text ?? "").Trim();
     /// <summary>A save that stopped part-way: what was written stays written. Return true when the screen has told the user.</summary>
     protected virtual bool OnSaveFailed(TRecord record, Exception error) => false;
@@ -151,7 +151,7 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
 
     public bool ReloadCurrent()
     {
-        if (Selected is { } open && Host.IsShowing(detailRoot)) { ReloadAndRender(open); Host.SetStatus($"Reloaded {NameOf(Selected ?? open)}"); return true; }
+        if (Selected is { } open && Host.IsShowing(detailRoot)) { ReloadAndRender(open); Host.SetStatus(string.Format(AppLanguage.T("Reloaded {0}"), NameOf(Selected ?? open))); return true; }
         if (active) { _ = LoadAsync(); return true; }
         return false;
     }
@@ -172,6 +172,9 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
     {
         Host.AddModule(nav.Title, viewRoot, nav);
         ConfigureColumns(ListGrid);
+        foreach (var column in ListGrid.Columns)
+            if (column.Header is string header) column.Header = AppLanguage.T(header);
+        CopyName.Attach<TRow>(ListGrid, row => NameOf(RecordOf(row)), Host.SetStatus);
 
         search.TextChanged += (_, _) => Filter();
         ListGrid.SelectionChanged += (_, _) => Selected = ListGrid.SelectedItem is TRow row ? RecordOf(row) : null;
@@ -244,7 +247,7 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
     /// <summary>Loads the rows again from the game.</summary>
     public async Task LoadAsync()
     {
-        Host.SetStatus($"Loading {plural}...");
+        Host.SetStatus(string.Format(AppLanguage.T("Loading {0}..."), AppLanguage.T(plural)));
         try
         {
             var session = Host.Backend.Session;
@@ -389,7 +392,7 @@ internal abstract class EntityScreen<TRecord, TRow, TDraft> : IEntityScreen
             Drafts.Remove(AddressOf(record));
             Saved(record);
             ReloadAndRender(record);
-            Host.SetStatus(count == 0 ? "Nothing changed." : $"Saved {count} change{(count == 1 ? "" : "s")} to {name}. Continue in FM to see updates.");
+            Host.SetStatus(count == 0 ? AppLanguage.T("Nothing changed.") : string.Format(AppLanguage.T("Saved {0} change(s) to {1}. Continue in FM to see updates."), count, name));
         }
         catch (Exception ex) { if (!OnSaveFailed(record, ex)) Host.SetStatus(ex.Message); }
     }

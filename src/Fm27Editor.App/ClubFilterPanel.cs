@@ -41,13 +41,14 @@ internal sealed class ClubFilterPanel : UserControl
     readonly ClubFieldAccess access;
     readonly Dictionary<string, Control> pages = [];
     readonly List<(ClubField Field, TextBox Min, TextBox Max)> rangeInputs = [];
-    readonly TextBox nameBox = new() { Watermark = "Name", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly TextBox nameBox = new() { Watermark = AppLanguage.T("Name"), Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
     readonly ComboBox genderCombo = new() { ItemsSource = new[] { "Men", "Women", "All" }, SelectedIndex = 0, Width = 140, MinWidth = 140, MaxWidth = 140, HorizontalAlignment = HorizontalAlignment.Left, MaxDropDownHeight = 260 };
 
     public event EventHandler? Changed;
 
     public ClubFilterPanel(IReadOnlyList<ClubEntry> source, ClubFieldAccess access)
     {
+        genderCombo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         this.source = source;
         this.access = access;
 
@@ -72,7 +73,7 @@ internal sealed class ClubFilterPanel : UserControl
                     Spacing = 3,
                     Children =
                     {
-                        new TextBlock { Text = "NAME", FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
+                        new TextBlock { Text = AppLanguage.T("NAME"), FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
                         nameBox,
                     }
                 },
@@ -81,7 +82,7 @@ internal sealed class ClubFilterPanel : UserControl
                     Spacing = 3,
                     Children =
                     {
-                        new TextBlock { Text = "GENDER", FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
+                        new TextBlock { Text = AppLanguage.T("GENDER"), FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold, Foreground = UiKit.TextMuted },
                         genderCombo,
                     }
                 },
@@ -93,18 +94,18 @@ internal sealed class ClubFilterPanel : UserControl
             foreach (var (field, label) in group)
             {
                 if (!access.IsMapped(field)) continue;
-                var min = new TextBox { Watermark = "Min", Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
-                var max = new TextBox { Watermark = "Max", Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
+                var min = new TextBox { Watermark = AppLanguage.T("Min"), Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
+                var max = new TextBox { Watermark = AppLanguage.T("Max"), Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
                 rangeInputs.Add((field, min, max));
                 foreach (var box in new[] { min, max }) box.TextChanged += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
                 var row = new DockPanel { LastChildFill = true, MinHeight = 30 };
                 DockPanel.SetDock(max, Dock.Right); row.Children.Add(max);
                 DockPanel.SetDock(min, Dock.Right); row.Children.Add(min);
-                row.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new TextBlock { Text = AppLanguage.T(label), Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center });
                 rows.Children.Add(row);
             }
             if (rows.Children.Count > 0)
-                stack.Children.Add(UiKit.Card(group == OverviewFields ? "Overview" : "Finances", rows));
+                stack.Children.Add(UiKit.Card(AppLanguage.T(group == OverviewFields ? "Overview" : "Finances"), rows));
         }
         return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = stack };
     }
@@ -163,19 +164,20 @@ internal sealed class ClubFilterPanel : UserControl
     {
         int count = FilterCount();
         var gender = SelectedGender();
+        string genderSuffix = gender is { } active ? string.Format(AppLanguage.T(" (Gender: {0})"), AppLanguage.T(active.ToString())) : "";
         if (HasRangeFilters() || Criteria() is null)
-            return count == 0 ? "No filters set" : $"{count} filter(s) set{(gender is { } g ? $" (Gender: {g})" : "")}";
+            return count == 0 ? AppLanguage.T("No filters set") : string.Format(AppLanguage.T("{0} filter(s) set{1}"), count, genderSuffix);
 
         int shown = Matched().Count;
         int total = source.Count;
         if (count == 0)
-            return total > 0 ? $"All {total:N0} clubs" : "No filters set";
+            return total > 0 ? string.Format(AppLanguage.T("All {0} {1}"), total.ToString("N0"), AppLanguage.T("clubs")) : AppLanguage.T("No filters set");
 
-        string prefix = gender is { } activeGender ? $"{count} filter(s) (Gender: {activeGender})" : $"{count} filter(s)";
+        string prefix = string.Format(AppLanguage.T("{0} filter(s){1}"), count, genderSuffix);
         if (total == 0) return prefix;
         return shown < total
-            ? $"{prefix} — {shown:N0} of {total:N0} clubs shown ({total - shown:N0} hidden)"
-            : $"{prefix} — {shown:N0} club(s)";
+            ? string.Format(AppLanguage.T("{0} — {1} of {2} {3} shown ({4} hidden)"), prefix, shown.ToString("N0"), total.ToString("N0"), AppLanguage.T("clubs"), (total - shown).ToString("N0"))
+            : string.Format(AppLanguage.T("{0} — {1} {2}"), prefix, shown.ToString("N0"), AppLanguage.T("clubs"));
     }
 
     public void Clear()

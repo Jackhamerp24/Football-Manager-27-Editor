@@ -30,7 +30,7 @@ static class SectionHost
         public Section Section { get; } = section;
         bool dirty;
         public bool Dirty { get => dirty; set { if (dirty == value) return; dirty = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Label))); } }
-        public string Label => Dirty ? Section.Title + " *" : Section.Title;
+        public string Label => AppLanguage.T(Section.Title) + (Dirty ? " *" : "");
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
         public override string ToString() => Label;
     }
@@ -127,7 +127,8 @@ static class SectionHost
         var list = CreateRailListBox(stretchVertically: entity != "player");
         list.ItemTemplate = new FuncDataTemplate<Entry>((entry, _) =>
         {
-            var label = new TextBlock { FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Stretch };
+            ToolTip.SetTip(label, AppLanguage.T(entry.Section.Title));
             label.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(nameof(Entry.Label)));
             return label;
         }, false);
@@ -245,6 +246,7 @@ static class SectionHost
             Setters =
             {
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(5, 4)),
+                new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch),
                 new Setter(TemplatedControl.MinHeightProperty, 25.0),
                 new Setter(TemplatedControl.MarginProperty, new Thickness(0, 1)),
                 new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(3)),

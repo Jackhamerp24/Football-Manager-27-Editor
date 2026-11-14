@@ -37,7 +37,7 @@ public sealed partial class MainWindow
     /// </summary>
     void OpenHookManager()
     {
-        if (backend.State.Status != ConnectionStatus.Connected) { status.Text = "Load game first"; return; }
+        if (backend.State.Status != ConnectionStatus.Connected) { status.Text = AppLanguage.T("Load game first"); return; }
         if (hookManagerWindow is { } open)
         {
             if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
@@ -49,21 +49,21 @@ public sealed partial class MainWindow
         var accel = session.AcceleratedDevelopment;
         var players = rows.OfType<PlayerRecord>().ToArray();
 
-        var academyState = new TextBlock { FontSize = 12.5, Text = "Reading…" };
-        var activeText = new TextBlock { FontSize = 12.5, Text = "Active: reading…", TextWrapping = TextWrapping.Wrap };
+        var academyState = new TextBlock { FontSize = 12.5, Text = AppLanguage.T("Reading…") };
+        var activeText = new TextBlock { FontSize = 12.5, Text = AppLanguage.T("Active: reading…"), TextWrapping = TextWrapping.Wrap };
         NumericUpDown Num(int min, int max, int value) => new() { Minimum = min, Maximum = max, Value = value, Width = 110, Height = 24, MinHeight = 24, FontSize = 12.5, FormatString = "0" };
         var minPa = Num(1, 200, 150);
         var maxPa = Num(1, 200, 190);
         var wonderkid = Num(0, 100, 0);
         var scopes = new[] { (GoldenGenerationScope.All, "Every regen"), (GoldenGenerationScope.Club, "Clubs"), (GoldenGenerationScope.Nation, "Nations"), (GoldenGenerationScope.Continent, "Continents") };
-        var scope = new ComboBox { ItemsSource = scopes.Select(s => s.Item2).ToList(), SelectedIndex = 0, Width = 150 };
+        var scope = new ComboBox { ItemsSource = scopes.Select(s => AppLanguage.T(s.Item2)).ToList(), SelectedIndex = 0, Width = 150 };
         var picker = new TextBox
         {
             Width = 300, Height = 24, MinHeight = 24, FontSize = 12.5, IsReadOnly = true,
-            Watermark = "Pick a club…", Cursor = new Cursor(StandardCursorType.Hand),
+            Watermark = AppLanguage.T("Pick a club…"), Cursor = new Cursor(StandardCursorType.Hand),
         };
-        var add = new Button { Content = "Add", Height = 24, MinHeight = 24, Padding = new Thickness(12, 0), FontSize = 12.5 };
-        var undo = new Button { Content = "Undo", Height = 24, MinHeight = 24, Padding = new Thickness(10, 0), FontSize = 12.5, IsEnabled = false };
+        var add = new Button { Content = AppLanguage.T("Add"), Height = 24, MinHeight = 24, Padding = new Thickness(12, 0), FontSize = 12.5 };
+        var undo = new Button { Content = AppLanguage.T("Undo"), Height = 24, MinHeight = 24, Padding = new Thickness(10, 0), FontSize = 12.5, IsEnabled = false };
         var targets = new StackPanel { Spacing = 4 };
         var accelPanel = new StackPanel { Spacing = 6 };
         var accelHits = new TextBlock { FontSize = 12.5 };
@@ -81,7 +81,7 @@ public sealed partial class MainWindow
         Dictionary<GoldenGenerationScope, IReadOnlyList<HookTarget>> catalogues = new();
 
         GoldenGenerationScope CurrentScope() => scopes[Math.Max(0, scope.SelectedIndex)].Item1;
-        string ScopeLabel(GoldenGenerationScope sc) => scopes.First(s => s.Item1 == sc).Item2;
+        string ScopeLabel(GoldenGenerationScope sc) => AppLanguage.T(scopes.First(s => s.Item1 == sc).Item2);
 
         // "Man Utd (First team): 32 players", or "Kylian Mbappé — Real Madrid CF (First team)" for one player.
         List<SpeedGroup> SpeedGroups(IReadOnlyList<AcceleratedPlayer> sped)
@@ -117,17 +117,17 @@ public sealed partial class MainWindow
 
         string Placeholder() => CurrentScope() switch
         {
-            GoldenGenerationScope.Club => "Pick a club…",
-            GoldenGenerationScope.Nation => "Pick a nation…",
-            GoldenGenerationScope.Continent => "Pick a continent…",
+            GoldenGenerationScope.Club => AppLanguage.T("Pick a club…"),
+            GoldenGenerationScope.Nation => AppLanguage.T("Pick a nation…"),
+            GoldenGenerationScope.Continent => AppLanguage.T("Pick a continent…"),
             _ => "",
         };
 
         void UpdateActive()
         {
             var s = installed;
-            if (s is not { Enabled: true }) { activeText.Text = "Active: none"; return; }
-            if (s.Scope == GoldenGenerationScope.All) { activeText.Text = "Active: every regen"; return; }
+            if (s is not { Enabled: true }) { activeText.Text = AppLanguage.T("Active: none"); return; }
+            if (s.Scope == GoldenGenerationScope.All) { activeText.Text = AppLanguage.T("Active: every regen"); return; }
             var names = catalogues.GetValueOrDefault(s.Scope);
             var text = string.Join(", ", s.Ids.Select(id => names?.FirstOrDefault(t => t.Id == id)?.Name ?? $"id {id}"));
             activeText.Text = $"Active: {ScopeLabel(s.Scope)} — {text}";
@@ -166,7 +166,7 @@ public sealed partial class MainWindow
             };
             ToolTip.SetTip(name, target.Name);
             row.Children.Add(name);
-            var clear = new Button { Content = "Clear", Height = 24, MinHeight = 24, Padding = new Thickness(10, 0), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center };
+            var clear = new Button { Content = AppLanguage.T("Clear"), Height = 24, MinHeight = 24, Padding = new Thickness(10, 0), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(clear, 1);
             clear.Click += (_, _) => ClearTarget(target);
             row.Children.Add(clear);
@@ -185,14 +185,14 @@ public sealed partial class MainWindow
             if (window is null) return;
             var sc = CurrentScope();
             if (sc == GoldenGenerationScope.All) return;
-            if (!catalogues.ContainsKey(sc)) { status.Text = "Still reading the name list…"; return; }
+            if (!catalogues.ContainsKey(sc)) { status.Text = AppLanguage.T("Still reading the name list…"); return; }
             var title = sc switch
             {
-                GoldenGenerationScope.Club => "Pick a club",
-                GoldenGenerationScope.Nation => "Pick a nation",
-                _ => "Pick a continent",
+                GoldenGenerationScope.Club => AppLanguage.T("Pick a club"),
+                GoldenGenerationScope.Nation => AppLanguage.T("Pick a nation"),
+                _ => AppLanguage.T("Pick a continent"),
             };
-            if (await PickerDialog.Show(window, title, Find, "Type part of the name") is { } hit)
+            if (await PickerDialog.Show(window, title, Find, AppLanguage.T("Type part of the name")) is { } hit)
             {
                 picked = hit;
                 UpdatePicker();
@@ -235,8 +235,8 @@ public sealed partial class MainWindow
             if (sc == GoldenGenerationScope.All)
             {
                 Remember();
-                try { academy.Uninstall(); installed = null; status.Text = "Wonderkid Academy turned off."; }
-                catch (Exception ex) { status.Text = $"Wonderkid Academy: {UserMessage.For(ex)}"; }
+                try { academy.Uninstall(); installed = null; status.Text = AppLanguage.Get("Ui_Wonderkid_Academy_turned_off"); }
+                catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Wonderkid Academy: {0}"), UserMessage.For(ex)); }
                 UpdateActive();
                 ShowTargets();
                 UpdatePicker();
@@ -254,7 +254,7 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    if (list.Count == 0) { academy.Uninstall(); installed = null; status.Text = "Wonderkid Academy turned off."; }
+                    if (list.Count == 0) { academy.Uninstall(); installed = null; status.Text = AppLanguage.Get("Ui_Wonderkid_Academy_turned_off"); }
                     else
                     {
                         academy.Configure(true, lo, hi, wk, sc, list.Select(c => c.Id).ToList());
@@ -262,9 +262,9 @@ public sealed partial class MainWindow
                         status.Text = $"On: new regens from {string.Join(", ", list.Select(c => c.Name))} get PA {lo}-{hi}.";
                     }
                 }
-                catch (Exception ex) { status.Text = $"Wonderkid Academy: {UserMessage.For(ex)}"; }
+                catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Wonderkid Academy: {0}"), UserMessage.For(ex)); }
             }
-            else status.Text = $"{target.Name} removed from the {ScopeLabel(sc)} list; the active setting is unchanged.";
+            else status.Text = string.Format(AppLanguage.T("{0} removed from the {1} list; the active setting is unchanged."), target.Name, ScopeLabel(sc));
             UpdateActive();
             ShowTargets();
             UpdatePicker();
@@ -288,7 +288,7 @@ public sealed partial class MainWindow
             ToolTip.SetTip(box, "Any speed from 1.1x to 20x in steps of 0.1; 1 means normal speed. Press Enter to apply.");
             var remove = new Button
             {
-                Content = "Remove", Height = 24, MinHeight = 24, Padding = new Thickness(8, 0), FontSize = 12.5,
+                Content = AppLanguage.T("Remove"), Height = 24, MinHeight = 24, Padding = new Thickness(8, 0), FontSize = 12.5,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
             };
             Grid.SetColumn(box, 1);
@@ -313,7 +313,7 @@ public sealed partial class MainWindow
                 {
                     int changed = 0;
                     foreach (var p in group.Players) if (accel.Set(p, multiplier)) changed++;
-                    status.Text = $"Development speed set to {SpeedText(multiplier)} for {group.Label}.";
+                    status.Text = string.Format(AppLanguage.T("Development speed set to {0} for {1}."), SpeedText(multiplier), group.Label);
                 }
                 catch (Exception ex) { status.Text = $"Development Speed: {UserMessage.For(ex)}"; }
                 _ = RefreshAsync();
@@ -328,7 +328,7 @@ public sealed partial class MainWindow
                 {
                     foreach (var p in group.Players) accel.Set(p, 0);
                     if (accel.Read()?.Players.Count is 0) accel.Uninstall();
-                    status.Text = $"Development speed removed for {group.Label}.";
+                    status.Text = string.Format(AppLanguage.T("Development speed removed for {0}."), group.Label);
                 }
                 catch (Exception ex) { status.Text = $"Development Speed: {UserMessage.For(ex)}"; }
                 _ = RefreshAsync();
@@ -352,7 +352,7 @@ public sealed partial class MainWindow
                 try
                 {
                     installed = a?.Settings;
-                    if (a is null) academyState.Text = "Not installed";
+                    if (a is null) academyState.Text = AppLanguage.T("Not installed");
                     else
                     {
                         var s = a.Settings;
@@ -378,10 +378,10 @@ public sealed partial class MainWindow
                 UpdatePicker();
 
                 accelPanel.Children.Clear();
-                if (d is null) { accelPanel.Children.Add(new TextBlock { Text = "Not installed", FontSize = 12.5 }); accelHits.Text = ""; }
+                if (d is null) { accelPanel.Children.Add(new TextBlock { Text = AppLanguage.T("Not installed"), FontSize = 12.5 }); accelHits.Text = ""; }
                 else
                 {
-                    if (groups.Count == 0) accelPanel.Children.Add(new TextBlock { Text = "No players sped up", FontSize = 12.5 });
+                    if (groups.Count == 0) accelPanel.Children.Add(new TextBlock { Text = AppLanguage.T("No players sped up"), FontSize = 12.5 });
                     foreach (var g in groups) accelPanel.Children.Add(SpeedRow(g));
                     accelHits.Text = $"Gains changed {d.Hits}";
                 }
@@ -417,10 +417,10 @@ public sealed partial class MainWindow
                 }
                 else
                 {
-                    if (picked is null) { status.Text = "Pick a club, nation or continent first."; return; }
+                    if (picked is null) { status.Text = AppLanguage.Get("Ui_Pick_a_club_nation_or_continent_first"); return; }
                     var list = drafts[sc];
                     bool newEntry = list.All(c => c.Id != picked.Id);
-                    if (newEntry && list.Count >= GoldenGenerationHook.MaxIds) { status.Text = $"At most {GoldenGenerationHook.MaxIds} entries."; return; }
+                    if (newEntry && list.Count >= GoldenGenerationHook.MaxIds) { status.Text = string.Format(AppLanguage.T("At most {0} entries."), GoldenGenerationHook.MaxIds); return; }
                     Remember();
                     if (newEntry) list.Add(picked);
                     // A broader target makes the narrower entries it covers redundant.
@@ -436,7 +436,7 @@ public sealed partial class MainWindow
                     status.Text = $"On: new regens from {string.Join(", ", list.Select(c => c.Name))} get PA {lo}-{hi}.";
                 }
             }
-            catch (Exception ex) { status.Text = $"Wonderkid Academy: {UserMessage.For(ex)}"; }
+            catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Wonderkid Academy: {0}"), UserMessage.For(ex)); }
             UpdateActive();
             ShowTargets();
             UpdatePicker();
@@ -467,9 +467,9 @@ public sealed partial class MainWindow
                     installed = academy.Read()?.Settings;
                 }
                 else { academy.Uninstall(); installed = null; }
-                status.Text = "Wonderkid Academy: reverted.";
+                status.Text = AppLanguage.Get("Ui_Wonderkid_Academy_reverted");
             }
-            catch (Exception ex) { status.Text = $"Wonderkid Academy: {UserMessage.For(ex)}"; }
+            catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Wonderkid Academy: {0}"), UserMessage.For(ex)); }
             picked = null;
             UpdateActive();
             ShowTargets();
@@ -485,10 +485,10 @@ public sealed partial class MainWindow
             {
                 academy.Configure(true, (int)(minPa.Value ?? 150), (int)(maxPa.Value ?? 190), (int)(wonderkid.Value ?? 0), current.Scope, current.Ids);
                 installed = academy.Read()?.Settings;
-                status.Text = "Wonderkid Academy: settings updated.";
+                status.Text = AppLanguage.Get("Ui_Wonderkid_Academy_settings_updated");
                 UpdateActive();
             }
-            catch (Exception ex) { status.Text = $"Wonderkid Academy: {UserMessage.For(ex)}"; }
+            catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Wonderkid Academy: {0}"), UserMessage.For(ex)); }
         }
         minPa.ValueChanged += SettingsChanged;
         maxPa.ValueChanged += SettingsChanged;
@@ -500,11 +500,11 @@ public sealed partial class MainWindow
             foreach (var c in items) { c.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(c); }
             return row;
         }
-        TextBlock Label(string text) => new() { Text = text, FontSize = 12.5 };
-        TextBlock Header(string text) => new() { Text = text, FontSize = 14, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) };
+        TextBlock Label(string text) => new() { Text = AppLanguage.T(text), FontSize = 12.5 };
+        TextBlock Header(string text) => new() { Text = AppLanguage.T(text), FontSize = 14, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) };
 
         var stack = new StackPanel { Spacing = 8, Margin = new Thickness(14) };
-        var howTo = new Button { Content = "How to use", FontSize = 12, Height = 24, MinHeight = 24, Padding = new Thickness(10, 0), Margin = new Thickness(10, 8, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        var howTo = new Button { Content = AppLanguage.T("How to use"), FontSize = 12, Height = 24, MinHeight = 24, Padding = new Thickness(10, 0), Margin = new Thickness(10, 8, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         howTo.Click += (_, _) => { if (window is not null) WonderkidAcademyHelp.Show(window); };
         stack.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { Header("Wonderkid Academy (Experimental)"), howTo } });
         stack.Children.Add(academyState);
@@ -519,10 +519,10 @@ public sealed partial class MainWindow
         stack.Children.Add(accelHits);
         // Force Accept Transfer is shelved until the code patch is finished; the mechanism is hidden (see ForceAcceptTransferView.cs).
         // stack.Children.Add(BuildForceAcceptTransferSection(session));
-        stack.Children.Add(UiKit.Card("Force Accept Transfer", new TextBlock { Text = "Coming Soon", FontSize = 13, Foreground = UiKit.TextMuted }));
+        stack.Children.Add(UiKit.Card(AppLanguage.T("Force Accept Transfer"), new TextBlock { Text = AppLanguage.T("Coming Soon"), FontSize = 13, Foreground = UiKit.TextMuted }));
         window = new Window
         {
-            Title = "Hook Manager",
+            Title = AppLanguage.T("Hook Manager"),
             Width = 720,
             Height = 560,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,

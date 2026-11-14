@@ -54,13 +54,13 @@ public sealed partial class MainWindow
             };
             var lbl = new TextBlock
             {
-                Text = d.Label,
+                Text = AppLanguage.T(d.Label),
                 FontSize = 12.5,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = Brush("#94A3B8"),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            ToolTip.SetTip(lbl, $"{d.Label} ({d.Min} .. {d.Max})");
+            ToolTip.SetTip(lbl, $"{AppLanguage.T(d.Label)} ({d.Min} .. {d.Max})");
 
             var num = new NumericUpDown
             {
@@ -191,13 +191,13 @@ public sealed partial class MainWindow
                         }
                         catch (Exception ex)
                         {
-                            status.Text = $"Failed to save {f}: {ex.Message}";
+                            status.Text = string.Format(AppLanguage.T("Failed to save {0}: {1}"), AppLanguage.T(f.ToString()), ex.Message);
                             return;
                         }
                     }
                     if (d.Count == 0)
                         playerScalarDrafts.Remove(player.Address);
-                    status.Text = $"Saved {saved} change(s). Continue in FM to see updates.";
+                    status.Text = string.Format(AppLanguage.T("Saved {0} change(s). Continue in FM to see updates."), saved);
                     RenderEditor();
                 }
             };
@@ -251,34 +251,36 @@ public sealed partial class MainWindow
             {
                 var freeze = new Button
                 {
-                    Content = "Freeze",
+                    Content = new TextBlock { Text = AppLanguage.T("Freeze"), TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center },
                     FontSize = 12.5,
                     Height = 24,
                     MinHeight = 24,
                     Padding = new Thickness(3, 0),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 };
+                ToolTip.SetTip(freeze, AppLanguage.T("Freeze"));
                 freeze.Click += (_, _) =>
                 {
                     try
                     {
                         backend.Edits.Execute(() => backend.Freezer.SetPlayer(player, FrozenPlayer.AllAttributes(player)));
-                        onStatus?.Invoke($"Frozen: {player.DisplayName}");
+                        onStatus?.Invoke(string.Format(AppLanguage.T("Frozen: {0}"), player.DisplayName));
                     }
-                    catch (Exception ex) { onStatus?.Invoke($"Freezer: {ex.Message}"); }
+                    catch (Exception ex) { onStatus?.Invoke(string.Format(AppLanguage.T("Freezer: {0}"), ex.Message)); }
                 };
 
                 var unfreeze = new Button
                 {
-                    Content = "Unfreeze",
+                    Content = new TextBlock { Text = AppLanguage.T("Unfreeze"), TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center },
                     FontSize = 12.5,
                     Height = 24,
                     MinHeight = 24,
                     Padding = new Thickness(3, 0),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 };
+                ToolTip.SetTip(unfreeze, AppLanguage.T("Unfreeze"));
                 unfreeze.Click += (_, _) =>
                 {
                     try
@@ -286,19 +288,19 @@ public sealed partial class MainWindow
                         if (player.Id is { } pid)
                         {
                             backend.Edits.Execute(() => backend.Freezer.RemovePlayer(pid));
-                            onStatus?.Invoke($"Unfrozen: {player.DisplayName}");
+                            onStatus?.Invoke(string.Format(AppLanguage.T("Unfrozen: {0}"), player.DisplayName));
                         }
                     }
-                    catch (Exception ex) { onStatus?.Invoke($"Freezer: {ex.Message}"); }
+                    catch (Exception ex) { onStatus?.Invoke(string.Format(AppLanguage.T("Freezer: {0}"), ex.Message)); }
                 };
 
                 panel.Children.Add(Pair(freeze, unfreeze));
             }
-            var export = new Button { Content = "Export", FontSize = 12.5, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
-            ToolTip.SetTip(export, "Export attributes");
+            var export = new Button { Content = AppLanguage.T("Export"), FontSize = 12.5, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+            ToolTip.SetTip(export, AppLanguage.Get("Ui_Export_attributes"));
             export.Click += async (_, _) => await ExportPlayerAttributesAsync(player);
-            var import = new Button { Content = "Import", FontSize = 12.5, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
-            ToolTip.SetTip(import, "Import attributes");
+            var import = new Button { Content = AppLanguage.T("Import"), FontSize = 12.5, Height = 24, MinHeight = 24, Padding = new Thickness(3, 0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+            ToolTip.SetTip(import, AppLanguage.Get("Ui_Import_attributes"));
             import.Click += async (_, _) => await ImportPlayerAttributesAsync(player);
             panel.Children.Add(Pair(export, import));
         }
@@ -323,17 +325,17 @@ public sealed partial class MainWindow
         {
             var btn = new Button
             {
-                Content = text,
+                Content = new TextBlock { Text = AppLanguage.T(text), TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center },
                 FontSize = 12.5,
                 Height = 24,
                 MinHeight = 24,
                 Padding = new Thickness(3, 0),
                 VerticalContentAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 IsEnabled = enabled,
             };
-            if (ToolTips.TryGetValue(text, out var tip)) ToolTip.SetTip(btn, tip);
+            ToolTip.SetTip(btn, ToolTips.TryGetValue(text, out var tip) ? AppLanguage.T(text) + Environment.NewLine + AppLanguage.T(tip) : AppLanguage.T(text));
             btn.Click += (_, _) => onClick();
             return btn;
         }
@@ -367,9 +369,9 @@ public sealed partial class MainWindow
                 }
 
                 if (failed.Count == 0)
-                    onStatus?.Invoke($"{actionName}: {success} player(s) updated. Continue in FM to see updates.");
+                    onStatus?.Invoke(string.Format(AppLanguage.T("{0}: {1} player(s) updated. Continue in FM to see updates."), AppLanguage.T(actionName), success));
                 else
-                    onStatus?.Invoke($"{actionName}: {success} succeeded, {failed.Count} failed ({string.Join(", ", failed.Take(2))}).");
+                    onStatus?.Invoke(string.Format(AppLanguage.T("{0}: {1} succeeded, {2} failed ({3})."), AppLanguage.T(actionName), success, failed.Count, string.Join(", ", failed.Take(2))));
 
                 if (success > 0)
                     onApplied?.Invoke();
@@ -394,7 +396,7 @@ public sealed partial class MainWindow
                 }
                 catch (Exception ex)
                 {
-                    onStatus?.Invoke($"Failed {actionName}: {ex.Message}");
+                    onStatus?.Invoke(string.Format(AppLanguage.T("Failed {0}: {1}"), AppLanguage.T(actionName), ex.Message));
                 }
             }
         }
@@ -461,7 +463,7 @@ public sealed partial class MainWindow
             int unchanged = 0, failed = 0;
             RunAction(actionName, p => { try { if (!preset(p)) unchanged++; } catch { failed++; throw; } });
             if (unchanged > 0 && failed == 0)
-                onStatus?.Invoke($"{actionName}: {unchanged} player(s) already had it or have nothing to change.");
+                onStatus?.Invoke(string.Format(AppLanguage.T("{0}: {1} player(s) already had it or have nothing to change."), AppLanguage.T(actionName), unchanged));
         }
         panel.Children.Add(ActionBtn("Remove Int. Withdrawal", () => RunPreset("Remove Int. Withdrawal", p => backend.Session.RemoveInternationalWithdrawal(p) > 0)));
         panel.Children.Add(ActionBtn("Register for UEFA", () => RunPreset("Register for UEFA", p => backend.Session.RegisterForUefa(p))));
@@ -482,7 +484,7 @@ public sealed partial class MainWindow
                 var row = new DockPanel { LastChildFill = true };
                 DockPanel.SetDock(box, Dock.Right);
                 row.Children.Add(box);
-                row.Children.Add(new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
+                row.Children.Add(new TextBlock { Text = AppLanguage.T(label), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary });
                 return row;
             }
             panel.Children.Add(Subhead("YOUTH"));
@@ -529,13 +531,13 @@ public sealed partial class MainWindow
             var session = backend.Session;
             var writer = new KeepPlayingWriter(session.Memory, session.Profile, session.ModuleBase);
             var plan = writer.TryPlan(player);
-            if (plan is null) { status.Text = $"{player.DisplayName}: already set to keep playing"; return; }
+            if (plan is null) { status.Text = string.Format(AppLanguage.T("{0}: already set to keep playing"), player.DisplayName); return; }
             backend.Edits.Execute("Player", player.DisplayName, "Prevent retirement", () => writer.Apply(plan));
             ReloadCurrentScreen();
             status.Text = plan.RetirementDate is { } was
-                ? $"{player.DisplayName} will not retire on {DateSetting.Format(was)}. Continue in FM to see updates."
-                : $"{player.DisplayName} will keep playing. Continue in FM to see updates.";
+                ? string.Format(AppLanguage.T("{0} will not retire on {1}. Continue in FM to see updates."), player.DisplayName, DateSetting.Format(was))
+                : string.Format(AppLanguage.T("{0} will keep playing. Continue in FM to see updates."), player.DisplayName);
         }
-        catch (Exception ex) { status.Text = $"Prevent retirement: {ex.Message}"; }
+        catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Prevent retirement: {0}"), ex.Message); }
     }
 }

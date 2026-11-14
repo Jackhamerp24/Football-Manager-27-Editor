@@ -51,7 +51,7 @@ public sealed partial class MainWindow
             var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,24,Auto"), RowSpacing = 4, Margin = new Thickness(12, 8) };
             row.Minimum = new TextBox { Text = injury?.MinimumDays.ToString(Inv) ?? "", Width = 84, HorizontalContentAlignment = HorizontalAlignment.Right };
             row.Extra = new TextBox { Text = injury?.ExtraDays.ToString(Inv) ?? "", Width = 84, HorizontalContentAlignment = HorizontalAlignment.Right };
-            row.Boxes = TreatmentBoxes.Select(t => new CheckBox { Content = t.Label, IsChecked = injury?.Treatment.HasFlag(t.Flag) ?? false }).ToArray();
+            row.Boxes = TreatmentBoxes.Select(t => new CheckBox { Content = AppLanguage.T(t.Label), IsChecked = injury?.Treatment.HasFlag(t.Flag) ?? false }).ToArray();
             var current = injury is null ? null : new InjuryType(0, injury.TypeId, injury.Name);
             row.Type = new ComboBox { Width = 220, ItemsSource = current is null ? Array.Empty<InjuryType>() : new[] { current }, SelectedIndex = current is null ? -1 : 0,
                 DisplayMemberBinding = new Avalonia.Data.Binding(nameof(InjuryType.Name)) };
@@ -59,7 +59,7 @@ public sealed partial class MainWindow
             int line = 0;
             foreach (var (label, input) in new (string, Control)[] { ("Type", row.Type), ("Minimum Days", row.Minimum), ("Extra Days", row.Extra) })
             {
-                var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
+                var text = new TextBlock { Text = AppLanguage.T(label), VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetRow(text, line); Grid.SetRow(input, line); Grid.SetColumn(input, 1);
                 grid.Children.Add(text); grid.Children.Add(input); line++;
                 if (input is TextBox box) box.TextChanged += (_, _) => Changed();
@@ -99,7 +99,7 @@ public sealed partial class MainWindow
 
         foreach (var injury in existing) BuildRow(injury);
 
-        var add = new Button { Content = "Add injury", IsEnabled = false };
+        var add = new Button { Content = AppLanguage.Get("Ui_Add_injury"), IsEnabled = false };
         add.Click += (_, _) =>
         {
             var row = BuildRow(null);
@@ -128,10 +128,10 @@ public sealed partial class MainWindow
             var (template, types) = catalogue.IsCompletedSuccessfully ? catalogue.Result : (null, []);
             foreach (var r in rows)
             {
-                if (!ushort.TryParse(r.Minimum.Text, out ushort minimumDay) || minimumDay < 1 || !ushort.TryParse(r.Extra.Text, out _)) { status.Text = "Injury: Minimum Days is 1 or more, Extra Days 0 or more"; return; }
-                if (r.Injury is null && r.Type.SelectedItem is not InjuryType { Address: not 0 }) { status.Text = "Injury: pick a type for the new injury"; return; }
+                if (!ushort.TryParse(r.Minimum.Text, out ushort minimumDay) || minimumDay < 1 || !ushort.TryParse(r.Extra.Text, out _)) { status.Text = AppLanguage.Get("Ui_Injury_Minimum_Days_is_1_or_more_Extra_Days_0_or_more"); return; }
+                if (r.Injury is null && r.Type.SelectedItem is not InjuryType { Address: not 0 }) { status.Text = AppLanguage.Get("Ui_Injury_pick_a_type_for_the_new_injury"); return; }
             }
-            if (rows.Any(r => r.Injury is null) && template is null) { status.Text = "Injury: no injury to build a new one from was found yet"; return; }
+            if (rows.Any(r => r.Injury is null) && template is null) { status.Text = AppLanguage.Get("Ui_Injury_no_injury_to_build_a_new_one_from_was_found_yet"); return; }
             try
             {
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () =>
@@ -167,7 +167,7 @@ public sealed partial class MainWindow
                         if (min != made.MinimumDays || extra != made.ExtraDays) writer.SetDuration(player, made, min, extra);
                     }
                 });
-                status.Text = "Saved injury. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Saved_injury_Continue_in_FM_to_see_updates");
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = UserMessage.For(ex); }

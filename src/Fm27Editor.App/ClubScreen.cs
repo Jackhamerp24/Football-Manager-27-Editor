@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Threading;
@@ -34,7 +35,7 @@ internal interface IClubPanels
 
 /// <summary>Clubs: the list with balance and reputation, and a tab per club with sections down its left.</summary>
 internal sealed class ClubScreen(IScreenHost host, IClubPanels panels)
-    : EntityScreen<ClubEntry, MainWindow.ClubPickerItem, ClubDraft>(host, "club", "Clubs", "clubs", "Club or ID")
+    : EntityScreen<ClubEntry, MainWindow.ClubPickerItem, ClubDraft>(host, "club", "Clubs", "clubs", AppLanguage.T("Club or ID"))
 {
     IReadOnlyList<PlayerRecord> playersAtLoad = [];
     IReadOnlyList<ClubEntry>? cachedAtLoad;
@@ -51,7 +52,8 @@ internal sealed class ClubScreen(IScreenHost host, IClubPanels panels)
 
     protected override Control BuildSearchHeader(TextBox searchBox)
     {
-        ToolTip.SetTip(genderFilter, "Gender filter");
+        ToolTip.SetTip(genderFilter, AppLanguage.T("Gender filter"));
+        genderFilter.ItemTemplate = new FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         genderFilter.SelectionChanged += (_, _) => Filter();
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,104"), ColumnSpacing = 6 };
         Grid.SetColumn(searchBox, 0); row.Children.Add(searchBox);
@@ -85,14 +87,14 @@ internal sealed class ClubScreen(IScreenHost host, IClubPanels panels)
 
     protected override void ConfigureColumns(DataGrid grid)
     {
-        var id = new DataGridTextColumn { Header = "ID", Binding = new Binding(nameof(MainWindow.ClubPickerItem.Id)), Width = new DataGridLength(110), SortMemberPath = nameof(MainWindow.ClubPickerItem.Id) };
+        var id = new DataGridTextColumn { Header = AppLanguage.T("ID"), Binding = new Binding(nameof(MainWindow.ClubPickerItem.Id)), Width = new DataGridLength(110), SortMemberPath = nameof(MainWindow.ClubPickerItem.Id) };
         id.CellStyleClasses.Add("numeric");
         grid.Columns.Add(id);
-        grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(MainWindow.ClubPickerItem.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star), SortMemberPath = nameof(MainWindow.ClubPickerItem.Name) });
-        var balance = new DataGridTextColumn { Header = "Balance", Binding = new Binding(nameof(MainWindow.ClubPickerItem.Balance)) { StringFormat = "N0" }, Width = new DataGridLength(173), SortMemberPath = nameof(MainWindow.ClubPickerItem.Balance) };
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Name"), Binding = new Binding(nameof(MainWindow.ClubPickerItem.Name)), Width = new DataGridLength(1, DataGridLengthUnitType.Star), SortMemberPath = nameof(MainWindow.ClubPickerItem.Name) });
+        var balance = new DataGridTextColumn { Header = AppLanguage.T("Balance"), Binding = new Binding(nameof(MainWindow.ClubPickerItem.Balance)) { StringFormat = "N0" }, Width = new DataGridLength(173), SortMemberPath = nameof(MainWindow.ClubPickerItem.Balance) };
         balance.CellStyleClasses.Add("numeric");
         grid.Columns.Add(balance);
-        var reputation = new DataGridTextColumn { Header = "Reputation", Binding = new Binding(nameof(MainWindow.ClubPickerItem.Reputation)), Width = new DataGridLength(126), SortMemberPath = nameof(MainWindow.ClubPickerItem.Reputation) };
+        var reputation = new DataGridTextColumn { Header = AppLanguage.T("Reputation"), Binding = new Binding(nameof(MainWindow.ClubPickerItem.Reputation)), Width = new DataGridLength(126), SortMemberPath = nameof(MainWindow.ClubPickerItem.Reputation) };
         reputation.CellStyleClasses.Add("numeric");
         grid.Columns.Add(reputation);
         panels.SectionRail.Margin = default;

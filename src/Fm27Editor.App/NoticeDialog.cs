@@ -18,7 +18,7 @@ internal sealed class NoticeDialog : Window
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var ok = new Button { Content = "OK", Width = 90, Classes = { "accent" }, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var ok = new Button { Content = AppLanguage.T("OK"), Width = 90, Classes = { "accent" }, HorizontalContentAlignment = HorizontalAlignment.Center };
         ok.Click += (_, _) => Close();
         Content = new StackPanel
         {

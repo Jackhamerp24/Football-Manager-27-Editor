@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
@@ -17,6 +17,7 @@ public sealed class App : Application
     public override void Initialize()
     {
         AppTheme.Load();
+        AppLanguage.Load();
         Fm27Editor.Core.Settings.DateSetting.Load();
         Fm27Editor.Core.Settings.CurrencySetting.Load();
         Fm27Editor.Core.Settings.GameCurrency.TryApply();
@@ -32,7 +33,7 @@ public sealed class App : Application
         InputElement.KeyDownEvent.AddClassHandler<TextBox>((control, e) =>
         {
             if (e.Handled || e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None || control.AcceptsReturn) return;
-            if (control.Watermark?.StartsWith("Search", StringComparison.OrdinalIgnoreCase) == true) return;
+            if (control.Watermark?.StartsWith("Search", StringComparison.OrdinalIgnoreCase) == true || control.Watermark?.StartsWith("Tìm", StringComparison.OrdinalIgnoreCase) == true) return;
             TopLevel.GetTopLevel(control)?.FocusManager?.ClearFocus();
             e.Handled = true;
         }, RoutingStrategies.Bubble);

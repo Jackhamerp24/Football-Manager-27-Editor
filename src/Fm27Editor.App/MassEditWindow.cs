@@ -50,7 +50,7 @@ internal sealed partial class MassEditWindow : Window
     readonly MainWindow host;
     readonly EditorBackend backend;
     readonly TextBlock status = new() { Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center, FontSize = 12.5 };
-    readonly Button apply = new() { Content = "Review changes", Classes = { "accent" }, IsEnabled = false, MinWidth = 110 };
+    readonly Button apply = new() { Content = AppLanguage.T("Review changes"), Classes = { "accent" }, IsEnabled = false, MinWidth = 110 };
     // Scope bar styled like the main window module bar: text buttons, the active one underlined in the accent colour.
     readonly StackPanel scopeBar = new() { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(12, 4, 12, 4) };
     readonly ContentControl scopeHost = new() { MinHeight = 320 };
@@ -63,8 +63,8 @@ internal sealed partial class MassEditWindow : Window
     int[] moveStates = [];
     readonly List<(string Scope, ScrollViewer View)> sectionViews = [];
     readonly TextBlock target = new() { FontSize = 12.5, Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly Button clear = new() { Content = "Clear all" };
-    readonly Button choose = new() { Content = "Choose who to edit...", IsEnabled = false };
+    readonly Button clear = new() { Content = AppLanguage.T("Clear all") };
+    readonly Button choose = new() { Content = AppLanguage.T("Choose who to edit..."), IsEnabled = false };
     IReadOnlyList<PlayerRecord>? chosenPlayers;
     IReadOnlyList<StaffRecord>? chosenStaff;
     IReadOnlyList<ClubEntry>? chosenClubs;
@@ -75,7 +75,7 @@ internal sealed partial class MassEditWindow : Window
     {
         this.host = host;
         backend = host.Backend;
-        Title = "Mass Edit";
+        Title = AppLanguage.T("Mass Edit");
         Width = 1022;
         Height = 682;
         MinWidth = 860;
@@ -99,8 +99,8 @@ internal sealed partial class MassEditWindow : Window
     Control BuildLayout()
     {
         var top = new DockPanel { LastChildFill = true, Margin = new Thickness(12, 10, 12, 6) };
-        var label = new TextBlock { Text = "Apply to", Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
-        ToolTip.SetTip(choose, "Pick targets with Advanced Search; the result becomes the batch for the current scope.");
+        var label = new TextBlock { Text = AppLanguage.Get("Common_Apply_to"), Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center };
+        ToolTip.SetTip(choose, AppLanguage.T("Pick targets with Advanced Search; the result becomes the batch for the current scope."));
         choose.Click += async (_, _) =>
         {
             if (choosingTargets) return;           // one picker at a time, even while its list is still loading
@@ -113,7 +113,7 @@ internal sealed partial class MassEditWindow : Window
 
         var bottom = new DockPanel { LastChildFill = true, Margin = new Thickness(12, 6, 12, 10) };
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        var cancel = new Button { Content = "Cancel", MinWidth = 80 };
+        var cancel = new Button { Content = AppLanguage.Get("Label_Cancel"), MinWidth = 80 };
         cancel.Click += (_, _) => Close();
         apply.Click += (_, _) => _ = ReviewAsync();
         right.Children.Add(cancel); right.Children.Add(apply);
@@ -146,7 +146,7 @@ internal sealed partial class MassEditWindow : Window
     {
         var button = new Button
         {
-            Content = title, FontSize = 13, Padding = new Thickness(11, 3), MinHeight = 25, Height = 25,
+            Content = AppLanguage.T(title), FontSize = 13, Padding = new Thickness(11, 3), MinHeight = 25, Height = 25,
             CornerRadius = new CornerRadius(3), Background = Brushes.Transparent,
             BorderThickness = new Thickness(0, 0, 0, 2), BorderBrush = Brushes.Transparent, Foreground = UiKit.Brush("#94A3B8"),
         };
@@ -174,7 +174,7 @@ internal sealed partial class MassEditWindow : Window
     static Control ScopePanel(IReadOnlyList<(string Section, Control Panel)> sections)
     {
         var list = new ListBox { Width = 170, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(6, 8) };
-        list.ItemsSource = sections.Select(s => s.Section).ToArray();
+        list.ItemsSource = sections.Select(s => AppLanguage.T(s.Section)).ToArray();
         // Padding sits on the content, not on the ScrollViewer: Avalonia leaves ScrollViewer padding out of the scroll
         // extent, which cut the last rows off every long section.
         static Control Padded(Control content) => new Border { Padding = new Thickness(14, 8, 26, 24), Child = content };
@@ -221,9 +221,11 @@ internal sealed partial class MassEditWindow : Window
         var contract = Panel();
         AddHeader(contract, "Contract Details");
         contractType = new ComboBox { ItemsSource = new[] { "Unset", "Part-Time", "Full-Time", "Amateur", "Youth", "Non-Contract" }, SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        contractType.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         contractType.SelectionChanged += (_, _) => MarkDirty();
         contract.Children.Add(Labeled("Type", contractType));
         contractStatus = new ComboBox { ItemsSource = new[] { "Unset", "Expired", "Expiring in 6 Months", "Expiring in 1 Year" }, SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        contractStatus.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         contractStatus.SelectionChanged += (_, _) => MarkDirty();
         contract.Children.Add(Labeled("Contract", contractStatus));
         Add(contract, Kind.PlayerField, (int)PlayerField.AskingPrice, "Contract", "Asking Price", 0, int.MaxValue);   // FMRTE shows £2,147,483,647
@@ -231,12 +233,13 @@ internal sealed partial class MassEditWindow : Window
 
         AddHeader(contract, "Release clause");
         clauseType = new ComboBox { ItemsSource = new[] { "Don't change" }.Concat(ReleaseClauses.Select(c => ContractLabels.Term(c))).ToArray(), SelectedIndex = 0, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        clauseType.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         clauseType.SelectionChanged += (_, _) => MarkDirty();
         clauseFee = new NumericUpDown { Minimum = 0, Maximum = 2_000_000_000, Increment = 1, Value = 0, FontSize = 12.5, FormatString = "0", HorizontalAlignment = HorizontalAlignment.Stretch };
         clauseFee.ValueChanged += (_, _) => MarkDirty();
         contract.Children.Add(Labeled("Release clause", clauseType));
         contract.Children.Add(Labeled("Release clause fee", clauseFee));
-        removeClause = new CheckBox { Content = "Remove release clause", FontSize = 12.5, Margin = new Thickness(4, 4, 0, 2) };
+        removeClause = new CheckBox { Content = AppLanguage.Get("Common_Remove_release_clause"), FontSize = 12.5, Margin = new Thickness(4, 4, 0, 2) };
         removeClause.IsCheckedChanged += (_, _) => MarkDirty();
         contract.Children.Add(removeClause);
         sections.Add(("Contract", contract));
@@ -249,7 +252,7 @@ internal sealed partial class MassEditWindow : Window
         sections.Add(("Fitness", fitness));
 
         var injury = Panel();
-        injuryClear = new CheckBox { Content = "Clear current injuries", FontSize = 12.5, Margin = new Thickness(4, 4, 0, 2) };
+        injuryClear = new CheckBox { Content = AppLanguage.Get("Common_Clear_current_injuries"), FontSize = 12.5, Margin = new Thickness(4, 4, 0, 2) };
         injuryClear.IsCheckedChanged += (_, _) => MarkDirty();
         injury.Children.Add(injuryClear);
         injuryType = new ComboBox { ItemsSource = new[] { new InjuryChoice(null) }, SelectedIndex = 0, Width = 320, FontSize = 12.5 };
@@ -284,14 +287,14 @@ internal sealed partial class MassEditWindow : Window
 
         var moves = new StackPanel { Spacing = 6 };
         var moveHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var selectAll = new Button { Content = "All on" };
-        var clearMoves = new Button { Content = "All off" };
-        var resetMoves = new Button { Content = "Reset" };
+        var selectAll = new Button { Content = AppLanguage.Get("Common_All_on") };
+        var clearMoves = new Button { Content = AppLanguage.Get("Common_All_off") };
+        var resetMoves = new Button { Content = AppLanguage.Get("Label_Reset") };
         selectAll.Click += (_, _) => SetAllMoves(2);
         clearMoves.Click += (_, _) => SetAllMoves(1);
         resetMoves.Click += (_, _) => SetAllMoves(0);
         moveHeader.Children.Add(selectAll); moveHeader.Children.Add(clearMoves); moveHeader.Children.Add(resetMoves);
-        moveHeader.Children.Add(new TextBlock { Text = "Filled = don't change, empty = off, ticked = on", Foreground = UiKit.TextMuted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+        moveHeader.Children.Add(new TextBlock { Text = AppLanguage.Get("Ui_Filled_don_t_change_empty_off_ticked_on"), Foreground = UiKit.TextMuted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
         moves.Children.Add(moveHeader);
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), RowSpacing = 2, ColumnSpacing = 16 };
         var names = PreferredMovesLabels.Names;
@@ -300,7 +303,7 @@ internal sealed partial class MassEditWindow : Window
         for (int i = 0; i < names.Length; i++)
         {
             int index = i;
-            var box = new CheckBox { Content = names[i], FontSize = 12.5, IsThreeState = true, IsChecked = null };
+            var box = new CheckBox { Content = AppLanguage.T(names[i]), FontSize = 12.5, IsThreeState = true, IsChecked = null };
             box.Click += (_, e) =>
             {
                 // FMRTE order: filled (don't change) -> empty (off) -> ticked (on) -> filled.
@@ -386,7 +389,7 @@ internal sealed partial class MassEditWindow : Window
         var panel = Panel();
         if (backend.State.Status != ConnectionStatus.Connected)
         {
-            panel.Children.Add(new TextBlock { Text = "Load a save first.", Foreground = UiKit.TextMuted, Margin = new Thickness(4, 8) });
+            panel.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Load_a_save_first"), Foreground = UiKit.TextMuted, Margin = new Thickness(4, 8) });
             return [("General", panel)];
         }
         var profile = backend.Session.Profile;
@@ -434,7 +437,7 @@ internal sealed partial class MassEditWindow : Window
     static Control Labeled(string label, Control control)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,150,230"), ColumnSpacing = 10, Margin = new Thickness(4, 1) };
-        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
+        var text = new TextBlock { Text = AppLanguage.T(label), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
         Grid.SetColumn(control, 2);
         grid.Children.Add(text);
         grid.Children.Add(control);
@@ -451,8 +454,8 @@ internal sealed partial class MassEditWindow : Window
             BorderBrush = UiKit.Brush("#2A2440"),
             Padding = new Thickness(0, 0, 0, 3),
             Margin = new Thickness(0, 14, 0, 6),
-            Child = info is null ? new TextBlock { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#C4B5FD") }
-                : UiKit.TitleWithInfo(new TextBlock { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#C4B5FD"), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center }, info),
+            Child = info is null ? new TextBlock { Text = AppLanguage.T(text), FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#C4B5FD") }
+                : UiKit.TitleWithInfo(new TextBlock { Text = AppLanguage.T(text), FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = UiKit.Brush("#C4B5FD"), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center }, info),
         };
         panel.Children.Add(rule);
     }
@@ -475,7 +478,7 @@ internal sealed partial class MassEditWindow : Window
     Control Row(string label, Control mode, Control value)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(rowColumns), ColumnSpacing = 10, Margin = new Thickness(4, 1) };
-        var text = new TextBlock { Text = label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
+        var text = new TextBlock { Text = AppLanguage.T(label), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
         Grid.SetColumn(mode, 1);
         Grid.SetColumn(value, 2);
         grid.Children.Add(text);
@@ -487,10 +490,11 @@ internal sealed partial class MassEditWindow : Window
     FieldRow Add(StackPanel panel, Kind kind, int index, string group, string label, long min, long max)
     {
         var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to", "Change by" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        mode.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         var initial = Math.Clamp(0L, min, max);
         var value = new NumericUpDown { Minimum = min, Maximum = max, Increment = 1, Value = initial, FontSize = 12.5, FormatString = "0", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch };
         if (rowColumns != "*,150,230") { value.ShowButtonSpinner = false; value.HorizontalContentAlignment = HorizontalAlignment.Right; }
-        panel.Children.Add(Row(label, mode, value));
+        panel.Children.Add(Row(kind == Kind.PlayerAttribute ? AppLanguage.PlayerAttribute(label) : label, mode, value));
         var row = new FieldRow(kind, index, group, label, min, max, mode, value, () => (long)(value.Value ?? 0), () => value.Value = initial);
         fields.Add(row);
         mode.SelectionChanged += (_, _) => { value.IsEnabled = mode.SelectedIndex != ModeNone; MarkDirty(); };
@@ -505,6 +509,7 @@ internal sealed partial class MassEditWindow : Window
     FieldRow AddMoney(StackPanel panel, Kind kind, int index, string group, string label, long min, long max)
     {
         var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to", "Change by" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        mode.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         var value = new NumericUpDown
         {
             Minimum = Fm27Editor.Core.Settings.CurrencySetting.ToDisplay(min), Maximum = Fm27Editor.Core.Settings.CurrencySetting.ToDisplay(max),
@@ -526,6 +531,8 @@ internal sealed partial class MassEditWindow : Window
     {
         var mode = new ComboBox { ItemsSource = new[] { "Don't change", "Set to" }, SelectedIndex = ModeNone, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Stretch };
         var choice = new ComboBox { ItemsSource = options.Select(o => o.Name).ToArray(), SelectedIndex = 0, FontSize = 12.5, IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+        mode.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
+        choice.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         panel.Children.Add(Row(label, mode, choice));
         var codes = options.Select(o => o.Code).ToArray();
         var row = new FieldRow(kind, index, group, label, codes.Min(), codes.Max(), mode, choice,
@@ -744,7 +751,7 @@ internal sealed partial class MassEditWindow : Window
     {
         if (backend.State.Status != ConnectionStatus.Connected)
         {
-            target.Text = "Not connected - press Load Game first";
+            target.Text = AppLanguage.Get("Common_Not_connected_press_Load_Game_first");
             choose.IsEnabled = false;
             MarkDirty();
             return;
@@ -780,7 +787,7 @@ internal sealed partial class MassEditWindow : Window
         // background and only the newest scope's count is shown.
         int version = ++targetVersion;
         string loadingScope = Scope;
-        target.Text = "Counting…";
+        target.Text = AppLanguage.Get("Common_Counting");
         snapShownPlayers = host.MassEditPlayers; snapShownStaff = host.MassEditStaff;
         snapShownClubs = host.MassEditClubs; snapShownNations = host.MassEditNations;
         _ = Task.Run(TargetCount).ContinueWith(task =>

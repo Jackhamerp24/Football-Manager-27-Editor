@@ -21,7 +21,7 @@ public sealed partial class MainWindow
         var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         title.Children.Add(new TextBlock
         {
-            Text = "Force Accept Transfer (Experimental)",
+            Text = AppLanguage.Get("Ui_Force_Accept_Transfer_Experimental"),
             FontSize = 14,
             FontWeight = FontWeight.SemiBold,
             Margin = new Thickness(0, 8, 0, 0),
@@ -34,7 +34,7 @@ public sealed partial class MainWindow
         title.Children.Add(info);
         panel.Children.Add(title);
 
-        var on = new CheckBox { Content = "On", IsChecked = forceAcceptSaved.Count > 0 };
+        var on = new CheckBox { Content = AppLanguage.Get("Common_On"), IsChecked = forceAcceptSaved.Count > 0 };
         var state = new TextBlock
         {
             FontSize = 12.5,

@@ -44,7 +44,7 @@ public sealed partial class MainWindow
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Net.Http.HttpRequestException
                                        or TaskCanceledException or InvalidDataException or System.ComponentModel.Win32Exception)
         {
-            status.Text = "Update failed: " + ex.Message;
+            status.Text = AppLanguage.Get("Ui_Update_failed") + ex.Message;
             ShowNotice("Update failed",
                 $"The update could not be installed ({ex.Message}). This version is unchanged. You can download {release.Tag} from GitHub instead.",
                 ("Close", false, null),
@@ -58,6 +58,6 @@ public sealed partial class MainWindow
     void OpenReleasesPage()
     {
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(UpdateCheck.ReleasesPage) { UseShellExecute = true }); }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { status.Text = "Could not open the browser: " + UpdateCheck.ReleasesPage; }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { status.Text = AppLanguage.Get("Ui_Could_not_open_the_browser") + UpdateCheck.ReleasesPage; }
     }
 }

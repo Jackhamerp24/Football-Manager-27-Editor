@@ -54,7 +54,8 @@ internal static class ToolGrid
     {
         var tb = new TextBlock
         {
-            Text = text,
+            Text = AppLanguage.T(text),
+            Tag = text,
             FontSize = 12.5,
             FontWeight = FontWeight.SemiBold,
             Foreground = Brush("#94A3B8"),
@@ -62,7 +63,7 @@ internal static class ToolGrid
             HorizontalAlignment = align,
             TextTrimming = TextTrimming.None,
         };
-        ToolTip.SetTip(tb, tooltip);
+        ToolTip.SetTip(tb, AppLanguage.T(tooltip));
         return tb;
     }
 
@@ -173,7 +174,7 @@ internal static class ToolGrid
         grid.CanUserSortColumns = true;
         foreach (var column in grid.Columns)
         {
-            if (column.Header is TextBlock { Text: { } name } && keys.TryGetValue(name, out var key))
+            if (column.Header is TextBlock { Tag: string name } && keys.TryGetValue(name, out var key))
             {
                 column.CustomSortComparer = new KeyComparer<T>(key);
                 column.CanUserSort = true;

@@ -32,10 +32,10 @@ public sealed partial class MainWindow
         var session = backend.Session;
         if (session is null || !session.Process.CanWrite) return;
         var accel = session.AcceleratedDevelopment;
-        var current = new TextBlock { FontSize = 12, Foreground = UiKit.TextSecondary, Text = "Speed now: reading…" };
+        var current = new TextBlock { FontSize = 12, Foreground = UiKit.TextSecondary, Text = AppLanguage.T("Speed now: reading…") };
         var speed = new TextBox
         {
-            Watermark = "Speed, e.g. 2.5", Height = 24, MinHeight = 24, FontSize = 12.5,
+            Watermark = AppLanguage.T("Speed, e.g. 2.5"), Height = 24, MinHeight = 24, FontSize = 12.5,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
         };
         ToolTip.SetTip(speed, $"Any speed from {AcceleratedDevelopment.MinMultiplier.ToString(CultureInfo.InvariantCulture)}x to {AcceleratedDevelopment.MaxMultiplier}x in steps of 0.1; 1 means normal speed.");
@@ -44,7 +44,7 @@ public sealed partial class MainWindow
 
         panel.Children.Add(new TextBlock
         {
-            Text = "DEVELOPMENT", FontSize = 11, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#7E8BA3"),
+            Text = AppLanguage.T("DEVELOPMENT"), FontSize = 11, FontWeight = FontWeight.Bold, Foreground = UiKit.Brush("#7E8BA3"),
             LetterSpacing = 0.4, Margin = new Thickness(1, 6, 0, 1),
         });
         panel.Children.Add(current);
@@ -68,12 +68,12 @@ public sealed partial class MainWindow
             }).ContinueWith(t => Dispatcher.UIThread.Post(() =>
             {
                 var speeds = t.Result;
-                if (speeds is null) { current.Text = "Speed now: unknown"; return; }
-                if (speeds.Count == 0) { current.Text = "Speed now: no players selected"; return; }
+                if (speeds is null) { current.Text = AppLanguage.T("Speed now: unknown"); return; }
+                if (speeds.Count == 0) { current.Text = AppLanguage.T("Speed now: no players selected"); return; }
                 var distinct = speeds.Distinct().ToList();
                 current.Text = distinct.Count == 1
-                    ? $"Speed now: {SpeedText(distinct[0])}{(speeds.Count > 1 ? $" ({speeds.Count} players)" : "")}"
-                    : $"Speed now: mixed ({string.Join(", ", speeds.GroupBy(s => s).OrderByDescending(g => g.Key).Select(g => $"{g.Count()} at {SpeedText(g.Key)}"))})";
+                    ? string.Format(AppLanguage.T("Speed now: {0}{1}"), SpeedText(distinct[0]), speeds.Count > 1 ? string.Format(AppLanguage.T(" ({0} players)"), speeds.Count) : "")
+                    : string.Format(AppLanguage.T("Speed now: mixed ({0})"), string.Join(", ", speeds.GroupBy(s => s).OrderByDescending(g => g.Key).Select(g => string.Format(AppLanguage.T("{0} at {1}"), g.Count(), SpeedText(g.Key)))));
                 if (distinct.Count == 1 && string.IsNullOrWhiteSpace(speed.Text) && distinct[0] > 0)
                     speed.Text = distinct[0].ToString("0.#", CultureInfo.InvariantCulture);
             }));
@@ -84,7 +84,7 @@ public sealed partial class MainWindow
         {
             if (ParseSpeed(speed.Text) is not { } multiplier || multiplier != 0 && !AcceleratedDevelopment.IsAllowedMultiplier(multiplier))
             {
-                onStatus?.Invoke($"Development speed: enter {AcceleratedDevelopment.MinMultiplier.ToString(CultureInfo.InvariantCulture)} to {AcceleratedDevelopment.MaxMultiplier} with at most one decimal (1 = normal).");
+                onStatus?.Invoke(string.Format(AppLanguage.T("Development speed: enter {0} to {1} with at most one decimal (1 = normal)."), AcceleratedDevelopment.MinMultiplier.ToString(CultureInfo.InvariantCulture), AcceleratedDevelopment.MaxMultiplier));
                 return;
             }
             var targets = Targets();
@@ -113,7 +113,7 @@ public sealed partial class MainWindow
                         ? $"Development speed: already {SpeedText(multiplier)}."
                         : $"Development speed {SpeedText(multiplier)} for {who}. Continue in FM to see updates.");
             }
-            catch (Exception ex) { onStatus?.Invoke($"Development speed: {UserMessage.For(ex)}"); }
+            catch (Exception ex) { onStatus?.Invoke(string.Format(AppLanguage.T("Development speed: {0}"), UserMessage.For(ex))); }
             finally { set!.IsEnabled = true; ShowCurrent(); }
         }
     }

@@ -48,10 +48,10 @@ public sealed partial class MainWindow : Window
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    readonly TextBox search = new() { Watermark = "Search player name or ID..." };
+    readonly TextBox search = new() { Watermark = AppLanguage.Get("Common_Search_player_name_or_ID") };
     readonly ComboBox sortCombo = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly Button sortDirButton = new() { Content = "↓", Width = 28, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center };
-    readonly Button resetFiltersButton = new() { Content = "Reset" };
+    readonly Button resetFiltersButton = new() { Content = AppLanguage.Get("Label_Reset") };
     readonly Button exportCsvButton = new() { Content = "CSV", IsEnabled = false };
     readonly Button exportJsonButton = new() { Content = "JSON", IsEnabled = false };
 
@@ -74,7 +74,7 @@ public sealed partial class MainWindow : Window
         Width = 34, MinWidth = 34, Height = 28, MinHeight = 28, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center,
         Background = UiKit.Brush("#181C29"), BorderBrush = UiKit.Brush("#272D42"), BorderThickness = new Thickness(1),
     };
-    readonly Button clearAttrButton = new() { Content = "Clear", IsVisible = false };
+    readonly Button clearAttrButton = new() { Content = AppLanguage.Get("Label_Clear"), IsVisible = false };
     readonly WrapPanel attrChipsPanel = new() { Orientation = Orientation.Horizontal, IsVisible = false, Margin = new Thickness(0, 4, 0, 0) };
     readonly List<AttributeThreshold> activeAttrThresholds = [];
     readonly List<RelationshipCriterion> activeRelationships = [];
@@ -133,6 +133,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        genderFilter.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         Title = "Football Manager 27 Editor";
         Icon = new Avalonia.Controls.WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://Fm27Editor/Assets/icon.png")));
         Width = 1100;
@@ -235,6 +236,7 @@ public sealed partial class MainWindow : Window
             status.Text = "";
             if (backend.State.Status == ConnectionStatus.Connected && module is not null && rows.Count == 0) await LoadAsync();
         };
+        CopyName.Attach<PlayerRecord>(grid, player => player.DisplayName, text => status.Text = text);
         grid.SelectionChanged += (_, _) =>
         {
             if (!updating) selected = grid.SelectedItem as PlayerRecord;
@@ -261,7 +263,7 @@ public sealed partial class MainWindow : Window
             if (backend.FreezeError is { } error && error != lastFreezeError)
             {
                 lastFreezeError = error;
-                status.Text = $"Freezer stopped: {error}";
+                status.Text = string.Format(AppLanguage.T("Freezer stopped: {0}"), error);
             }
         };
         RegisterClubs();
@@ -296,6 +298,7 @@ public sealed partial class MainWindow : Window
         foreach (var a in attrOptions)
             sortOptions.Add(new(PlayerSortKey.Attribute, $"Attr: {a.Label}", a.Attribute, true));
 
+        sortCombo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<SortOption>((item, _) => new TextBlock { Text = item.Attribute is { } a ? (AppLanguage.Current == "vi" ? "Chỉ số: " : "Attr: ") + AppLanguage.PlayerAttribute(PlayerFields.All.First(f => f.Id == a.ToString()).Label) : AppLanguage.T(item.Label) });
         sortCombo.ItemsSource = sortOptions;
         sortCombo.SelectedIndex = 0;
 
@@ -337,7 +340,7 @@ public sealed partial class MainWindow : Window
         genderFilter.SelectionChanged += (_, _) => { if (!suppressFilterEvents) { PopulateFilterDropdowns(); Filter(); } };
 
         favouritesFilter.Content = new Avalonia.Controls.PathIcon { Width = 14, Height = 14, Data = Avalonia.Media.Geometry.Parse("M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.46,13.97L5.82,21L12,17.27Z") };
-        Avalonia.Controls.ToolTip.SetTip(favouritesFilter, "Favourites");
+        Avalonia.Controls.ToolTip.SetTip(favouritesFilter, AppLanguage.Get("Common_Favourites"));
         favouritesFilter.Click += (_, _) => ShowFavourites();
 
         quickPresetCombo.SelectionChanged += (_, _) =>
@@ -573,7 +576,7 @@ public sealed partial class MainWindow : Window
         var stack = new StackPanel { Spacing = 8 };
 
         // Row 1: Search + Preset (Advanced Search now lives in the top bar)
-        ToolTip.SetTip(genderFilter, "Gender filter");
+        ToolTip.SetTip(genderFilter, AppLanguage.Get("Ui_Gender_filter"));
         var row1 = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,104,180"),
@@ -805,7 +808,7 @@ public sealed partial class MainWindow : Window
         if (busy) return;
         busy = true;
         ShowLoading("Connecting to the game…");
-        connection.Text = "Connecting…"; connectionDot.Fill = Brush("#94A3B8");
+        connection.Text = AppLanguage.Get("Common_Connecting"); connectionDot.Fill = Brush("#94A3B8");
         try
         {
             await backend.ConnectAsync(CancellationToken.None);
@@ -856,7 +859,7 @@ public sealed partial class MainWindow : Window
                 }
             }
             else { gameDateBadge.IsVisible = false; status.Text = backend.State.Message; }
-            if (backend.FreezeError is { } error) status.Text = $"Freezer unavailable: {error}";
+            if (backend.FreezeError is { } error) status.Text = string.Format(AppLanguage.T("Freezer unavailable: {0}"), error);
         }
         finally { HideLoading(); busy = false; }
     }
@@ -891,7 +894,7 @@ public sealed partial class MainWindow : Window
             Filter();
             RebindPlayerTabs();
             UpdateConnectionBadge();
-            if (rows.Count == 0) status.Text = "0 players";
+            if (rows.Count == 0) status.Text = AppLanguage.Get("Common_0_players");
             FlightRecorder.Current?.Log("game", $"loaded {rows.Count} {module.Title} rows in {elapsed.ElapsedMilliseconds} ms");
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }
@@ -917,7 +920,7 @@ public sealed partial class MainWindow : Window
             };
             var col = new DataGridTextColumn
             {
-                Header = c.Title,
+                Header = AppLanguage.T(c.Title),
                 Binding = c.Title == "Asking Price" ? new Binding(c.Binding) { StringFormat = "N0" } : new Binding(c.Binding),
                 Width = width,
                 MinWidth = c.Title == "Name" ? 135 : 54,
@@ -1043,13 +1046,13 @@ public sealed partial class MainWindow : Window
         }
         if (reportStatus && rows.Count > 0)
         {
-            string noun = currentModule.Title.ToLowerInvariant();
+            string noun = AppLanguage.T(currentModule.Title).ToLowerInvariant();
             if (result.Count == rows.Count)
                 status.Text = $"{rows.Count:N0} {noun}";
             else
             {
-                string reason = SelectedPlayerGender() is { } g && !HasExtraPlayerFilters() ? $"{g} filter" : "filter";
-                status.Text = $"{result.Count:N0} of {rows.Count:N0} {noun} shown ({rows.Count - result.Count:N0} hidden by {reason})";
+                string reason = SelectedPlayerGender() is { } g && !HasExtraPlayerFilters() ? string.Format(AppLanguage.T("{0} filter"), AppLanguage.T(g.ToString())) : AppLanguage.T("filter");
+                status.Text = string.Format(AppLanguage.T("{0:N0} of {1:N0} {2} shown ({3:N0} hidden by {4})"), result.Count, rows.Count, noun, rows.Count - result.Count, reason);
             }
         }
 
@@ -1068,7 +1071,7 @@ public sealed partial class MainWindow : Window
         {
             var address = selected.Address;
             var player = await Task.Run(() => backend.Players.Reload(address));
-            if (player is null && selected?.Address == address) { status.Text = "Player no longer available; reloading"; await LoadAsync(); }
+            if (player is null && selected?.Address == address) { status.Text = AppLanguage.Get("Common_Player_no_longer_available_reloading"); await LoadAsync(); }
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }
     }
@@ -1206,7 +1209,7 @@ public sealed partial class MainWindow : Window
         }
         else editor.Children.Add(identityHeader);
 
-        if (draft.Count > 0) status.Text = $"{draft.Count} unsaved change(s)";
+        if (draft.Count > 0) status.Text = string.Format(AppLanguage.T("{0} unsaved change(s)"), draft.Count);
         int changeCount = draft.Count + (playerScalarDrafts.TryGetValue(player.Address, out var scalarsForCount) ? scalarsForCount.Count : 0);
         bool contractPending = contractDrafts.Any(c => c.Value.Player.Address == player.Address && c.Value.Changes.Count > 0);
         SetActiveTabDirty(changeCount > 0 || contractPending);
@@ -1293,9 +1296,10 @@ public sealed partial class MainWindow : Window
         var line = new DockPanel { MinHeight = 24, LastChildFill = true };
         var text = new TextBlock
         {
-            Text = label, FontSize = 13, Foreground = Brush("#CBD5E1"),
-            VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.NoWrap,
+            Text = AppLanguage.T(label), FontSize = 13, Foreground = Brush("#CBD5E1"),
+            VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        ToolTip.SetTip(text, text.Text);
         DockPanel.SetDock(value, Dock.Right);
         line.Children.Add(value);
         line.Children.Add(text);
@@ -1379,7 +1383,7 @@ public sealed partial class MainWindow : Window
             ratingControl.Width = 72;
             var title = new TextBlock
             {
-                Text = $"{position.Label} ({PositionLabels.Short(position.Position)})",
+                Text = $"{AppLanguage.T(position.Label)} ({PositionLabels.Short(position.Position)})",
                 FontSize = 13,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = UiKit.TextPrimary,
@@ -1451,7 +1455,7 @@ public sealed partial class MainWindow : Window
                 };
                 var nameLbl = new TextBlock
                 {
-                    Text = pitchPos.Label,
+                    Text = AppLanguage.T(pitchPos.Label),
                     FontSize = 13,
                     Foreground = UiKit.TextSecondary,
                     VerticalAlignment = VerticalAlignment.Center,
@@ -1580,13 +1584,15 @@ public sealed partial class MainWindow : Window
         string resolvedLabel = labelOverride ?? (compact ? field.Label.Replace("Defensive Midfielder", "DM").Replace("Attacking Mid", "AM").Replace("Midfielder", "M").Replace("Defender", "D").Replace("Wing Back", "WB").Replace("Goalkeeper", "GK").Replace("Striker", "ST") : field.Label);
         var label = new TextBlock
         {
-            Text = resolvedLabel,
+            Text = AppLanguage.PlayerAttribute(resolvedLabel),
             FontSize = 13,
             Foreground = Brush("#CBD5E1"),
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
             IsVisible = resolvedLabel.Length > 0,
         };
+        ToolTip.SetTip(label, AppLanguage.PlayerAttribute(labelOverride ?? field.Label));
         if (field.Write is null)
         {
             var value = new TextBlock
@@ -1710,7 +1716,7 @@ public sealed partial class MainWindow : Window
                         RenderEditor();
                     }
                     else UpdateScalarDraftState(player);
-                    status.Text = $"Some changes may have been saved. Failed to save {field}: {ex.Message}";
+                    status.Text = string.Format(AppLanguage.T("Some changes may have been saved. Failed to save {0}: {1}"), field, ex.Message);
                     return;
                 }
             }
@@ -1724,7 +1730,7 @@ public sealed partial class MainWindow : Window
             ReplaceRow(fresh);
         }
         RenderEditor();
-        status.Text = "Changes saved. Continue in FM to see updates.";
+        status.Text = AppLanguage.Get("Common_Changes_saved_Continue_in_FM_to_see_updates");
     }
 
     bool SaveDraft()
@@ -1738,7 +1744,7 @@ public sealed partial class MainWindow : Window
             selected.GameDate = backend.GameDate;
             drafts.Remove(address);
             ReplaceRow(selected);
-            status.Text = $"Saved {count} change(s). Continue in FM to see updates.";
+            status.Text = string.Format(AppLanguage.T("Saved {0} change(s). Continue in FM to see updates."), count);
             return true;
         }
         catch (Exception ex)
@@ -1750,9 +1756,9 @@ public sealed partial class MainWindow : Window
                 var fresh = backend.Players.Reload(address);
                 if (fresh is null) { drafts.Remove(address); _ = LoadAsync(); }
                 else { fresh.GameDate = backend.GameDate; selected = fresh; drafts[address] = draft.Rebase(fresh); ReplaceRow(fresh); RenderEditor(); }
-                status.Text = $"{saved} saved. {UserMessage.For(ex)} Review remaining changes.";
+                status.Text = string.Format(AppLanguage.T("{0} saved. {1} Review remaining changes."), saved, UserMessage.For(ex));
             }
-            catch (Exception reloadError) { status.Text = $"{saved} saved. {UserMessage.For(reloadError)}"; }
+            catch (Exception reloadError) { status.Text = string.Format(AppLanguage.T("{0} saved. {1}"), saved, UserMessage.For(reloadError)); }
             return false;
         }
     }

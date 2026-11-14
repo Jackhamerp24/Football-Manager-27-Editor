@@ -50,9 +50,9 @@ public sealed partial class MainWindow
         {
             int row = grid.RowDefinitions.Count;
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.T("Remove") };
             remove.Click += (_, _) => { removed.Add(entry); HideRow(row); Refresh(); };
-            Cell(new TextBlock { Text = RelationCatalog.NameOf(entry.Type), VerticalAlignment = VerticalAlignment.Center }, row, 0);
+            Cell(new TextBlock { Text = AppLanguage.T(RelationCatalog.NameOf(entry.Type)), VerticalAlignment = VerticalAlignment.Center }, row, 0);
             Cell(new TextBlock { Text = entry.TargetName ?? "", VerticalAlignment = VerticalAlignment.Center }, row, 1);
 
             var edit = new EntryEdit(entry);
@@ -70,7 +70,7 @@ public sealed partial class MainWindow
                 var names = infoCodes.Select(c => InformationLabels.Name(InformationLabels.NationalityInfos, c)).ToList();
                 int at = infoCodes.ToList().IndexOf(entry.Flags);
                 if (at < 0) { names.Add($"Code {entry.Flags}"); at = names.Count - 1; }
-                var info = new ComboBox { Width = 150, ItemsSource = names, SelectedIndex = at };
+                var info = new ComboBox { Width = 150, ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }), ItemsSource = names, SelectedIndex = at };
                 info.SelectionChanged += (_, _) => Refresh();
                 edit.Info = info;
                 Cell(info, row, 4);
@@ -82,7 +82,7 @@ public sealed partial class MainWindow
                 var reasons = RelationshipLabels.Reasons(KindFor(entry.Type)).ToList();
                 int at = entry.Plus8;
                 if (at >= reasons.Count) reasons.AddRange(Enumerable.Range(reasons.Count, at - reasons.Count + 1).Select(c => $"Code {c}"));
-                var reason = new ComboBox { Width = 150, ItemsSource = reasons, SelectedIndex = Math.Clamp(at, 0, reasons.Count - 1) };
+                var reason = new ComboBox { Width = 150, ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }), ItemsSource = reasons, SelectedIndex = Math.Clamp(at, 0, reasons.Count - 1) };
                 reason.SelectionChanged += (_, _) => Refresh();
                 edit.Caps = value; edit.Reason = reason;
                 Cell(value, row, 2); Cell(reason, row, 4);
@@ -119,13 +119,13 @@ public sealed partial class MainWindow
             int row = grid.RowDefinitions.Count;
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             var d = new DraftRow();
-            var typeBox = new ComboBox { Width = 150, ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, MaxDropDownHeight = 300 };
+            var typeBox = new ComboBox { Width = 150, ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }), ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, MaxDropDownHeight = 300 };
             var target = new AutoCompleteBox { MinimumPrefixLength = 2, FilterMode = AutoCompleteFilterMode.Custom, MaxDropDownHeight = 300, IsVisible = false,
                 ItemFilter = (q, o) => o is RelationTarget t && Matches(t.Label, q ?? "") };
             var value = new TextBox { Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right, IsVisible = false };
             var goals = new TextBox { Width = 70, HorizontalContentAlignment = HorizontalAlignment.Right, IsVisible = false };
-            var info = new ComboBox { Width = 150, ItemsSource = infoCodes.Select(c => InformationLabels.Name(InformationLabels.NationalityInfos, c)).ToArray(), SelectedIndex = infoCodes.ToList().IndexOf(80), IsVisible = false };
-            var removeDraft = new Button { Content = "Remove" };
+            var info = new ComboBox { Width = 150, ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }), ItemsSource = infoCodes.Select(c => InformationLabels.Name(InformationLabels.NationalityInfos, c)).ToArray(), SelectedIndex = infoCodes.ToList().IndexOf(80), IsVisible = false };
+            var removeDraft = new Button { Content = AppLanguage.T("Remove") };
             d.TargetBox = target; d.Value = value; d.Goals = goals; d.Info = info;
             Cell(typeBox, row, 0); Cell(target, row, 1); Cell(value, row, 2); Cell(goals, row, 3); Cell(info, row, 4); Cell(removeDraft, row, 5);
             typeBox.SelectionChanged += (_, _) =>
@@ -133,7 +133,7 @@ public sealed partial class MainWindow
                 d.Type = typeBox.SelectedIndex < 0 ? null : RelationCatalog.All[typeBox.SelectedIndex];
                 bool targeted = d.Type is { Target: not RelationTargetKind.None };
                 target.IsVisible = targeted;
-                target.Text = ""; target.SelectedItem = null;
+                target.Text = AppLanguage.T(""); target.SelectedItem = null;
                 target.ItemsSource = targeted ? TargetChoices(d.Type!.Target) : null;
                 value.IsVisible = d.Type is not null && d.Type.Code != OtherNationalityType;
                 goals.IsVisible = d.Type?.Code is CapsType or YouthCapsType;
@@ -145,7 +145,7 @@ public sealed partial class MainWindow
             drafts.Add(d);
             Refresh();
         }
-        var add = new Button { Content = "Add", HorizontalAlignment = HorizontalAlignment.Left };
+        var add = new Button { Content = AppLanguage.T("Add"), HorizontalAlignment = HorizontalAlignment.Left };
         add.Click += (_, _) => AddDraft();
 
         var list = new StackPanel();
@@ -157,7 +157,7 @@ public sealed partial class MainWindow
             Padding = new Thickness(12, 8),
             Child = add,
         });
-        if (statuses.Holder != 0) panel.Children.Add(UiKit.Card("Relationships", list));
+        if (statuses.Holder != 0) panel.Children.Add(UiKit.Card(AppLanguage.T("Relationships"), list));
         RelationDraft ToDraft(DraftRow d)
         {
             var type = d.Type ?? throw new InvalidOperationException("Relationships: choose a type for every new row");
@@ -212,7 +212,7 @@ public sealed partial class MainWindow
                     foreach (var draft in toAdd) writer.AddEntry(player, session.ReadStatuses(player), draft, session.AllocateGameBlock);
                 });
                 rerender();
-                status.Text = "Saved relationships. Continue in FM to see updates.";
+                status.Text = AppLanguage.T("Saved relationships. Continue in FM to see updates.");
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };

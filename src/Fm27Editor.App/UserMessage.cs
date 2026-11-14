@@ -11,11 +11,11 @@ public static class UserMessage
     {
         GameNotRunningException ex => ex.Message,
         SaveChangedException ex => ex.Message,
-        UnsupportedBuildException => "This game version is not supported",
-        PartialClauseWriteException => "Some clause fields may have been saved. Reload before retrying.",
-        StaleObjectException => "Player data changed in game; reloaded",
-        MemoryAccessException => "Couldn't access game data. Check that a save is loaded and retry.",
-        ArgumentOutOfRangeException => "Value is outside the allowed range",
+        UnsupportedBuildException => AppLanguage.T("This game version is not supported"),
+        PartialClauseWriteException => AppLanguage.T("Some clause fields may have been saved. Reload before retrying."),
+        StaleObjectException => AppLanguage.T("Player data changed in game; reloaded"),
+        MemoryAccessException => AppLanguage.T("Couldn't access game data. Check that a save is loaded and retry."),
+        ArgumentOutOfRangeException => AppLanguage.T("Value is outside the allowed range"),
         System.ComponentModel.Win32Exception ex => $"Windows error {ex.NativeErrorCode}: {ex.Message}",
         _ => $"{error.GetType().Name}: {error.Message}"
     };

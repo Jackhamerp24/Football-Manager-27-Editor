@@ -22,7 +22,7 @@ public sealed partial class MainWindow
         IReadOnlyList<ClubEntry> all = clubCache ?? [];
         StaffMovePlan? plan = null;
         ClubOption? chosenClub = null;
-        var pickClub = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose destination club…" };
+        var pickClub = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Content = AppLanguage.Get("Ui_Choose_destination_club_2") };
         var details = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = UiKit.TextPrimary, FontSize = 13.5, IsVisible = false };
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#F59E0B"), FontSize = 13, IsVisible = false };
         // Role and weekly wage the member gets at the new club (the current ones to start with); the move itself takes effect today.
@@ -38,8 +38,8 @@ public sealed partial class MainWindow
         var expiryBox = new DateBox { Text = DateSetting.Format(new DateOnly(gameToday.Year + 2, 6, 30)), Width = 140 };
         var freeService = new FreeStaffSigning(session.Memory, session.Profile, session.ModuleBase);
         FreeStaffSigningPlan? freePlan = null;
-        var apply = new Button { Content = "Confirm transfer", IsEnabled = false, Classes = { "accent" } };
-        var undo = new Button { Content = "Undo last staff move", IsEnabled = staffMoveUndo.Count > 0, IsVisible = staffMoveUndo.Count > 0 };
+        var apply = new Button { Content = AppLanguage.Get("Common_Confirm_transfer"), IsEnabled = false, Classes = { "accent" } };
+        var undo = new Button { Content = AppLanguage.Get("Ui_Undo_last_staff_move"), IsEnabled = staffMoveUndo.Count > 0, IsVisible = staffMoveUndo.Count > 0 };
 
         void Invalidate()
         {
@@ -68,8 +68,8 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    if (roleBox.SelectedItem is not RoleOption role) { error.Text = "Choose the role."; error.IsVisible = true; return; }
-                    if (wageBox.Value is not { } wage) { error.Text = "Enter the weekly wage."; error.IsVisible = true; return; }
+                    if (roleBox.SelectedItem is not RoleOption role) { error.Text = AppLanguage.Get("Ui_Choose_the_role"); error.IsVisible = true; return; }
+                    if (wageBox.Value is not { } wage) { error.Text = AppLanguage.Get("Ui_Enter_the_weekly_wage"); error.IsVisible = true; return; }
                     if (!DateBox.TryParse(expiryBox.Text, out var expiry)) { error.Text = $"Enter the contract end as {DateSetting.Hint}"; error.IsVisible = true; return; }
                     freePlan = freeService.Plan(staff, option.Club, role.Code, (int)wage, session.ReadGameDate() ?? throw new InvalidOperationException("The in-game date could not be read"), expiry);
                     details.Text = $"Free agent  →  {option.Club.DisplayName}\n{role.Name}, {StaffMoveService.DepartmentOf(role.Code)}";
@@ -175,7 +175,7 @@ public sealed partial class MainWindow
         var curVal = new TextBlock { Text = staff.Club?.DisplayName ?? "None", FontWeight = FontWeight.SemiBold, Foreground = UiKit.TextPrimary };
         DockPanel.SetDock(curVal, Dock.Right);
         curRow.Children.Add(curVal);
-        curRow.Children.Add(new TextBlock { Text = "Current Club", Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
+        curRow.Children.Add(new TextBlock { Text = AppLanguage.Get("Common_Current_Club"), Foreground = UiKit.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
 
         var leftCard = UiKit.Card("Destination Club", new StackPanel
         {
@@ -189,9 +189,9 @@ public sealed partial class MainWindow
             Margin = new Thickness(12, 10),
             Children =
             {
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Role", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, roleBox } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Wages", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, wageBox } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = staff.Club is null, Children = { new TextBlock { Text = "Until", Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, expiryBox } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = AppLanguage.Get("Common_Role"), Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, roleBox } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = AppLanguage.Get("Search_Wages"), Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, wageBox } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = staff.Club is null, Children = { new TextBlock { Text = AppLanguage.Get("Ui_Until"), Width = 50, VerticalAlignment = VerticalAlignment.Center, Foreground = UiKit.TextSecondary }, expiryBox } },
                 details,
                 error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, undo } },

@@ -44,13 +44,13 @@ internal sealed class SearchResultsWindow : Window
         DateOnly today = gameDate ?? DateOnly.FromDateTime(DateTime.Today);
         if (scope == "Coach")
         {
-            grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Name)), Width = new DataGridLength(220) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "Age", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Age)), Width = new DataGridLength(70) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "Club", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Club)), Width = new DataGridLength(220) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "Job", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Job)), Width = new DataGridLength(160) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "Nationality", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Nationality)), Width = new DataGridLength(150) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "CA", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Ca)), Width = new DataGridLength(70) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "PA", Binding = new Avalonia.Data.Binding(nameof(StaffRow.Pa)), Width = new DataGridLength(70) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Name"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Name)), Width = new DataGridLength(220) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Age"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Age)), Width = new DataGridLength(70) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Club"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Club)), Width = new DataGridLength(220) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Job"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Job)), Width = new DataGridLength(160) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Nationality"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Nationality)), Width = new DataGridLength(150) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_CA"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Ca)), Width = new DataGridLength(70) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_PA"), Binding = new Avalonia.Data.Binding(nameof(StaffRow.Pa)), Width = new DataGridLength(70) });
             grid.ItemsSource = staff.Select(s => new StaffRow(
                 s.DisplayName,
                 s.DateOfBirth is { } born ? (today.Year - born.Year - (born.AddYears(today.Year - born.Year) > today ? 1 : 0)).ToString() : "",
@@ -62,12 +62,12 @@ internal sealed class SearchResultsWindow : Window
         }
         else
         {
-            grid.Columns.Add(new DataGridTextColumn { Header = "Club", Binding = new Avalonia.Data.Binding(nameof(ClubRow.Name)), Width = new DataGridLength(400) });
-            grid.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new Avalonia.Data.Binding(nameof(ClubRow.Id)), Width = new DataGridLength(100) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Label_Club"), Binding = new Avalonia.Data.Binding(nameof(ClubRow.Name)), Width = new DataGridLength(400) });
+            grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.Get("Ui_ID"), Binding = new Avalonia.Data.Binding(nameof(ClubRow.Id)), Width = new DataGridLength(100) });
             grid.ItemsSource = clubs.Select(c => new ClubRow(c.DisplayName, c.Id?.ToString() ?? "")).ToArray();
         }
 
-        var close = new Button { Content = "Close", MinWidth = 80 };
+        var close = new Button { Content = AppLanguage.Get("Common_Close"), MinWidth = 80 };
         close.Click += (_, _) => Close();
         var bottomDock = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(close, Dock.Right);

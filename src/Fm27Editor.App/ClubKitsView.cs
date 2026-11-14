@@ -177,11 +177,11 @@ public sealed partial class MainWindow
                 string text = kitDrafts.GetValueOrDefault(ownerAddress)?.GetValueOrDefault(item.Slot)?.Colours.GetValueOrDefault(i) ?? original;
                 var box = new TextBox { Text = text, Width = 110 };
                 box.TextChanged += (_, _) => { SetKitDraft(item, colourIndex, box.Text ?? "", onDraftChanged); onEdited(); };
-                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = names[i], Width = 148, VerticalAlignment = VerticalAlignment.Center }, ColourInput(box) } });
+                panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = AppLanguage.T(names[i]), Width = 148, VerticalAlignment = VerticalAlignment.Center }, ColourInput(box) } });
             }
             var style = new TextBox { Text = kitDrafts.GetValueOrDefault(ownerAddress)?.GetValueOrDefault(item.Slot)?.Style ?? item.Style.ToString(Inv), Width = 110, HorizontalContentAlignment = HorizontalAlignment.Right };
             style.TextChanged += (_, _) => SetKitDraft(item, null, style.Text ?? "", onDraftChanged);
-            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = "Item Style", Width = 148, VerticalAlignment = VerticalAlignment.Center }, style } });
+            panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = AppLanguage.Get("Common_Item_Style"), Width = 148, VerticalAlignment = VerticalAlignment.Center }, style } });
             host.Children.Add(panel);
         }
 

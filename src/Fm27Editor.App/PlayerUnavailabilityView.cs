@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -50,19 +50,21 @@ public sealed partial class MainWindow
             Reason = new ComboBox { Width = 300, ItemsSource = BanEditor.ReasonItems(reason) },
             Item = Box(item.ToString(Inv)), Points = Box(points.ToString(Inv)), Start = new DateBox { Text = DateSetting.Format(start), Width = 130, HorizontalContentAlignment = HorizontalAlignment.Right },
             Days = Box(days == -1 ? "" : days.ToString(Inv)), Matches = Box(matches.ToString(Inv)), Fulfilled = Box(fulfilled.ToString(Inv)),
-            ItemRow = new TextBlock { Text = "Item", VerticalAlignment = VerticalAlignment.Center },
+            ItemRow = new TextBlock { Text = AppLanguage.T("Item"), VerticalAlignment = VerticalAlignment.Center },
         };
-        e.Days.Watermark = "None";
+        e.Days.Watermark = AppLanguage.T("None");
+        e.Scope.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
+        e.Reason.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         int si = BanLabels.Scopes.ToList().FindIndex(s => s.Code == scope);
         e.Scope.SelectedIndex = si >= 0 ? si : BanLabels.Scopes.Count;
         int ri = BanLabels.Reasons.ToList().FindIndex(r => r.Code == reason);
         e.Reason.SelectedIndex = ri >= 0 ? ri : BanLabels.Reasons.Count;
         var rows = new (Control Label, Control Value)[]
         {
-            (new TextBlock { Text = "Scope" }, e.Scope), (e.ItemRow, e.Item), (new TextBlock { Text = "Reason" }, e.Reason),
-            (new TextBlock { Text = "Number of points" }, e.Points), (new TextBlock { Text = "Start Date" }, e.Start),
-            (new TextBlock { Text = "Number of Days" }, e.Days), (new TextBlock { Text = "Num. matches" }, e.Matches),
-            (new TextBlock { Text = "Num. matches fulfilled" }, e.Fulfilled),
+            (new TextBlock { Text = AppLanguage.T("Scope") }, e.Scope), (e.ItemRow, e.Item), (new TextBlock { Text = AppLanguage.T("Reason") }, e.Reason),
+            (new TextBlock { Text = AppLanguage.T("Number of points") }, e.Points), (new TextBlock { Text = AppLanguage.T("Start Date") }, e.Start),
+            (new TextBlock { Text = AppLanguage.T("Number of Days") }, e.Days), (new TextBlock { Text = AppLanguage.T("Num. matches") }, e.Matches),
+            (new TextBlock { Text = AppLanguage.T("Num. matches fulfilled") }, e.Fulfilled),
         };
         for (int r = 0; r < rows.Length; r++)
         {
@@ -90,31 +92,31 @@ public sealed partial class MainWindow
         foreach (var ban in bans)
         {
             var save = new Button { IsVisible = false, Content = "Save", Classes = { "accent" } };
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.T("Remove") };
             var e = BanCard(panel, ban.Scope, ban.ItemId, ban.Reason, ban.Points, ban.Start, ban.Days, ban.Matches, ban.MatchesFulfilled,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, remove } });
             save.Click += (_, _) =>
             {
                 if (e.Parse(ban.Scope, ban.Reason, out var error) is not { } f) { status.Text = error; return; }
-                try { backend.Edits.Execute("Player", player.DisplayName, "Page save", () => Writer().SetFields(player, ban, f)); status.Text = $"Saved unavailability. {done}"; RenderEditor(); }
+                try { backend.Edits.Execute("Player", player.DisplayName, "Page save", () => Writer().SetFields(player, ban, f)); status.Text = string.Format(AppLanguage.T("Saved unavailability. {0}"), done); RenderEditor(); }
                 catch (Exception ex) { status.Text = ex.Message; }
             };
             remove.Click += (_, _) =>
             {
-                try { backend.Edits.Execute("Player", player.DisplayName, "Page save", () => Writer().Remove(player, ban)); status.Text = $"Removed {BanLabels.ScopeName(ban.Scope)}. {done}"; RenderEditor(); }
+                try { backend.Edits.Execute("Player", player.DisplayName, "Page save", () => Writer().Remove(player, ban)); status.Text = string.Format(AppLanguage.T("Removed {0}. {1}"), AppLanguage.T(BanLabels.ScopeName(ban.Scope)), done); RenderEditor(); }
                 catch (Exception ex) { status.Text = ex.Message; }
             };
         }
 
         var addHost = new StackPanel { Spacing = 8 };
-        var showAddBtn = new Button { Content = "Add unavailability" };
+        var showAddBtn = new Button { Content = AppLanguage.T("Add unavailability") };
         addHost.Children.Add(showAddBtn);
 
         showAddBtn.Click += (_, _) =>
         {
             addHost.Children.Clear();
-            var add = new Button { Content = "Add", Classes = { "accent" } };
-            var cancel = new Button { Content = "Cancel" };
+            var add = new Button { Content = AppLanguage.T("Add"), Classes = { "accent" } };
+            var cancel = new Button { Content = AppLanguage.T("Cancel") };
             var today = session.ReadGameDate() ?? DateOnly.FromDateTime(DateTime.Today);
             var n = BanCard(addHost, 25, -1, 2, 2, today, -1, 3, 0,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { add, cancel } },
@@ -125,7 +127,7 @@ public sealed partial class MainWindow
                 try
                 {
                     backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.AddBan(player, bans, f));
-                    status.Text = $"Added {BanLabels.ScopeName(f.Scope)}. Its record lives outside the game's allocator; keep a backup of the save. {done}";
+                    status.Text = string.Format(AppLanguage.T("Added {0}. Its record lives outside the game's allocator; keep a backup of the save. {1}"), AppLanguage.T(BanLabels.ScopeName(f.Scope)), done);
                     RenderEditor();
                 }
                 catch (Exception ex) { status.Text = ex.Message; }

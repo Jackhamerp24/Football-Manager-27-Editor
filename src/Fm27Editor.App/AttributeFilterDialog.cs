@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -17,7 +17,6 @@ namespace Fm27Editor.App;
 public sealed class AttributeFilterDialog : Window
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
-    const string SelectPresetPlaceholder = "Select preset...";
 
     sealed class RowControls
     {
@@ -84,7 +83,7 @@ public sealed class AttributeFilterDialog : Window
     readonly ComboBox contractTypeCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220, MaxDropDownHeight = 260 };
     readonly ComboBox playingTimeCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220, MaxDropDownHeight = 260 };
     readonly ComboBox contractStatusCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220, MaxDropDownHeight = 260 };
-    readonly Button teamPickButton = new() { Content = "Choose…", Width = 240, HorizontalContentAlignment = HorizontalAlignment.Left };
+    readonly Button teamPickButton = new() { Content = AppLanguage.Get("Search_Choose"), Width = 240, HorizontalContentAlignment = HorizontalAlignment.Left };
     ulong teamClubAddress;
     string teamClubName = "";
     sealed record FilterChoice(long? Value, string Name) { public override string ToString() => Name; }
@@ -139,17 +138,17 @@ public sealed class AttributeFilterDialog : Window
     readonly ComboBox nationCombo = new() { HorizontalAlignment = HorizontalAlignment.Left, Height = 28, FontSize = 13, Width = 240, MinWidth = 240, MaxWidth = 240 };
 
     readonly ComboBox presetCombo = new() { Width = 220, MinWidth = 220, MaxWidth = 220 };
-    readonly TextBox presetNameBox = new() { Watermark = "Preset name...", Width = 190 };
-    readonly Button savePresetButton = new() { Content = "Save preset" };
-    readonly Button deletePresetButton = new() { Content = "Delete", IsEnabled = false };
+    readonly TextBox presetNameBox = new() { Watermark = AppLanguage.Get("Search_PresetName"), Width = 190 };
+    readonly Button savePresetButton = new() { Content = AppLanguage.Get("Search_SavePreset") };
+    readonly Button deletePresetButton = new() { Content = AppLanguage.Get("Search_Delete"), IsEnabled = false };
 
-    readonly TextBox nameQueryBox = new() { Watermark = "Name", Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
-    readonly TextBox minAgeBox = new() { Watermark = "Min", Width = 54, HorizontalContentAlignment = HorizontalAlignment.Right };
-    readonly TextBox maxAgeBox = new() { Watermark = "Max", Width = 54, HorizontalContentAlignment = HorizontalAlignment.Right };
-    readonly TextBox minCaBox = new() { Watermark = "Min", Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
-    readonly TextBox maxCaBox = new() { Watermark = "Max", Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
-    readonly TextBox minPaBox = new() { Watermark = "Min", Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
-    readonly TextBox maxPaBox = new() { Watermark = "Max", Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
+    readonly TextBox nameQueryBox = new() { Watermark = AppLanguage.T("Name"), Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly TextBox minAgeBox = new() { Watermark = AppLanguage.Get("Search_Min"), Width = 54, HorizontalContentAlignment = HorizontalAlignment.Right };
+    readonly TextBox maxAgeBox = new() { Watermark = AppLanguage.Get("Search_Max"), Width = 54, HorizontalContentAlignment = HorizontalAlignment.Right };
+    readonly TextBox minCaBox = new() { Watermark = AppLanguage.Get("Search_Min"), Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
+    readonly TextBox maxCaBox = new() { Watermark = AppLanguage.Get("Search_Max"), Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
+    readonly TextBox minPaBox = new() { Watermark = AppLanguage.Get("Search_Min"), Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
+    readonly TextBox maxPaBox = new() { Watermark = AppLanguage.Get("Search_Max"), Width = 58, HorizontalContentAlignment = HorizontalAlignment.Right };
 
     readonly NumericUpDown posMinRatingInput = new()
     {
@@ -253,7 +252,7 @@ public sealed class AttributeFilterDialog : Window
 
     Control BuildRelationships()
     {
-        var add = new Button { Content = "Add", Width = 90 };
+        var add = new Button { Content = AppLanguage.T("Add"), Width = 90 };
         add.Click += (_, _) => AddRelationRow();
         var header = new StackPanel
         {
@@ -270,17 +269,17 @@ public sealed class AttributeFilterDialog : Window
 
     void AddRelationRow()
     {
-        var kind = new ComboBox { ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, PlaceholderText = "Select type…", MaxDropDownHeight = 260, Width = 320, MinWidth = 320, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left };
-        var target = new Button { Content = "Choose…", IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+        var kind = new ComboBox { ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }), ItemsSource = RelationCatalog.All.Select(t => t.Name).ToArray(), SelectedIndex = -1, PlaceholderText = AppLanguage.T("Select type..."), MaxDropDownHeight = 260, Width = 320, MinWidth = 320, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Left };
+        var target = new Button { Content = AppLanguage.Get("Search_Choose"), IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
         var min = new TextBox { Text = "0", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
         var max = new TextBox { Text = "100", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Right };
-        var remove = new Button { Content = "Remove", Width = 80, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center };
+        var remove = new Button { Content = AppLanguage.T("Remove"), Width = 80, Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("320,*,90,90,80"), ColumnSpacing = 8, Margin = new Thickness(8) };
         Grid.SetColumn(kind, 0); Grid.SetColumn(target, 1); Grid.SetColumn(min, 2); Grid.SetColumn(max, 3); Grid.SetColumn(remove, 4);
         grid.Children.Add(kind); grid.Children.Add(target); grid.Children.Add(min); grid.Children.Add(max); grid.Children.Add(remove);
         var card = new Border { Background = UiKit.SurfaceInput, BorderBrush = UiKit.BorderControl, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Child = grid };
         var row = new RelationRow { Card = card, Kind = kind, Target = target, Min = min, Max = max };
-        kind.SelectionChanged += (_, _) => { row.TargetAddress = 0; row.TargetName = ""; target.Content = "Choose…"; target.IsVisible = TypeOf(row) is { Target: not RelationTargetKind.None }; };
+        kind.SelectionChanged += (_, _) => { row.TargetAddress = 0; row.TargetName = ""; target.Content = AppLanguage.Get("Search_Choose"); target.IsVisible = TypeOf(row) is { Target: not RelationTargetKind.None }; };
         target.Click += async (_, _) => await PickRelationTarget(row);
         remove.Click += (_, _) => { relationRows.Remove(row); relationStack.Children.Remove(card); };
         relationRows.Add(row);
@@ -360,7 +359,8 @@ public sealed class AttributeFilterDialog : Window
         ClubFieldAccess? clubAccess = null,
         DateOnly? today = null)
     {
-        Title = "Advanced Search";
+        genderCombo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
+        Title = AppLanguage.Get("Search_Advanced");
         this.initialScope = initialScope;
         this.staffSource = staffSource;
         this.clubSource = clubSource;
@@ -407,17 +407,17 @@ public sealed class AttributeFilterDialog : Window
         nationCombo.SelectedIndex = natIdx >= 0 ? natIdx : 0;
 
         contractTypeCombo.ItemsSource = ContractTypeOptions.Select(o => o.Name).ToArray();
-        contractTypeCombo.ItemTemplate = TextItem(220);
+        contractTypeCombo.ItemTemplate = TextItem(220, translate: true);
         playingTimeCombo.ItemsSource = PlayingTimeOptions.Select(o => o.Name).ToArray();
-        playingTimeCombo.ItemTemplate = TextItem(220);
+        playingTimeCombo.ItemTemplate = TextItem(220, translate: true);
         contractStatusCombo.ItemsSource = ContractStatusOptions.Select(o => o.Name).ToArray();
-        contractStatusCombo.ItemTemplate = TextItem(220);
+        contractStatusCombo.ItemTemplate = TextItem(220, translate: true);
         contractTypeCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractTypeOptions, o => o.Value == initialFilter.ContractType));
         playingTimeCombo.SelectedIndex = Math.Max(0, Array.FindIndex(PlayingTimeOptions, o => o.Value == initialFilter.AgreedPlayingTime));
         contractStatusCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractStatusOptions, o => o.Value == initialFilter.ContractStatus));
         teamClubAddress = initialFilter.TeamClubAddress ?? 0;
         teamClubName = initialFilter.TeamClubName ?? "";
-        teamPickButton.Content = teamClubAddress == 0 ? "Choose…" : teamClubName;
+        teamPickButton.Content = teamClubAddress == 0 ? AppLanguage.Get("Search_Choose") : teamClubName;
         foreach (var clause in initialFilter.Clauses ?? [])
             initialClauses.TryAdd(clause.Type, clause);
 
@@ -549,7 +549,7 @@ public sealed class AttributeFilterDialog : Window
     /// <summary>Scope buttons exactly like the main module tabs: text with an accent underline when active.</summary>
     static Button MakeScopeButton(string header) => new()
     {
-        Content = header,
+        Content = AppLanguage.T(header),
         FontSize = 13,
         Padding = new Thickness(11, 3),
         MinHeight = 25,
@@ -594,7 +594,7 @@ public sealed class AttributeFilterDialog : Window
             {
                 clubHost.Content = new TextBlock
                 {
-                    Text = "Connect to the game to search clubs.",
+                    Text = AppLanguage.Get("Common_Connect_to_the_game_to_search_clubs"),
                     Foreground = Brush("#94A3B8"),
                     Margin = new Thickness(14),
                 };
@@ -616,8 +616,8 @@ public sealed class AttributeFilterDialog : Window
         }
         summaryText.Foreground = Brush("#CBD5E1");
         summaryText.Text = SelectedScope == "Coach"
-            ? coachPanel?.SummaryStatus() ?? "No filters set"
-            : clubPanel?.SummaryStatus() ?? "No filters set";
+            ? coachPanel?.SummaryStatus() ?? AppLanguage.T("No filters set")
+            : clubPanel?.SummaryStatus() ?? AppLanguage.T("No filters set");
     }
     Control BuildPresetBar()
     {
@@ -631,7 +631,7 @@ public sealed class AttributeFilterDialog : Window
         };
         left.Children.Add(new TextBlock
         {
-            Text = "Preset",
+            Text = AppLanguage.Get("Search_Preset"),
             FontSize = 13.5,
             FontWeight = FontWeight.SemiBold,
             Foreground = Brush("#94A3B8"),
@@ -652,7 +652,7 @@ public sealed class AttributeFilterDialog : Window
         };
         right.Children.Add(new TextBlock
         {
-            Text = "Default Attr >=",
+            Text = AppLanguage.Get("Ui_Default_Attr"),
             FontSize = 13.5,
             Foreground = Brush("#94A3B8"),
             VerticalAlignment = VerticalAlignment.Center
@@ -699,7 +699,7 @@ public sealed class AttributeFilterDialog : Window
                 contractStatusCombo.SelectedIndex = Math.Max(0, Array.FindIndex(ContractStatusOptions, o => o.Value == chosen.ContractStatus));
                 teamClubAddress = chosen.TeamClubAddress ?? 0;
                 teamClubName = chosen.TeamClubName ?? "";
-                teamPickButton.Content = teamClubAddress == 0 ? "Choose…" : teamClubName;
+                teamPickButton.Content = teamClubAddress == 0 ? AppLanguage.Get("Search_Choose") : teamClubName;
                 foreach (var clause in chosen.Clauses ?? [])
                 {
                     if (!clauseInputs.TryGetValue(clause.Type, out var boxes)) continue;
@@ -763,7 +763,7 @@ public sealed class AttributeFilterDialog : Window
             var name = presetNameBox.Text?.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                summaryText.Text = "Enter a preset name before saving.";
+                summaryText.Text = AppLanguage.Get("Common_Enter_a_preset_name_before_saving");
                 summaryText.Foreground = Brush("#F59E0B");
                 return;
             }
@@ -1020,7 +1020,7 @@ public sealed class AttributeFilterDialog : Window
 
     static TextBlock SectionLabel(string text) => new()
     {
-        Text = text,
+            Text = AppLanguage.T(text),
         FontSize = 12.5,
         FontWeight = FontWeight.Bold,
         Foreground = Brush("#E2E8F0"),
@@ -1029,7 +1029,7 @@ public sealed class AttributeFilterDialog : Window
 
     static TextBlock MutedLabel(string text) => new()
     {
-        Text = text,
+            Text = AppLanguage.T(text),
         FontSize = 13.5,
         Foreground = Brush("#94A3B8"),
         VerticalAlignment = VerticalAlignment.Center
@@ -1090,7 +1090,7 @@ public sealed class AttributeFilterDialog : Window
                 Foreground = UiKit.TextPrimary,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            ToolTip.SetTip(title, spot.Label);
+            ToolTip.SetTip(title, AppLanguage.T(spot.Label));
 
             var controlsStack = new StackPanel
             {
@@ -1273,7 +1273,7 @@ public sealed class AttributeFilterDialog : Window
                 };
                 var nameLbl = new TextBlock
                 {
-                    Text = pitchPos.Label,
+                    Text = AppLanguage.T(pitchPos.Label),
                     FontSize = 13,
                     Foreground = UiKit.TextSecondary,
                     VerticalAlignment = VerticalAlignment.Center,
@@ -1490,8 +1490,8 @@ public sealed class AttributeFilterDialog : Window
         foreach (string key in keys)
         {
             initialRanges.TryGetValue(key, out var range);
-            var min = new TextBox { Width = 92, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
-            var max = new TextBox { Width = 92, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var min = new TextBox { Width = 92, Watermark = AppLanguage.Get("Search_Min"), Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var max = new TextBox { Width = 92, Watermark = AppLanguage.Get("Search_Max"), Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
             var (lo, hi) = key switch
             {
                 "Height" => (0L, 300L),
@@ -1524,7 +1524,7 @@ public sealed class AttributeFilterDialog : Window
         var panel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 10) };
         for (int bit = 0; bit < PreferredMovesAccess.Count; bit++)
         {
-            var box = new CheckBox { Content = PreferredMovesLabels.Names[bit], IsChecked = (initialPreferredMoves & (1UL << bit)) != 0, Width = 420, Margin = new Thickness(0, 0, 6, 6) };
+            var box = new CheckBox { Content = AppLanguage.T(PreferredMovesLabels.Names[bit]), IsChecked = (initialPreferredMoves & (1UL << bit)) != 0, Width = 420, Margin = new Thickness(0, 0, 6, 6) };
             preferredMoveChecks.Add(box);
             panel.Children.Add(box);
         }
@@ -1568,9 +1568,9 @@ public sealed class AttributeFilterDialog : Window
                 MaxDropDownHeight = 260,
                 HorizontalAlignment = HorizontalAlignment.Left,
             };
-            presence.ItemTemplate = TextItem(90);
-            var min = new TextBox { Width = 92, Watermark = "Min", Text = criterion?.MinimumValue?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
-            var max = new TextBox { Width = 92, Watermark = "Max", Text = criterion?.MaximumValue?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            presence.ItemTemplate = TextItem(90, translate: true);
+            var min = new TextBox { Width = 92, Watermark = AppLanguage.Get("Search_Min"), Text = criterion?.MinimumValue?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var max = new TextBox { Width = 92, Watermark = AppLanguage.Get("Search_Max"), Text = criterion?.MaximumValue?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
             clauseInputs[type] = (presence, min, max);
             presence.SelectionChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
             min.TextChanged += (_, _) => { if (!updatingControls) UpdateSummary(); };
@@ -1581,11 +1581,11 @@ public sealed class AttributeFilterDialog : Window
                 Spacing = 8,
                 Children =
                 {
-                    new TextBlock { Text = name, Width = 190, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = AppLanguage.T(name), Width = 240, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap },
                     presence,
-                    new TextBlock { Text = "Value", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = AppLanguage.Get("Search_Value"), Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center },
                     min,
-                    new TextBlock { Text = "to", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = AppLanguage.Get("Search_To"), Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center },
                     max,
                 },
             });
@@ -1596,14 +1596,14 @@ public sealed class AttributeFilterDialog : Window
     Control BuildContractChoicesCard()
     {
         var teamRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        teamRow.Children.Add(new TextBlock { Text = "Team", Width = 220, VerticalAlignment = VerticalAlignment.Center });
+        teamRow.Children.Add(new TextBlock { Text = AppLanguage.Get("Search_Team"), Width = 220, VerticalAlignment = VerticalAlignment.Center });
         teamRow.Children.Add(teamPickButton);
-        var teamClear = new Button { Content = "Clear", Width = 90 };
+        var teamClear = new Button { Content = AppLanguage.Get("Search_Clear"), Width = 90 };
         teamClear.Click += (_, _) =>
         {
             teamClubAddress = 0;
             teamClubName = "";
-            teamPickButton.Content = "Choose…";
+            teamPickButton.Content = AppLanguage.Get("Search_Choose");
             if (!updatingControls) UpdateSummary();
         };
         teamRow.Children.Add(teamClear);
@@ -1630,7 +1630,7 @@ public sealed class AttributeFilterDialog : Window
     {
         Orientation = Orientation.Horizontal,
         Spacing = 8,
-        Children = { new TextBlock { Text = label, Width = 220, VerticalAlignment = VerticalAlignment.Center }, combo },
+        Children = { new TextBlock { Text = AppLanguage.T(label), Width = 220, VerticalAlignment = VerticalAlignment.Center }, combo },
     };
 
     readonly Dictionary<TextBox, (long Min, long Max)> limits = [];
@@ -1651,26 +1651,26 @@ public sealed class AttributeFilterDialog : Window
     Control RangeCard(string key, string label)
     {
         initialRanges.TryGetValue(key, out var range);
-        var min = new TextBox { Width = 92, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
-        var max = new TextBox { Width = 92, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+        var min = new TextBox { Width = 92, Watermark = AppLanguage.Get("Search_Min"), Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+        var max = new TextBox { Width = 92, Watermark = AppLanguage.Get("Search_Max"), Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
         Limit(min, 0, 2_000_000_000);
         Limit(max, 0, 2_000_000_000);
         rangeInputs[key] = (min, max);
         min.TextChanged += (_, _) => UpdateSummary();
         max.TextChanged += (_, _) => UpdateSummary();
-        return UiKit.Card(label, new StackPanel
+        return UiKit.Card(key, new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             Margin = new Thickness(12, 10),
-            Children = { min, new TextBlock { Text = "to", Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center }, max }
+            Children = { min, new TextBlock { Text = AppLanguage.Get("Search_To"), Foreground = Brush("#94A3B8"), VerticalAlignment = VerticalAlignment.Center }, max }
         });
     }
     Control BuildBottomBar()
     {
         var dock = new DockPanel { LastChildFill = false };
 
-        var clearAllBtn = new Button { Content = "Clear all" };
+        var clearAllBtn = new Button { Content = AppLanguage.Get("Search_ClearAll") };
         clearAllBtn.Click += (_, _) =>
         {
             if (SelectedScope == "Coach") { coachPanel?.Clear(); UpdateScopeSummary(); return; }
@@ -1698,7 +1698,7 @@ public sealed class AttributeFilterDialog : Window
             contractStatusCombo.SelectedIndex = 0;
             teamClubAddress = 0;
             teamClubName = "";
-            teamPickButton.Content = "Choose…";
+            teamPickButton.Content = AppLanguage.Get("Search_Choose");
             foreach (var combo in choiceInputs.Values) combo.SelectedIndex = 0;
             foreach (var box in preferredMoveChecks) box.IsChecked = false;
             SyncPositionButtons();
@@ -1723,16 +1723,16 @@ public sealed class AttributeFilterDialog : Window
 
         var saveBtn = new Button
         {
-            Content = "Search",
+            Content = AppLanguage.Get("Search_Search"),
             Classes = { "accent" },
         };
         saveBtn.Click += (_, _) =>
         {
             if (SelectedScope == "Coach")
             {
-                if (coachPanel?.Criteria() is null) { summaryText.Text = "Invalid range"; return; }
+                if (coachPanel?.Criteria() is null) { summaryText.Text = AppLanguage.T("Invalid range"); return; }
                 var matched = coachPanel.Matched();
-                if (matched.Count == 0) { summaryText.Text = "No staff match the filter."; return; }
+                if (matched.Count == 0) { summaryText.Text = AppLanguage.T("No staff match the filter."); return; }
                 MatchedStaff = matched;
                 ScopeTotalCount = coachPanel.TotalCount;
                 ScopeFilterNote = coachPanel.SelectedGender() is { } sg ? $"Gender: {sg}" : null;
@@ -1742,9 +1742,9 @@ public sealed class AttributeFilterDialog : Window
             }
             if (SelectedScope == "Club")
             {
-                if (clubPanel?.Criteria() is null) { summaryText.Text = "Invalid range"; return; }
+                if (clubPanel?.Criteria() is null) { summaryText.Text = AppLanguage.T("Invalid range"); return; }
                 var matched = clubPanel.Matched();
-                if (matched.Count == 0) { summaryText.Text = "No clubs match the filter."; return; }
+                if (matched.Count == 0) { summaryText.Text = AppLanguage.T("No clubs match the filter."); return; }
                 MatchedClubs = matched;
                 ScopeTotalCount = clubPanel.TotalCount;
                 ScopeFilterNote = clubPanel.SelectedGender() is { } cg ? $"Gender: {cg}" : null;
@@ -1757,7 +1757,7 @@ public sealed class AttributeFilterDialog : Window
                 if ((!string.IsNullOrWhiteSpace(controls.Min.Text) && ParseOptLong(controls.Min.Text) is null) ||
                     (!string.IsNullOrWhiteSpace(controls.Max.Text) && ParseOptLong(controls.Max.Text) is null) ||
                     (ParseOptLong(controls.Min.Text) is { } min && ParseOptLong(controls.Max.Text) is { } max && min > max))
-                { summaryText.Text = "Invalid range"; return; }
+                { summaryText.Text = AppLanguage.T("Invalid range"); return; }
             }
             foreach (var (_, boxes) in clauseInputs)
             {
@@ -1765,7 +1765,7 @@ public sealed class AttributeFilterDialog : Window
                 if ((!string.IsNullOrWhiteSpace(boxes.Min.Text) && ParseOptInt(boxes.Min.Text) is null) ||
                     (!string.IsNullOrWhiteSpace(boxes.Max.Text) && ParseOptInt(boxes.Max.Text) is null) ||
                     (ParseOptInt(boxes.Min.Text) is { } lo && ParseOptInt(boxes.Max.Text) is { } hi && lo > hi))
-                { summaryText.Text = "Invalid range"; return; }
+                { summaryText.Text = AppLanguage.T("Invalid range"); return; }
             }
             SelectedScope = "Player";
             Saved = true;
@@ -1774,7 +1774,7 @@ public sealed class AttributeFilterDialog : Window
 
         var discardBtn = new Button
         {
-            Content = "Cancel",
+            Content = AppLanguage.Get("Search_Cancel"),
         };
         discardBtn.Click += (_, _) =>
         {
@@ -1828,8 +1828,8 @@ public sealed class AttributeFilterDialog : Window
         {
             string key = $"Personality:{attribute}";
             initialRanges.TryGetValue(key, out var range);
-            var min = new TextBox { Width = 62, Watermark = "Min", Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
-            var max = new TextBox { Width = 62, Watermark = "Max", Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right, Margin = new Thickness(4, 0, 0, 0) };
+            var min = new TextBox { Width = 62, Watermark = AppLanguage.Get("Search_Min"), Text = range?.Min?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right };
+            var max = new TextBox { Width = 62, Watermark = AppLanguage.Get("Search_Max"), Text = range?.Max?.ToString() ?? "", HorizontalContentAlignment = HorizontalAlignment.Right, Margin = new Thickness(4, 0, 0, 0) };
             rangeInputs[key] = (min, max);
             var row = new DockPanel { MinHeight = 25 };
             DockPanel.SetDock(max, Dock.Right); row.Children.Add(max);
@@ -1842,7 +1842,7 @@ public sealed class AttributeFilterDialog : Window
                 Child = row,
             });
         }
-        return UiKit.Card("Personality", panel);
+        return UiKit.Card(AppLanguage.T("Personality"), panel);
     }
 
     Control BuildGroupCard(string title, IEnumerable<FieldDescriptor<PlayerRecord>> fields)
@@ -1866,12 +1866,14 @@ public sealed class AttributeFilterDialog : Window
         };
         var nameText = new TextBlock
         {
-            Text = label,
+            Text = AppLanguage.PlayerAttribute(label),
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
             Cursor = new Cursor(StandardCursorType.Hand)
         };
+        ToolTip.SetTip(nameText, nameText.Text);
         var rangeText = new TextBlock
         {
             Text = "–",
@@ -2003,7 +2005,7 @@ public sealed class AttributeFilterDialog : Window
     {
         if (scopeIndex > 0) { UpdateScopeSummary(); return; }
         var parts = new List<string>();
-        if (ResultGender is { } activeGender) parts.Add($"Gender: {activeGender}");
+        if (ResultGender is { } activeGender) parts.Add(AppLanguage.Get(activeGender == Fm27Editor.Core.Offsets.Gender.Men ? "Search_GenderMen" : "Search_GenderWomen"));
         if (ResultNameQuery is not null) parts.Add($"Name: {ResultNameQuery}");
         if (ResultDivision is not null) parts.Add($"League: {ResultDivision}");
         if (ResultClub is not null) parts.Add($"Club: {ResultClub}");
@@ -2021,19 +2023,19 @@ public sealed class AttributeFilterDialog : Window
 
         int visibleByGender = allPlayers.Count == 0 ? 0 : PlayersMatchingDialogGender().Count();
         string hiddenSuffix = allPlayers.Count > 0 && visibleByGender < allPlayers.Count
-            ? $" — {visibleByGender:N0} of {allPlayers.Count:N0} players shown ({allPlayers.Count - visibleByGender:N0} hidden)"
+            ? string.Format(AppLanguage.Get("Search_VisiblePlayers"), visibleByGender, allPlayers.Count, allPlayers.Count - visibleByGender)
             : "";
 
         summaryText.Foreground = Brush("#CBD5E1");
         summaryText.Text = parts.Count == 0
             ? (allPlayers.Count > 0 ? $"All {allPlayers.Count:N0} players{hiddenSuffix}" : "No filters active")
-            : $"Active: {string.Join(", ", parts)}{hiddenSuffix}";
+            : string.Format(AppLanguage.Get("Search_Active"), string.Join(", ", parts)) + hiddenSuffix;
     }
 
     void RefreshPresetCombo(string? selectName)
     {
         suppressPresetCombo = true;
-        var items = new List<object> { SelectPresetPlaceholder };
+        var items = new List<object> { AppLanguage.Get("Search_SelectPreset") };
         items.AddRange(presets);
         presetCombo.ItemsSource = items;
 
@@ -2054,10 +2056,10 @@ public sealed class AttributeFilterDialog : Window
 
     static IBrush RatingColor(int value) => Brush(value <= 5 ? "#64748B" : value <= 10 ? "#FACC15" : value <= 15 ? "#4ADE80" : "#38BDF8");
     static IBrush Brush(string color) => AppTheme.Brush(color);
-    static FuncDataTemplate<string> TextItem(double width) =>
+    static FuncDataTemplate<string> TextItem(double width, bool translate = false) =>
         new((text, _) => new TextBlock
         {
-            Text = text,
+            Text = translate ? AppLanguage.T(text) : text,
             MaxWidth = width - 36,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
@@ -2066,7 +2068,7 @@ public sealed class AttributeFilterDialog : Window
     static FuncDataTemplate<FilterChoice> ChoiceItem() =>
         new((choice, _) => new TextBlock
         {
-            Text = choice.Name,
+            Text = AppLanguage.T(choice.Name),
             MaxWidth = 154,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center

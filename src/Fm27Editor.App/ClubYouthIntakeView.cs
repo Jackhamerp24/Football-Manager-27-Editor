@@ -212,8 +212,8 @@ public sealed partial class MainWindow
 
         // Technical / Goalkeeping switch, as on the player page; a goalkeeper candidate opens on Goalkeeping.
         var picker = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
-        var technical = new Button { Content = "Tec.", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
-        var goalkeeping = new Button { Content = "GK", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
+        var technical = new Button { Content = AppLanguage.Get("Ui_Tec"), Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
+        var goalkeeping = new Button { Content = AppLanguage.Get("Ui_GK"), Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
         var firstColumn = new ContentControl { HorizontalAlignment = HorizontalAlignment.Stretch };
         void Select(bool keeper)
         {

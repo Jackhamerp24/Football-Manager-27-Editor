@@ -32,18 +32,18 @@ internal sealed class MassEditReviewWindow : Window
     readonly StackPanel tabBar = new() { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(12, 8, 12, 0) };
     readonly ContentControl tabBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     Page? selected;
-    readonly Button applyAll = new() { Content = "Apply all", Classes = { "accent" }, MinWidth = 100 };
+    readonly Button applyAll = new() { Content = AppLanguage.T("Apply all"), Classes = { "accent" }, MinWidth = 100 };
     readonly TextBlock status = new() { Foreground = UiKit.TextMuted, VerticalAlignment = VerticalAlignment.Center, FontSize = 12.5 };
     readonly Func<IReadOnlyList<MassPlan>, IProgress<(int Done, int Total)>?, CancellationToken, Task<int>> write;
     readonly ProgressBar progressBar = new() { Width = 160, Height = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
-    readonly Button cancelApply = new() { Content = "Cancel", MinWidth = 70, IsVisible = false };
+    readonly Button cancelApply = new() { Content = AppLanguage.T("Cancel"), MinWidth = 70, IsVisible = false };
     CancellationTokenSource? applyCts;
 
     /// <param name="write">Applies the given plans in one history group, reloads their screens and returns how many values it wrote.</param>
     public MassEditReviewWindow(IReadOnlyList<MassPlan> plans, Func<IReadOnlyList<MassPlan>, IProgress<(int Done, int Total)>?, CancellationToken, Task<int>> write)
     {
         this.write = write;
-        Title = "Review mass edit";
+        Title = AppLanguage.T("Review mass edit");
         Width = 940; Height = 640; MinWidth = 760; MinHeight = 480;
         Background = UiKit.WindowBg;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -51,7 +51,7 @@ internal sealed class MassEditReviewWindow : Window
         foreach (var page in pages) tabBar.Children.Add(page.Tab);
         Select(pages.FirstOrDefault());
         applyAll.Click += async (_, _) => await ApplyAsync(pages.ToList());
-        var close = new Button { Content = "Close", MinWidth = 80 };
+        var close = new Button { Content = AppLanguage.Get("Common_Close"), MinWidth = 80 };
         close.Click += (_, _) => Close();
         cancelApply.Click += (_, _) => applyCts?.Cancel();
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { progressBar, cancelApply, close, applyAll } };
@@ -69,15 +69,16 @@ internal sealed class MassEditReviewWindow : Window
     {
         var noun = plan.Scope switch { "Player" => "players", "Coach" => "coaches", "Club" => "clubs", _ => "nations" };
         var summary = new TextBlock { Text = plan.Summary(noun), VerticalAlignment = VerticalAlignment.Center, FontSize = 13 };
-        var confirm = new CheckBox { Content = $"I have checked this table ({plan.Selected:N0} changes)", IsVisible = plan.Selected > LargeChange };
-        var apply = new Button { Content = $"Apply {plan.Scope}", Classes = { "accent" } };
-        var discard = new Button { Content = $"Discard {plan.Scope}" };
+        var scopeLabel = AppLanguage.T(plan.Scope);
+        var confirm = new CheckBox { Content = string.Format(AppLanguage.T("I have checked this table ({0} changes)"), plan.Selected.ToString("N0")), IsVisible = plan.Selected > LargeChange };
+        var apply = new Button { Content = string.Format(AppLanguage.T("Apply {0}"), scopeLabel), Classes = { "accent" } };
+        var discard = new Button { Content = string.Format(AppLanguage.T("Discard {0}"), scopeLabel) };
         var grid = new DataGrid { ItemsSource = plan.Rows, AutoGenerateColumns = false, CanUserSortColumns = false, RowHeight = 26 };
         grid.Columns.Add(new DataGridCheckBoxColumn { Header = "", Binding = new Binding(nameof(MassRow.Include)), Width = new DataGridLength(48) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new Binding(nameof(MassRow.Name)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Field", Binding = new Binding(nameof(MassRow.Field)), IsReadOnly = true, Width = new DataGridLength(150) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Before", Binding = new Binding(nameof(MassRow.Before)), IsReadOnly = true, Width = new DataGridLength(110) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "After", Binding = new Binding(nameof(MassRow.After)), IsReadOnly = true, Width = new DataGridLength(160) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Name"), Binding = new Binding(nameof(MassRow.Name)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Field"), Binding = new Binding(nameof(MassRow.Field)), IsReadOnly = true, Width = new DataGridLength(150) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("Before"), Binding = new Binding(nameof(MassRow.Before)), IsReadOnly = true, Width = new DataGridLength(110) });
+        grid.Columns.Add(new DataGridTextColumn { Header = AppLanguage.T("After"), Binding = new Binding(nameof(MassRow.After)), IsReadOnly = true, Width = new DataGridLength(160) });
         grid.Columns.Add(new DataGridTextColumn { Header = "", Binding = new Binding(nameof(MassRow.Note)), IsReadOnly = true, Width = new DataGridLength(220) });
         var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Margin = new Thickness(12, 8), Children = { summary, confirm } };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 6), Children = { discard, apply } };
@@ -85,7 +86,7 @@ internal sealed class MassEditReviewWindow : Window
         var body = new DockPanel { Children = { top, actions, grid } };
         var page = new Page { Plan = plan, Summary = summary, Confirm = confirm, Apply = apply, Body = body, Tab = new Button
         {
-            Content = $"{plan.Scope} ({plan.Rows.Count:N0})", FontSize = 13, Padding = new Thickness(11, 3), MinHeight = 25, Height = 25,
+            Content = $"{scopeLabel} ({plan.Rows.Count:N0})", FontSize = 13, Padding = new Thickness(11, 3), MinHeight = 25, Height = 25,
             CornerRadius = new CornerRadius(3), Background = Brushes.Transparent, BorderThickness = new Thickness(0, 0, 0, 2),
             BorderBrush = Brushes.Transparent, Foreground = UiKit.TextMuted,
         } };

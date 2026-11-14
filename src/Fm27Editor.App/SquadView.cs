@@ -38,7 +38,7 @@ public sealed partial class MainWindow
         {
             clubEditorPanel.Children.Add(new TextBlock
             {
-                Text = "No teams available for this club.",
+                Text = AppLanguage.Get("Ui_No_teams_available_for_this_club"),
                 Foreground = Brush("#94A3B8"),
                 FontSize = 13,
                 Margin = new Thickness(4, 12, 0, 0),

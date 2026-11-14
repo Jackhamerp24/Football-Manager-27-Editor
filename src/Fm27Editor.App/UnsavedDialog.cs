@@ -15,7 +15,7 @@ internal sealed class UnsavedDialog : Window
 
     public UnsavedDialog(bool canSave = true)
     {
-        Title = "Unsaved changes";
+        Title = AppLanguage.T("Unsaved changes");
         Width = 430;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
@@ -24,7 +24,7 @@ internal sealed class UnsavedDialog : Window
 
         var text = new TextBlock
         {
-            Text = "This page has changes that are not saved yet. Save them, discard them, or stay on the tab.",
+            Text = AppLanguage.T("This page has changes that are not saved yet. Save them, discard them, or stay on the tab."),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 13,
             Foreground = UiKit.TextPrimary,
@@ -33,7 +33,7 @@ internal sealed class UnsavedDialog : Window
 
         Button Make(string label, int value)
         {
-            var button = new Button { Content = label, MinWidth = 96, FontSize = 12.5, HorizontalContentAlignment = HorizontalAlignment.Center };
+            var button = new Button { Content = AppLanguage.T(label), MinWidth = 96, FontSize = 12.5, HorizontalContentAlignment = HorizontalAlignment.Center };
             button.Click += (_, _) => Close(value);
             return button;
         }

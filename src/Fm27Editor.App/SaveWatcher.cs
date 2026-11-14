@@ -77,7 +77,7 @@ public sealed partial class MainWindow
     /// </summary>
     Control BuildStaleOverlay()
     {
-        var load = new Button { Content = "Load Game", Classes = { "accent" }, Width = 130, HorizontalContentAlignment = HorizontalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        var load = new Button { Content = AppLanguage.Get("Label_Load_Game"), Classes = { "accent" }, Width = 130, HorizontalContentAlignment = HorizontalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
         load.Click += async (_, _) => await ReloadGameAsync();
         staleOverlay = new Border
         {
@@ -115,7 +115,7 @@ public sealed partial class MainWindow
         emptyChecks = 0;
         // The game moves on while the editor is open; keep the date in the status bar current (it was only set at Load Game).
         if (!backend.SaveChanged && backend.GameDate is { } today) gameDateText.Text = today.ToString("dd MMM yyyy", Inv);
-        if (backend.SaveChanged) staleHeading.Text = "A save was loaded in the game";   // the start screen was shown, a save is back
+        if (backend.SaveChanged) staleHeading.Text = AppLanguage.Get("Ui_A_save_was_loaded_in_the_game");   // the start screen was shown, a save is back
         if (noSaveAtConnect)
         {
             if (TakeFingerprint() is not { } first) return;
@@ -137,7 +137,7 @@ public sealed partial class MainWindow
         staleHeading.Text = heading;
         if (staleOverlay is not null) staleOverlay.IsVisible = true;
         favouritesWindow?.Close();
-        status.Text = "Press Load Game to read the new save";
+        status.Text = AppLanguage.Get("Ui_Press_Load_Game_to_read_the_new_save");
     }
 
     /// <summary>A small modeless window with a message and buttons, in the same style as the other prompts.</summary>
@@ -170,7 +170,7 @@ public sealed partial class MainWindow
     {
         noSaveAtConnect = true;
         string build = backend.Session.Profile.Build;
-        status.Text = "No save is loaded in the game yet";
+        status.Text = AppLanguage.Get("Ui_No_save_is_loaded_in_the_game_yet");
         ShowNotice("Save not loaded",
             $"This game version ({build}) is supported, but no save is loaded yet. Load your save in the game, save it without exiting, then press Load Game again.",
             ("OK", true, null));
@@ -192,7 +192,7 @@ public sealed partial class MainWindow
         personNames = null;
         unifiedCities = [];
         WorkPermitTable.Forget();
-        status.Text = "Loading game…";
+        status.Text = AppLanguage.Get("Ui_Loading_game");
         watchedSave = null;
         await ConnectAsync();
         if (backend.State.Status == ConnectionStatus.Connected)

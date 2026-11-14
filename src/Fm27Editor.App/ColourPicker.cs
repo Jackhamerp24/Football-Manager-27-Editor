@@ -72,7 +72,7 @@ sealed class ColourPickerWindow : Window
 
     public ColourPickerWindow(uint initial)
     {
-        Title = "Pick a colour";
+        Title = AppLanguage.Get("Common_Pick_a_colour");
         Width = 348;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -163,9 +163,9 @@ sealed class ColourPickerWindow : Window
             channelRow.Children.Add(channelColumns[i]);
         }
 
-        var ok = new Button { Content = "OK", Classes = { "accent" }, MinWidth = 68, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var ok = new Button { Content = AppLanguage.Get("Ui_OK"), Classes = { "accent" }, MinWidth = 68, HorizontalContentAlignment = HorizontalAlignment.Center };
         ok.Click += (_, _) => { ParseHexIfFocused(); ReadChannelsIfFocused(); Close(ToColour().ToUInt32()); };
-        var cancel = new Button { Content = "Cancel", MinWidth = 68, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var cancel = new Button { Content = AppLanguage.Get("Label_Cancel"), MinWidth = 68, HorizontalContentAlignment = HorizontalAlignment.Center };
         cancel.Click += (_, _) => Close(null);
 
         KeyDown += (_, e) =>
@@ -185,7 +185,7 @@ sealed class ColourPickerWindow : Window
             Children =
             {
                 spectrum,
-                new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Hue", FontSize = 12.5, Foreground = UiKit.Brush("#94A3B8") }, hueRamp, hueSlider } },
+                new StackPanel { Spacing = 2, Children = { new TextBlock { Text = AppLanguage.Get("Common_Hue"), FontSize = 12.5, Foreground = UiKit.Brush("#94A3B8") }, hueRamp, hueSlider } },
                 new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Alpha", FontSize = 12.5, Foreground = UiKit.Brush("#94A3B8") }, alphaRamp, alphaSlider } },
                 topHexRow,
                 channelRow,

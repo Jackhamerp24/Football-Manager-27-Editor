@@ -7,7 +7,7 @@ internal sealed partial class MassEditWindow
     /// <summary>Builds what each scope would change and opens the review tables; nothing is written until an Apply there.</summary>
     async Task ReviewAsync()
     {
-        if (backend.State.Status != ConnectionStatus.Connected) { status.Text = "Not connected"; return; }
+        if (backend.State.Status != ConnectionStatus.Connected) { status.Text = AppLanguage.Get("Common_Not_connected"); return; }
         apply.IsEnabled = false;
         try
         {
@@ -20,7 +20,7 @@ internal sealed partial class MassEditWindow
                 plans = await Task.Run(() => new[] { PlayerPlan(), CoachPlan(), ClubPlan(), NationPlan() }.Where(p => p.Rows.Count > 0).ToList());
             }
             finally { ClearPlanSnapshot(); }
-            if (plans.Count == 0) { status.Text = "Nothing would change"; return; }
+            if (plans.Count == 0) { status.Text = AppLanguage.Get("Common_Nothing_would_change"); return; }
             await new MassEditReviewWindow(plans, WriteAsync).ShowDialog(this);
         }
         catch (Exception ex) { status.Text = UserMessage.For(ex); }

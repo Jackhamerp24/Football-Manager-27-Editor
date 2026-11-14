@@ -44,7 +44,7 @@ sealed class GraphicsCatalog
 
     public async Task<bool> ChooseAsync(Window owner)
     {
-        var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Graphics folder", AllowMultiple = false });
+        var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = AppLanguage.Get("Common_Graphics_folder"), AllowMultiple = false });
         var path = folders.FirstOrDefault()?.TryGetLocalPath();
         if (string.IsNullOrEmpty(path)) return false;
         Folder = Path.GetFullPath(path);

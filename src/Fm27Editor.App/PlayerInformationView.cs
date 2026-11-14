@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -50,8 +50,8 @@ public sealed partial class MainWindow
             if (groups[i] == "Technical")
             {
                 var picker = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
-                var technical = new Button { Content = "Tec.", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
-                var goalkeeping = new Button { Content = "GK", Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
+                var technical = new Button { Content = AppLanguage.Get("Ui_Tec"), Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
+                var goalkeeping = new Button { Content = AppLanguage.Get("Ui_GK"), Padding = new Thickness(7, 0), MinHeight = 20, Height = 20, FontSize = 12 };
                 var selectedColumn = new ContentControl { HorizontalAlignment = HorizontalAlignment.Stretch };
                 void Select(bool keeper)
                 {
@@ -100,13 +100,15 @@ public sealed partial class MainWindow
         {
             var text = new TextBlock
             {
-                Text = label,
+                Text = AppLanguage.T(label),
                 FontSize = 13,
                 Foreground = UiKit.TextSecondary,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 0, 5, 0),
             };
+            ToolTip.SetTip(text, text.Text);
             Control inner;
             if (value is CheckBox or NumericUpDown || label is "Planned Retirement" or "Days in Country")
             {
@@ -155,7 +157,7 @@ public sealed partial class MainWindow
             if (!values.TryGetValue(field, out long raw)) return () => null;
             int current = (int)raw;
             var items = list.Any(x => x.Code == current) ? list : [.. list, (current, $"Code {current}")];
-            var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = items.Select(x => x.Name).ToArray(), SelectedIndex = items.ToList().FindIndex(x => x.Code == current) };
+            var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = items.Select(x => x.Name).ToArray(), SelectedIndex = items.ToList().FindIndex(x => x.Code == current), ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") }) };
             box.SelectionChanged += (_, _) => Refresh();
             Row(label, box);
             int? Code() => box.SelectedIndex >= 0 ? items[box.SelectedIndex].Code : null;
@@ -279,7 +281,7 @@ public sealed partial class MainWindow
             int? newDays = null;
             if (days is not null && days.Text != daysBefore!.Value.ToString(Inv))
             {
-                if (!int.TryParse(days.Text, out var d) || d < 0 || d > 36500) { status.Text = "Days in Country: enter 0–36500"; return false; }
+                if (!int.TryParse(days.Text, out var d) || d < 0 || d > 36500) { status.Text = AppLanguage.Get("Ui_Days_in_Country_enter_0_36500"); return false; }
                 newDays = d;
             }
             var writes = new List<Action>();
@@ -310,12 +312,12 @@ public sealed partial class MainWindow
             try
             {
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () => { foreach (var w in writes) w(); });
-                status.Text = "Saved information. Continue in FM to see updates.";
+                status.Text = AppLanguage.Get("Ui_Saved_information_Continue_in_FM_to_see_updates");
                 // The nationality lives on the player record; reload it so the next write checks against the new nation.
                 if ((chosenNation?.Address ?? 0) != (player.Nationality?.Address ?? 0) && backend.Players.Reload(player.Address) is { } fresh) { fresh.GameDate = backend.GameDate; selected = fresh; ReplaceRow(fresh); }
                 return true;
             }
-            catch (Exception ex) { status.Text = $"Some information changes may have been saved. {ex.Message}"; return false; }
+            catch (Exception ex) { status.Text = string.Format(AppLanguage.T("Some information changes may have been saved. {0}"), ex.Message); return false; }
         }
         informationDirty = () => checks.Any(changed => changed());
         saveInformation = SaveInformation;

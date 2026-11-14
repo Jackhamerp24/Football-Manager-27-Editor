@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Fm27Editor.Core.Players;
@@ -51,7 +51,7 @@ public sealed partial class MainWindow
     PlanEditor PlanRow(Grid grid, int condition, int job, CareerItem? item, int scope, IReadOnlyList<CareerItem> catalogue, Action changed)
     {
         static int Index<T>(IReadOnlyList<(T Code, string Name)> list, T code) => list.ToList().FindIndex(x => Equals(x.Code, code));
-        var itemButton = new Button { Width = 270, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose…", Padding = new Thickness(6, 0) };
+        var itemButton = new Button { Width = 270, HorizontalContentAlignment = HorizontalAlignment.Left, Content = AppLanguage.T("Choose…"), Padding = new Thickness(6, 0) };
         var e = new PlanEditor
         {
             Condition = new ComboBox { Width = 182, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Conditions.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Conditions, condition) },
@@ -60,10 +60,12 @@ public sealed partial class MainWindow
             Item = itemButton,
             Scope = new ComboBox { Width = 96, Padding = new Thickness(6, 0), ItemsSource = CareerPlanLabels.Scopes.Select(x => x.Name).ToArray(), SelectedIndex = Index(CareerPlanLabels.Scopes, scope) },
         };
+        foreach (var combo in new[] { e.Condition, e.Job, e.ItemType, e.Scope })
+            combo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((item, _) => new TextBlock { Text = AppLanguage.T(item ?? "") });
         void SetTarget(CareerTarget? target, bool notify)
         {
             e.ItemTarget = target;
-            itemButton.Content = target?.Item.Name ?? "Choose…";
+            itemButton.Content = target?.Item.Name ?? AppLanguage.T("Choose…");
             ToolTip.SetTip(itemButton, target?.Item.Name ?? "");
             if (notify) changed();
         }
@@ -74,7 +76,7 @@ public sealed partial class MainWindow
             var type = CareerPlanLabels.ItemTypes[e.ItemType.SelectedIndex].Type;
             var choices = catalogue.Where(c => c.Type == type).GroupBy(c => c.Address).Select(g => new CareerTarget(g.First())).ToList();
             if (item is not null && item.Type == type && !choices.Any(c => c.Item.Address == item.Address)) choices.Add(new CareerTarget(item));
-            var title = "Choose " + CareerPlanLabels.ItemTypes[e.ItemType.SelectedIndex].Name.ToLowerInvariant();
+            var title = AppLanguage.T("Choose") + " " + AppLanguage.T(CareerPlanLabels.ItemTypes[e.ItemType.SelectedIndex].Name.ToLowerInvariant());
             string? Short(CareerItem it) => it.Type switch
             {
                 CareerItemType.Club => clubCache?.FirstOrDefault(c => c.Address == it.Address)?.ShortName,
@@ -132,17 +134,17 @@ public sealed partial class MainWindow
             var item = session.CareerPlans.Item(plan.ItemAddress)
                 ?? (session.CareerPlans.KindOf(plan.ItemAddress) is { } kind ? new CareerItem(plan.ItemAddress, kind, "") : null);
             var editor = PlanRow(grid, plan.Condition, plan.Job, item, plan.Scope, catalogue, Refresh);
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.T("Remove") };
             remove.Click += (_, _) => { removed.Add(plan); Hide(editor, remove); Refresh(); };
             PlaceRemove(remove);
             rowsOf.Add((plan, editor));
         }
 
-        var add = new Button { Content = "Add", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(12, 0, 12, 8) };
+        var add = new Button { Content = AppLanguage.T("Add"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(12, 0, 12, 8) };
         add.Click += (_, _) =>
         {
             var editor = PlanRow(grid, 1, 1, null, 1, catalogue, Refresh);
-            var remove = new Button { Content = "Remove" };
+            var remove = new Button { Content = AppLanguage.T("Remove") };
             remove.Click += (_, _) => { added.Remove(editor); Hide(editor, remove); Refresh(); };
             PlaceRemove(remove);
             added.Add(editor);
@@ -150,11 +152,11 @@ public sealed partial class MainWindow
         };
 
         var list = new StackPanel { Children = { grid, add } };
-        panel.Children.Add(UiKit.Card("Career Plans", list));
+        panel.Children.Add(UiKit.Card(AppLanguage.T("Career Plans"), list));
         save.Click += (_, _) =>
         {
             var changes = rowsOf.Where(Changed).ToList();
-            if (changes.Any(c => c.Editor.Fields() is null) || added.Any(a => a.Fields() is null)) { status.Text = "Career Plans: pick an item for every row"; return; }
+            if (changes.Any(c => c.Editor.Fields() is null) || added.Any(a => a.Fields() is null)) { status.Text = AppLanguage.T("Career Plans: pick an item for every row"); return; }
             var gone = removed.Select(p => p.Address).ToList();
             var fresh = added.Select(a => a.Fields()!).ToList();
             try
@@ -172,7 +174,7 @@ public sealed partial class MainWindow
                         session.AddCareerPlan(player, session.CareerPlans.Read(player) ?? throw new StaleObjectException("The player's career plans could not be read"), fields);
                 });
                 rerender();
-                status.Text = "Saved career plans. Continue in FM to see updates.";
+                status.Text = AppLanguage.T("Saved career plans. Continue in FM to see updates.");
             }
             catch (Exception ex) { status.Text = ex.Message; }
         };

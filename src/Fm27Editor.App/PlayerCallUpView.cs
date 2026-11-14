@@ -23,10 +23,10 @@ public sealed partial class MainWindow
             : all.TryGetValue(p.Address, out var c) ? session.CareerPlans.Item(c.NationFootball)?.Name ?? "National team" : "None";
 
         var fromPlayer = new TextBlock { Text = From(player), Foreground = UiKit.TextSecondary };
-        var pick = new Button { Width = 300, HorizontalContentAlignment = HorizontalAlignment.Left, Content = "Choose player…" };
+        var pick = new Button { Width = 300, HorizontalContentAlignment = HorizontalAlignment.Left, Content = AppLanguage.Get("Common_Choose_player") };
         PlayerRecord? other = null;
-        var otherFrom = new TextBlock { Text = "None", Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
-        var swap = new Button { Content = "Swap Call-Up", IsEnabled = false, Classes = { "accent" } };
+        var otherFrom = new TextBlock { Text = AppLanguage.Get("Common_None"), Foreground = UiKit.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
+        var swap = new Button { Content = AppLanguage.Get("Ui_Swap_Call_Up"), IsEnabled = false, Classes = { "accent" } };
         var others = rows.OfType<PlayerRecord>().ToList();
         PlayerRecord? Other() => other;
         void RefreshState()
@@ -55,7 +55,7 @@ public sealed partial class MainWindow
             {
                 backend.Edits.Execute("Player", player.DisplayName, "Page save", () => session.CallUpWriter.Swap(player, all.GetValueOrDefault(player.Address), o, all.GetValueOrDefault(o.Address)));
                 session.CallUps.Invalidate();
-                status.Text = $"Swapped national call-ups of {player.DisplayName} and {o.DisplayName}. Continue in FM to see updates.";
+                status.Text = string.Format(AppLanguage.T("Swapped national call-ups of {0} and {1}. Continue in FM to see updates."), player.DisplayName, o.DisplayName);
                 RenderEditor();
             }
             catch (Exception ex) { status.Text = ex.Message; }
