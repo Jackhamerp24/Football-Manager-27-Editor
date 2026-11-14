@@ -16,6 +16,8 @@ Checked on Steam `27.0.1+2503222`; not yet checked on Game Pass.
 - Move to club: the team is chosen in a list next to the club, and the first team is picked by default.
 
 ### App
+- Load Game removes stale Development Speed rows whose addresses now belong to different players, and reports the count.
+
 - **Update now**: when a new release is out, the editor downloads it, checks it against the release checksum, replaces itself
   and restarts. Builds before this one still need one manual download.
 

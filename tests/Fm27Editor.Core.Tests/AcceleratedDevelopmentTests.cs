@@ -323,6 +323,21 @@ public class AcceleratedDevelopmentTests
     }
 
     [Fact]
+    public void Cleanup_counts_all_reused_addresses_and_is_safe_to_repeat()
+    {
+        var (memory, profile, _) = Module_((int)SiteRva);
+        var accel = new AcceleratedDevelopment(memory, new FakeHost(memory), profile, Module, 0x10000);
+        accel.Set(Record(Player, 111), 5);
+        accel.Set(Record(OtherPlayer, 222), 3);
+        memory.TryWrite(Player + (ulong)profile.Fields.Id!.Value, BitConverter.GetBytes(555));
+        memory.TryWrite(OtherPlayer + (ulong)profile.Fields.Id!.Value, BitConverter.GetBytes(777));
+
+        Assert.Equal(2, accel.RemoveStale());
+        Assert.Empty(accel.Read()!.Players);
+        Assert.Equal(0, accel.RemoveStale());
+    }
+
+    [Fact]
     public void Uninstall_puts_the_original_bytes_back()
     {
         var (memory, profile, _) = Module_((int)SiteRva);

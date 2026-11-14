@@ -203,6 +203,15 @@ public sealed partial class MainWindow
             playerScalarDrafts.Clear();
             clubDrafts.Clear();
             if (staleOverlay is not null) staleOverlay.IsVisible = false;
+            if (SaveIsLoaded() && backend.Session.CanWrite)
+            {
+                try
+                {
+                    int removed = await Task.Run(() => backend.Session.AcceleratedDevelopment.RemoveStale());
+                    status.Text = $"Development speed: removed {removed} stale player row(s).";
+                }
+                catch (Exception ex) { status.Text = $"Development speed cleanup failed: {UserMessage.For(ex)}"; }
+            }
         }
     }
 }
