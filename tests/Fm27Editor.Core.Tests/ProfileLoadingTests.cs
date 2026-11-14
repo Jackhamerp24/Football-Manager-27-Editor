@@ -53,6 +53,15 @@ public class ProfileLoadingTests
     }
 
     [Fact]
+    public void Game_pass_offer_root_matches_the_slot_observed_during_a_future_transfer()
+    {
+        var profiles = GameSession.LoadProfiles(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        var profile = Assert.Single(profiles, p => p.Build == "27.0.1+2494687 Game Pass");
+        // FMRTE wrote the serial at root+0x7D4 and offer vector at root+0x8 on 14/11/2026.
+        // A scan of the readable game_plugin.dll image found exactly one pointer to that root.
+        Assert.Equal(0x53A6240u, profile.Proposals!.ListRootRva);
+    }
+    [Fact]
     public void Fm27_profile_is_built_in_when_no_offsets_folder_exists()
     {
         var profiles = GameSession.LoadProfiles(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
