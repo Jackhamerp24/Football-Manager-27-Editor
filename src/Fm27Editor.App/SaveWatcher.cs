@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
@@ -211,6 +211,14 @@ public sealed partial class MainWindow
                     status.Text = $"Development speed: removed {removed} stale player row(s).";
                 }
                 catch (Exception ex) { status.Text = $"Development speed cleanup failed: {UserMessage.For(ex)}"; }
+                try
+                {
+                    if (await Task.Run(() => backend.Session.GoldenGenerationHook.SwitchOff()))
+                        ShowNotice("Wonderkid Academy switched off",
+                            "A save was loaded, so Wonderkid Academy was switched off. Your settings are kept: switch it on again in the Hook Manager if you want it for this save.",
+                            ("OK", true, null));
+                }
+                catch (Exception ex) { status.Text = $"Wonderkid Academy could not be switched off: {UserMessage.For(ex)}"; }
             }
         }
     }

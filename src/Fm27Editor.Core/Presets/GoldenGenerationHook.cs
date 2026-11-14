@@ -210,6 +210,17 @@ public sealed class GoldenGenerationHook(IProcessMemory memory, ICodePatchHost? 
     }
 
     /// <summary>
+    /// Switches the routine off and keeps its settings, so a new save is not shaped by choices made for another one
+    /// (club, nation and continent IDs are the same in every save of a database). True when it was on.
+    /// </summary>
+    public bool SwitchOff()
+    {
+        if (Read() is not { Settings.Enabled: true } state) return false;
+        Put(state.Cave + EnabledOffset, [0]);
+        return true;
+    }
+
+    /// <summary>
     /// Switches the routine on with a PA range (1-200), a wonderkid chance (0-100%) and a scope: every regen, or only those
     /// whose club, club nation or continent has one of the given unique ids (up to <see cref="MaxIds"/>). Or off. Installs
     /// the hook on first use. The routine is switched off while the settings are written and switched on last, so it never

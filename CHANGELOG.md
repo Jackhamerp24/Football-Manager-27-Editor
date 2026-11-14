@@ -17,6 +17,7 @@ Checked on Steam `27.0.1+2503222`; not yet checked on Game Pass.
 
 ### App
 - Load Game removes stale Development Speed rows whose addresses now belong to different players, and reports the count.
+- Load Game switches Wonderkid Academy off and says so; its settings are kept for when you switch it on again.
 
 - **Update now**: when a new release is out, the editor downloads it, checks it against the release checksum, replaces itself
   and restarts. Builds before this one still need one manual download.

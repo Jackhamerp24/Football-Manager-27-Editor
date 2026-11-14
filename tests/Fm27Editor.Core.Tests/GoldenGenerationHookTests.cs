@@ -254,6 +254,22 @@ public class GoldenGenerationHookTests
         Assert.False(hook.Configure(false, 150, 190, 25, GoldenGenerationScope.All, []).Settings.Enabled);
     }
 
+    /// <summary>Loading another save switches Wonderkid Academy off (the user's choice, 14/11/2026) and keeps the settings.</summary>
+    [Fact]
+    public void Switch_off_keeps_the_settings_and_reports_whether_it_was_on()
+    {
+        var (memory, profile) = Module_((int)SiteRva);
+        var hook = new GoldenGenerationHook(memory, new FakeHost(memory), profile, Module, 0x10000);
+        Assert.False(hook.SwitchOff());                                  // not installed
+        hook.Configure(true, 150, 190, 25, GoldenGenerationScope.Club, [680]);
+        Assert.True(hook.SwitchOff());
+        var state = hook.Read()!;
+        Assert.False(state.Settings.Enabled);
+        Assert.Equal((150, 190, 25, GoldenGenerationScope.Club), (state.Settings.MinPa, state.Settings.MaxPa, state.Settings.WonderkidChance, state.Settings.Scope));
+        Assert.Equal([680], state.Settings.Ids);
+        Assert.False(hook.SwitchOff());                                  // already off
+    }
+
     [Theory]
     [InlineData(0, 100, 0)]
     [InlineData(150, 201, 0)]
